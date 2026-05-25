@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="64" height="64"
+     viewBox="0 0 64 64"
+     fill="none"
+     stroke-linejoin="round">
+
+  <!-- Incoming rays -->
+  <line x1="6" y1="22" x2="26" y2="30"
+        stroke="#f57900"
+        stroke-width="5"
+        stroke-linecap="round"/>
+  <line x1="6" y1="42" x2="26" y2="34"
+        stroke="#f57900"
+        stroke-width="5"
+        stroke-linecap="round"/>
+
+  <!-- Lightning bolt (engine power) -->
+  <path d="
+    M 36 6
+    L 26 30
+    H 34
+    L 24 58
+    L 46 30
+    H 36
+    Z"
+    fill="#edd400"
+    stroke="#c4a000"
+    stroke-width="5"/>
+
+  <!-- Outgoing rays -->
+  <line x1="38" y1="30" x2="58" y2="22"
+        stroke="#edd400"
+        stroke-width="5"
+        stroke-linecap="round"/>
+  <line x1="38" y1="34" x2="58" y2="42"
+        stroke="#8ae234"
+        stroke-width="5"
+        stroke-linecap="round"/>
+
+</svg>

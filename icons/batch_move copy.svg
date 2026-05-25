@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64" height="64" viewBox="0 0 64 64"
+     xmlns="http://www.w3.org/2000/svg">
+
+  <!-- ===== Naturalistic yellow gear ===== -->
+  <g transform="translate(32,32) scale(1.0)" opacity="0.9"
+     fill="#f0c000" stroke="black" stroke-width="1.6">
+    <path d="
+      M 10,-22 L 6,-22 L 4,-28 L -4,-28 L -6,-22 L -10,-22
+      L -14,-26 L -20,-20 L -16,-16 L -20,-10 L -20,-6
+      L -26,-4 L -26,4 L -20,6 L -20,10 L -16,16 L -20,20
+      L -14,26 L -10,22 L -6,22 L -4,28 L 4,28 L 6,22 
+      L 10,22 L 14,26 L 20,20 L 16,16 L 20,10 L 20,6
+      L 26,4 L 26,-4 L 20,-6 L 20,-10 L 16,-16 L 20,-20
+      Z
+
+      M -12,0
+      A 12 12 0 1 0 12,0
+      A 12 12 0 1 0 -12,0 Z
+    "/>
+  </g>
+
+  <!-- ===== Semicircle (no arrowhead), neutral stroke ===== -->
+  <path d="
+      M 14,32
+      A 18 18 0 0 1 50,32"
+        fill="none"
+        stroke="#2b82d9"
+        stroke-width="4"
+        stroke-linecap="round"/>
+
+  <!-- ===== Four arrows arranged like a + symbol ===== -->
+  <!-- Up -->
+  <g stroke="black" stroke-width="1.6" fill="#2b82d9">
+    <polygon points="31,10 36,18 26,18"/>
+  </g>
+
+  <!-- Down -->
+  <g stroke="black" stroke-width="1.6" fill="#2b82d9">
+    <polygon points="31,54 36,46 26,46"/>
+  </g>
+
+  <!-- Left -->
+  <g stroke="black" stroke-width="1.6" fill="#2b82d9">
+    <polygon points="10,33 18,27 18,39"/>
+  </g>
+
+  <!-- Right -->
+  <g stroke="black" stroke-width="1.6" fill="#2b82d9">
+    <polygon points="54,33 46,27 46,39"/>
+  </g>
+
+</svg>

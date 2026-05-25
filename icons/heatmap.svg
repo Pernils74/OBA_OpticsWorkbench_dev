@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Heatmap + normalfördelning (2D-profil) ikon för FreeCAD -->
+<svg
+  width="64" height="64"
+  viewBox="0 0 64 64"
+  xmlns="http://www.w3.org/2000/svg"
+  version="1.1">
+
+  <!-- ====== DEFINITIONS ====== -->
+  <defs>
+    <!-- Bakgrundsgradient -->
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f9faf9" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#dde0dd" stop-opacity="0.95"/>
+    </linearGradient>
+
+    <!-- Heatmapfärger -->
+    <linearGradient id="hmGrad" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#2166ac"/>
+      <stop offset="0.45" stop-color="#67aed5"/>
+      <stop offset="0.7" stop-color="#fee08b"/>
+      <stop offset="1" stop-color="#d73027"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ====== BACKGROUND ====== -->
+  <rect x="4" y="4" width="56" height="56" rx="4"
+        fill="url(#bgGrad)"
+        stroke="#1a1a1a" stroke-width="2" stroke-opacity="0.4"/>
+
+  <!-- ====== GRID (soft) ====== -->
+  <g stroke="#8c928d" stroke-width="1.2" stroke-opacity="0.55">
+    <!-- Vertical -->
+    <line x1="20" y1="4" x2="20" y2="60"/>
+    <line x1="36" y1="4" x2="36" y2="60"/>
+    <line x1="52" y1="4" x2="52" y2="60"/>
+    <!-- Horizontal -->
+    <line x1="4" y1="20" x2="60" y2="20"/>
+    <line x1="4" y1="36" x2="60" y2="36"/>
+    <line x1="4" y1="52" x2="60" y2="52"/>
+  </g>
+
+  <!-- ====== HEATMAP PATCHES ====== -->
+  <!-- 4x4 färgblock -->
+  <g opacity="0.90">
+    <!-- rad 1 -->
+    <rect x="8"  y="8"  width="12" height="12" fill="#d73027"/>
+    <rect x="20" y="8"  width="12" height="12" fill="#fc8d59"/>
+    <rect x="32" y="8"  width="12" height="12" fill="#fee08b"/>
+    <rect x="44" y="8"  width="12" height="12" fill="#d9ef8b"/>
+
+    <!-- rad 2 -->
+    <rect x="8"  y="20" width="12" height="12" fill="#fc8d59"/>
+    <rect x="20" y="20" width="12" height="12" fill="#fee08b"/>
+    <rect x="32" y="20" width="12" height="12" fill="#d9ef8b"/>
+    <rect x="44" y="20" width="12" height="12" fill="#a6d96a"/>
+
+    <!-- rad 3 -->
+    <rect x="8"  y="32" width="12" height="12" fill="#fee08b"/>
+    <rect x="20" y="32" width="12" height="12" fill="#d9ef8b"/>
+    <rect x="32" y="32" width="12" height="12" fill="#91cf60"/>
+    <rect x="44" y="32" width="12" height="12" fill="#1a9850"/>
+
+    <!-- rad 4 -->
+    <rect x="8"  y="44" width="12" height="12" fill="#d9ef8b"/>
+    <rect x="20" y="44" width="12" height="12" fill="#a6d96a"/>
+    <rect x="32" y="44" width="12" height="12" fill="#4dac26"/>
+    <rect x="44" y="44" width="12" height="12" fill="#01665e"/>
+  </g>
+
+  <!-- ====== NORMALFÖRDELNINGSKURVA (överlagrad) ====== -->
+  <path d="M 8 48
+           C 16 20, 40 20, 56 48"
+        stroke="#0b1523"
+        stroke-width="3.2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        fill="none"
+        opacity="0.90"/>
+</svg>

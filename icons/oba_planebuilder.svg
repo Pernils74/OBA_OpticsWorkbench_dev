@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="64" height="64"
+     viewBox="0 0 64 64">
+
+  <!-- Plane (slightly tilted for depth) -->
+  <polygon points="8,20 56,12 56,44 8,52"
+           fill="#4a90e2"
+           stroke="#2171b5"
+           stroke-width="4"/>
+
+  <!-- ✅ Large plus (bottom-right quadrant) -->
+  <g transform="translate(44,44)">
+    
+    <!-- background circle -->
+    <circle cx="0" cy="0" r="14" fill="#666"/>
+
+    <!-- plus -->
+    <rect x="-8" y="-2" width="16" height="4" fill="#ffffff"/>
+    <rect x="-2" y="-8" width="4" height="16" fill="#ffffff"/>
+
+  </g>
+
+</svg>

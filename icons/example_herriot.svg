@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="64" height="64"
+     viewBox="0 0 64 64">
+
+  <!-- Left mirror (concave) -->
+  <path d="M14 10 Q8 32 14 54"
+        stroke="#4a90e2"
+        stroke-width="6"
+        fill="none"
+        stroke-linecap="round"/>
+
+  <!-- Right mirror (concave) -->
+  <path d="M50 10 Q56 32 50 54"
+        stroke="#4a90e2"
+        stroke-width="6"
+        fill="none"
+        stroke-linecap="round"/>
+
+  <!-- Herriott multipass ray -->
+  <path d="
+    M 20 20
+    L 44 26
+    L 20 32
+    L 44 38
+    L 20 44"
+    stroke="#d4af37"
+    stroke-width="3"
+    fill="none"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+
+  <!-- Entry / exit ports -->
+  <circle cx="14" cy="20" r="2.5" fill="#ffffff"/>
+  <circle cx="50" cy="44" r="2.5" fill="#ffffff"/>
+
+  <!-- Example marker -->
+  <rect x="38" y="2" width="24" height="14"
+        rx="3" ry="3"
+        fill="#ffcc00"/>
+
+  <text x="50" y="13"
+        text-anchor="middle"
+        font-size="10"
+        font-family="Arial, Helvetica, sans-serif"
+        font-weight="bold"
+        fill="#000000">
+    EX
+  </text>
+
+</svg>

@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="24" height="24"
+     viewBox="0 0 24 24">
+
+  <!-- Axes -->
+  <line x1="4" y1="20" x2="20" y2="20"
+        stroke="#6a6a6a"
+        stroke-width="1"/>
+  <line x1="4" y1="20" x2="4" y2="4"
+        stroke="#6a6a6a"
+        stroke-width="1"/>
+
+  <!-- Axis arrows -->
+  <polygon points="20,20 18.8,19.4 18.8,20.6"
+           fill="#6a6a6a"/>
+  <polygon points="4,4 3.4,5.2 4.6,5.2"
+           fill="#6a6a6a"/>
+
+  <!-- Intensity field (offset from origin) -->
+  <ellipse cx="9" cy="14"
+           rx="3.5" ry="3"
+           fill="#ffd27f"
+           opacity="0.9"/>
+
+  <ellipse cx="9" cy="14"
+           rx="5.5" ry="4.5"
+           fill="none"
+           stroke="#b48cff"
+           stroke-width="1"
+           opacity="0.6"/>
+
+  <ellipse cx="9" cy="14"
+           rx="7.5" ry="6"
+           fill="none"
+           stroke="#8888ff"
+           stroke-width="1"
+           opacity="0.35"/>
+
+  <!-- Horizontal propagation -->
+  <rect x="6" y="13.4" width="12" height="1.2"
+        fill="#8888ff"
+        opacity="0.15"/>
+
+</svg>

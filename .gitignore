@@ -1,0 +1,28 @@
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# FreeCAD temp
+*.FCStd1
+*.FCBak
+
+# OBA: behåll lib, men ignorera eventuella bygg-/cachemappar inuti
+lib/**/__pycache__/
+lib/**/*.dist-info/
+lib/**/*.egg-info/
+lib/**/*.tests/
+lib/**/tests/
+lib/**/.pytest_cache/
+lib/**/.mypy_cache/
+
+# Loggar/artefakter
+*.log
+*.csv
+``

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="64" height="64"
+     viewBox="0 0 64 64">
+
+  <!-- Lens body -->
+  <path d="
+    M 32 6
+    Q 46 32 32 58
+    Q 18 32 32 6"
+    fill="#4a90e2"
+    stroke="#2171b5"
+    stroke-width="4"/>
+
+  <!-- Incoming ray -->
+  <line x1="4" y1="28" x2="26" y2="30"
+        stroke="#d4af37"
+        stroke-width="5"
+        stroke-linecap="round"/>
+
+  <!-- Incoming ray (lower) -->
+  <line x1="4" y1="36" x2="26" y2="34"
+        stroke="#d4af37"
+        stroke-width="5"
+        stroke-linecap="round"/>
+
+  <!-- Refracted ray -->
+  <line x1="38" y1="30" x2="60" y2="38"
+        stroke="#d4af37"
+        stroke-width="5"
+        stroke-linecap="round"/>
+
+  <!-- Refracted ray (converging) -->
+  <line x1="38" y1="34" x2="60" y2="28"
+        stroke="#d4af37"
+        stroke-width="5"
+        stroke-linecap="round"/>
+
+</svg>

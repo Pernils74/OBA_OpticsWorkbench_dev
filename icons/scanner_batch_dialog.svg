@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="24" height="24"
+     viewBox="0 0 24 24"
+     fill="none"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+
+  <!-- Koncentriska cirklar -->
+  <g stroke="#ff6600" stroke-width="1.4">
+    <circle cx="12" cy="12" r="3"/>
+    <circle cx="12" cy="12" r="6"/>
+    <circle cx="12" cy="12" r="9"/>
+  </g>
+
+  <!-- Radie till yttersta cirkeln -->
+  <g stroke="#000000" stroke-width="1.4">
+    <line x1="12" y1="12" x2="21" y2="12"/>
+    <polyline points="21 12 19.5 10.8"/>
+    <polyline points="21 12 19.5 13.2"/>
+  </g>
+
+  <!-- Rotationspil på yttre varvet (uppflyttad) -->
+  <g stroke="#000000" stroke-width="1.4">
+    <polyline points="14 2 10.6 3.2 14 4.5"/>
+  </g>
+
+  <!-- Centrum -->
+  <circle cx="12" cy="12" r="1.4"
+          fill="#ff6600"
+          stroke="none"/>
+</svg>

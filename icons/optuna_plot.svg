@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+
+  <!-- Transparent background -->
+  <rect width="20" height="20" fill="none"/>
+
+  <!-- Axes -->
+  <line x1="3" y1="17" x2="17" y2="17" stroke="#000" stroke-width="1"/>
+  <line x1="3" y1="17" x2="3" y2="3" stroke="#000" stroke-width="1"/>
+
+  <!-- Optuna "blue" reference circle -->
+  <circle cx="6" cy="6" r="3" fill="#0099cc" opacity="0.25"/>
+
+  <!-- Plot line -->
+  <polyline 
+    points="4,15 7,12 10,10 13,7 16,5" 
+    fill="none" 
+    stroke="#1f77b4" 
+    stroke-width="1.3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Data points -->
+  <circle cx="7" cy="12" r="1.4" fill="#1f77b4"/>
+  <circle cx="10" cy="10" r="1.4" fill="#2ca02c"/>
+  <circle cx="13" cy="7"  r="1.4" fill="#9467bd"/>
+
+  <!-- "Target point" (Optuna objective) -->
+  <circle cx="16" cy="5" r="2" fill="#ff7f0e" stroke="black" stroke-width="0.6"/>
+</svg>

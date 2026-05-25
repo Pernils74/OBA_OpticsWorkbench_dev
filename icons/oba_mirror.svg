@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="64" height="64"
+     viewBox="0 0 64 64">
+
+  <!-- Mirror body -->
+  <line x1="48" y1="6" x2="34" y2="58"
+        stroke="#4a90e2"
+        stroke-width="10"
+        stroke-linecap="round"/>
+
+  <!-- Incoming ray -->
+  <line x1="6" y1="14" x2="36" y2="28"
+        stroke="#d4af37"
+        stroke-width="5"
+        stroke-linecap="round"/>
+
+  <!-- Reflected ray -->
+  <line x1="36" y1="28" x2="10" y2="52"
+        stroke="#d4af37"
+        stroke-width="5"
+        stroke-linecap="round"/>
+
+  <!-- Arrowhead (reflected ray) -->
+  <path d="M 12 54 L 10 52 L 14 48"
+        fill="none"
+        stroke="#d4af37"
+        stroke-width="3"
+        stroke-linecap="round"/>
+
+</svg>

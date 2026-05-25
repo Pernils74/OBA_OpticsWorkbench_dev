@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="64" height="64"
+     viewBox="0 0 64 64">
+
+  <!-- Prism body -->
+  <polygon points="26,10 42,32 26,54"
+           fill="none"
+           stroke="#4a90e2"
+           stroke-width="5"
+           stroke-linejoin="round"/>
+
+  <!-- Incoming white beam -->
+  <line x1="4" y1="32" x2="24" y2="32"
+        stroke="#ffffff"
+        stroke-width="4"
+        stroke-linecap="round"/>
+
+  <!-- Dispersed gradient beams -->
+  <line x1="42" y1="32" x2="60" y2="20"
+        stroke="#ff0000"
+        stroke-width="3"
+        stroke-linecap="round"/>
+
+  <line x1="42" y1="32" x2="60" y2="26"
+        stroke="#ff9900"
+        stroke-width="3"
+        stroke-linecap="round"/>
+
+  <line x1="42" y1="32" x2="60" y2="32"
+        stroke="#00ff00"
+        stroke-width="3"
+        stroke-linecap="round"/>
+
+  <line x1="42" y1="32" x2="60" y2="38"
+        stroke="#0099ff"
+        stroke-width="3"
+        stroke-linecap="round"/>
+
+  <line x1="42" y1="32" x2="60" y2="44"
+        stroke="#6600cc"
+        stroke-width="3"
+        stroke-linecap="round"/>
+
+  <!-- Example marker -->
+  <rect x="38" y="2" width="24" height="14"
+        rx="3" ry="3"
+        fill="#ffcc00"/>
+
+  <text x="50" y="13"
+        text-anchor="middle"
+        font-size="10"
+        font-family="Arial, Helvetica, sans-serif"
+        font-weight="bold"
+        fill="#000000">
+    EX
+  </text>
+
+</svg>
