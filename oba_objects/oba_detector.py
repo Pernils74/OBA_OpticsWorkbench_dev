@@ -24,11 +24,27 @@ class OBADetector(OBAElementProxy):
 
         # --- Offset (detta är nyckeln) ---
         if not hasattr(obj, "Offset"):
-            obj.addProperty("App::PropertyFloat", "Offset", "Detector", "Offset distance along normal").Offset = 0.001  # default
+            obj.addProperty("App::PropertyFloat", "Offset", "Detector", "Offset distance along normal").Offset = 0.004  # default
 
         # --- Optional: enable/disable ---
         if not hasattr(obj, "Enabled"):
             obj.addProperty("App::PropertyBool", "Enabled", "Detector", "Enable detection").Enabled = True
+
+        if not hasattr(obj, "ShowSurfaceNormal"):
+            obj.addProperty(
+                "App::PropertyBool",
+                "ShowSurfaceNormal",
+                "NormalSettings",
+                "Show surface normal preview",
+            ).ShowSurfaceNormal = False
+
+        if not hasattr(obj, "HitMode"):
+            obj.addProperty("App::PropertyEnumeration", "HitMode", "Detector", "Detection direction")
+            obj.HitMode = ["Front", "Back", "Both"]
+            obj.HitMode = 0  # ✅ default = Both
+
+        # if not hasattr(obj, "FlipNormal"):
+        #     obj.addProperty("App::PropertyBool", "FlipNormal", "NormalSettings", "Invert surface normal for optical computation").FlipNormal = False
 
         # --- Bind geometry ---
         if source_obj:
@@ -101,8 +117,38 @@ class DetectorDialog(OBABaseDialog):
         row.addWidget(self.spin_offset)
         self.custom_layout.addLayout(row)
 
+        self._add_check("Show normal", "ShowSurfaceNormal")
+        # self._add_check("Flip normal", "FlipNormal")
+
+        # --- Hit mode ---
+        row = QtWidgets.QHBoxLayout()
+
+        row.addWidget(QtWidgets.QLabel("Hit direction:"))
+
+        self.cmb_hit = QtWidgets.QComboBox()
+        self.cmb_hit.addItems(["Both", "Front", "Back"])
+        self.cmb_hit.setCurrentText(getattr(self.obj, "HitMode", "Front"))
+
+        self.cmb_hit.currentTextChanged.connect(self._update_hitmode)
+
+        row.addWidget(self.cmb_hit)
+        self.custom_layout.addLayout(row)
+
     def _update_offset(self, val):
         self.obj.Offset = val
+
+    def _update_hitmode(self, val):
+        self.obj.HitMode = val
+
+    def _add_check(self, label, prop):
+        row = QtWidgets.QHBoxLayout()
+
+        w = QtWidgets.QCheckBox(label)
+        w.setChecked(getattr(self.obj, prop))
+        w.stateChanged.connect(lambda v, p=prop: setattr(self.obj, p, bool(v)))
+
+        row.addWidget(w)
+        self.custom_layout.addLayout(row)
 
 
 # ============================================================

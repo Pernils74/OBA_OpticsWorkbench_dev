@@ -4,7 +4,7 @@ import FreeCAD as App
 import FreeCADGui as Gui
 from PySide import QtWidgets
 from .oba_base import OBABaseDialog, OBAElementProxy, OBAViewProviderBase  # , runRaytracer
-
+from .oba_lens_materials import get_material_list
 
 # ============================================================
 #  O B J E K T -   E M I T T E R
@@ -18,6 +18,12 @@ class OBAEmitter(OBAElementProxy):
         # Grund-properties (binders)
         if not hasattr(obj, "Binders"):
             obj.addProperty("App::PropertyLinkList", "Binders", "Optics")
+
+        if not hasattr(obj, "StartMedium"):
+            obj.addProperty("App::PropertyEnumeration", "StartMedium", "Optics")
+            obj.StartMedium = get_material_list()
+            if "Air" in obj.StartMedium:
+                obj.StartMedium = "Air"
 
         # Emitter-specifika properties
         if not hasattr(obj, "Lambertian"):
@@ -38,6 +44,7 @@ class OBAEmitter(OBAElementProxy):
             obj.addProperty("App::PropertyFloat", "MaxRayLength", "Emitter").MaxRayLength = 1000.0
         if not hasattr(obj, "FlipNormal"):
             obj.addProperty("App::PropertyBool", "FlipNormal", "NormalSettings", "Invert surface normal for optical computation").FlipNormal = False
+
         # if not hasattr(obj, "ShowSurfaceNormal"):
         #     obj.addProperty(
         #         "App::PropertyBool",
@@ -89,6 +96,8 @@ class EmitterDialog(OBABaseDialog):
     def __init__(self, obj):
         super().__init__(obj, title="Emitter Settings")
 
+        self._add_material("Start medium", "StartMedium")
+
         self._add_check("Lambertian", "Lambertian")
 
         self._add_check("Flip normal", "FlipNormal")
@@ -112,6 +121,20 @@ class EmitterDialog(OBABaseDialog):
     # ----------------------------------------------------------
     #  U P P D A T E R I N G   A V   P R O P S
     # ----------------------------------------------------------
+
+    def _add_material(self, label, prop):
+        from .oba_lens_materials import get_material_list
+
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel(label))
+
+        cmb = QtWidgets.QComboBox()
+        cmb.addItems(get_material_list())
+        cmb.setCurrentText(getattr(self.obj, prop))
+        cmb.currentTextChanged.connect(lambda v: setattr(self.obj, prop, v))
+
+        row.addWidget(cmb)
+        self.custom_layout.addLayout(row)
 
     def _add_spin(self, label, prop, mn, mx):
         row = QtWidgets.QHBoxLayout()

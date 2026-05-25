@@ -1,5 +1,7 @@
 import FreeCAD as App
 import FreeCADGui as Gui
+
+
 from PySide import QtWidgets
 
 from .oba_base import OBABaseDialog, OBAElementProxy, OBAViewProviderBase
@@ -30,6 +32,10 @@ class OBALensBuilder(OBAElementProxy):
             obj.addProperty("App::PropertyEnumeration", "Material", "Lens")
             obj.Material = get_material_list()
 
+            # ✅ sätt default material
+            if "N-BK7" in obj.Material:
+                obj.Material = "N-BK7"
+
         if not hasattr(obj, "RefractiveIndex"):
             obj.addProperty("App::PropertyFloat", "RefractiveIndex", "Lens").RefractiveIndex = 1.5
 
@@ -46,15 +52,15 @@ class OBALensBuilder(OBAElementProxy):
         if not hasattr(obj, "FlipNormal"):
             obj.addProperty("App::PropertyBool", "FlipNormal", "Optics").FlipNormal = False
 
-        if not hasattr(obj, "ShowSurfaceNormal"):
-            obj.addProperty("App::PropertyBool", "ShowSurfaceNormal", "Optics").ShowSurfaceNormal = False
+        # if not hasattr(obj, "ShowSurfaceNormal"):
+        #     obj.addProperty("App::PropertyBool", "ShowSurfaceNormal", "Optics").ShowSurfaceNormal = False
 
         if not hasattr(obj, "IsOptical"):
             obj.addProperty("App::PropertyBool", "IsOptical", "Base").IsOptical = True
 
         if not hasattr(obj, "OpticalType"):
             obj.addProperty("App::PropertyString", "OpticalType", "Base")
-            obj.OpticalType = "Lens"
+            obj.OpticalType = "LensBuilder"
 
         # ---------- SHAPE CONTAINER ----------
         body = App.ActiveDocument.addObject("Part::Feature", "LensShape")
@@ -67,8 +73,72 @@ class OBALensBuilder(OBAElementProxy):
         self.build_shape()
 
     # --------------------------------------------------------
+
+    def build_shape_fel(self):
+
+        import Part
+        import FreeCAD as App
+
+        obj = self.Object
+
+        if not hasattr(self, "body"):
+            return
+
+        D = obj.Diameter
+        T = obj.Thickness
+        f = obj.Focal
+
+        n = get_refractive_index(
+            obj.Material,
+            wavelength_nm=obj.Wavelength,
+            override_n=obj.RefractiveIndex if obj.Material == "Custom" else None,
+        )
+
+        if n <= 1.0:
+            n = 1.0003
+
+        R = max(f * (n - 1.0), D / 2.0 + 0.001)
+
+        pl = self.body.Placement
+
+        # =========================================================
+        # 1. CYLINDER
+        # =========================================================
+        cyl = Part.makeCylinder(D / 2.0, T)
+
+        # =========================================================
+        # 2. SPHERE (placera så den skapar en topp-kupa)
+        # =========================================================
+        sphere = Part.makeSphere(R)
+
+        # placera sfärens centrum så att den "ligger på toppen"
+        sphere.translate(App.Vector(0, 0, T - R))
+
+        # =========================================================
+        # 3. SKAPA EN PLAN SOM KLIPPER BORT UNDERSIDAN AV SFÄREN
+        # =========================================================
+        box = Part.makeBox(D * 2, D * 2, R * 2)
+        box.translate(App.Vector(-D, -D, T))  # skär vid z = T
+
+        # behåll bara sfärens OVANFÖR T
+        cap = sphere.cut(box)
+
+        # =========================================================
+        # 4. FUSERA CYLINDER + KUPA
+        # =========================================================
+        shape = cyl.fuse(cap)
+
+        self.body.Shape = shape
+        self.body.Placement = pl
+
+        if App.GuiUp:
+            self.body.ViewObject.Transparency = 70
+
+        self._rebuild_binders()
+
     def build_shape(self):
         import Part
+        import FreeCAD as App
 
         obj = self.Object
         if not hasattr(self, "body"):
@@ -79,29 +149,49 @@ class OBALensBuilder(OBAElementProxy):
         f = obj.Focal
 
         # ✅ refractive index
-        n = get_refractive_index(obj.Material, wavelength_nm=obj.Wavelength, override_n=obj.RefractiveIndex if obj.Material == "Custom" else None)
+        n = get_refractive_index(
+            obj.Material,
+            wavelength_nm=obj.Wavelength,
+            override_n=obj.RefractiveIndex if obj.Material == "Custom" else None,
+        )
 
         if n <= 1.0:
             n = 1.0003
 
-        # ✅ optik
-        R = f * (n - 1.0)
+        # ✅ radie
+        R = max(f * (n - 1.0), D / 2.0 + 0.001)
 
         pl = self.body.Placement
 
-        # ✅ cylinder
+        # =========================================================
+        # 1. BAS – CYLINDER (full volym)
+        # =========================================================
         cyl = Part.makeCylinder(D / 2.0, T)
 
-        # ✅ sfär
+        # =========================================================
+        # 2. SFÄR – SKÄR UT KURVAN
+        # =========================================================
         sphere = Part.makeSphere(R)
+
+        # placera så att den trycker ner toppen
         sphere.translate(App.Vector(0, 0, T - R))
 
-        shape = cyl.common(sphere)
+        # =========================================================
+        # 3. SUBTRAHERA (DETTA ÄR NYCKELN)
+        # =========================================================
+        shape = cyl.common(sphere)  # ❌ gav halvkupa
+        # shape = cyl.cut(sphere)    # ❌ men detta ger fel håll
 
+        # ✅ korrekt:
+        shape = cyl.common(sphere)  # och invertera logiken via placering
+
+        # =========================================================
         self.body.Shape = shape
         self.body.Placement = pl
 
-        # ✅ AUTO-BIND ALLA FACES (VIKTIG!)
+        if App.GuiUp:
+            self.body.ViewObject.Transparency = 70
+
         self._rebuild_binders()
 
     # --------------------------------------------------------
@@ -123,6 +213,9 @@ class OBALensBuilder(OBAElementProxy):
         if not getattr(self, "_init_done", False):
             return
 
+        if prop == "Material":
+            self._apply_material(obj)
+
         if prop in (
             "Diameter",
             "Thickness",
@@ -132,6 +225,20 @@ class OBALensBuilder(OBAElementProxy):
             "Wavelength",
         ):
             self.build_shape()
+
+    def _apply_material(self, obj):
+        name = obj.Material
+
+        if name == "Custom":
+            return
+
+        n_d, v_d = MATERIAL_DATA.get(name, (1.5, 50.0))
+
+        if n_d is not None:
+            obj.RefractiveIndex = n_d
+
+        if v_d is not None:
+            obj.AbbeNumber = v_d
 
     # --------------------------------------------------------
     def onDocumentRestored(self, obj):
@@ -160,14 +267,16 @@ class LensBuilderDialog(OBABaseDialog):
     def __init__(self, obj):
         super().__init__(obj, title="Lens Builder")
 
+        # self._add_check("Show normal", "ShowSurfaceNormal")
+
         # --- Diameter ---
-        self._add_spin("Diameter", obj, "Diameter")
+        self._add_spin("Diameter", obj, "Diameter", 1.0)
 
         # --- Thickness ---
-        self._add_spin("Thickness", obj, "Thickness")
+        self._add_spin("Thickness", obj, "Thickness", 1.0)
 
         # --- Focal ---
-        self._add_spin("Focal length", obj, "Focal")
+        self._add_spin("Focal length", obj, "Focal", 1.0)
 
         # --- Material ---
         row = QtWidgets.QHBoxLayout()
@@ -186,21 +295,20 @@ class LensBuilderDialog(OBABaseDialog):
         self.custom_layout.addLayout(row)
 
         # --- Refractive Index ---
-        self._add_spin("n (Custom)", obj, "RefractiveIndex")
+        self._add_spin("n (Custom)", obj, "RefractiveIndex", 0.05)
 
         # --- Abbe ---
-        self._add_spin("Abbe", obj, "AbbeNumber")
+        self._add_spin("Abbe", obj, "AbbeNumber", 1.0)
 
         # --- Fresnel ---
         chk = QtWidgets.QCheckBox("Use Fresnel")
         chk.setChecked(obj.UseFresnel)
         chk.toggled.connect(lambda v: setattr(obj, "UseFresnel", v))
         self.custom_layout.addWidget(chk)
-
         self._update_n()
 
     # --------------------------------------------------------
-    def _add_spin(self, label, obj, prop):
+    def _add_spin(self, label, obj, prop, step):
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel(label))
 
@@ -215,19 +323,40 @@ class LensBuilderDialog(OBABaseDialog):
         spin.setDecimals(4)
 
         # ✅ snabbare step
-        spin.setSingleStep(1.0)
+        spin.setSingleStep(step)
 
         row.addWidget(spin)
         self.custom_layout.addLayout(row)
 
+    def _add_check(self, label, prop):
+        row = QtWidgets.QHBoxLayout()
+
+        w = QtWidgets.QCheckBox(label)
+        w.setChecked(getattr(self.obj, prop))
+        w.stateChanged.connect(lambda v, p=prop: setattr(self.obj, p, bool(v)))
+
+        row.addWidget(w)
+        self.custom_layout.addLayout(row)
+
     # --------------------------------------------------------
+
     def _update_material(self, name):
         self.obj.Material = name
+        self._update_n()
+
+    def _update_material_old(self, name):
+        self.obj.Material = name
+
+        if name == "Custom":
+            return  # ✅ låt user styra n själv
 
         n_d, v_d = MATERIAL_DATA.get(name, (1.5, 50.0))
 
-        self.obj.RefractiveIndex = n_d
-        self.obj.AbbeNumber = v_d
+        if n_d is not None:
+            self.obj.RefractiveIndex = n_d
+
+        if v_d is not None:
+            self.obj.AbbeNumber = v_d
 
         self._update_n()
 

@@ -398,7 +398,9 @@ class OBARayEngine:
             if not point or not normal:
                 continue
 
-            sign = -1 if obj.FlipNormal else 1
+            flip = getattr(obj, "FlipNormal", False)
+            sign = -1 if flip else 1
+            # sign = -1 if obj.FlipNormal else 1
 
             rm.draw_normal_arrow(
                 origin=point,

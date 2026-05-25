@@ -11,7 +11,7 @@ from .oba_lens_materials import MATERIAL_DATA, get_material_list
 # ============================================================
 
 
-class OBALense(OBAElementProxy):
+class OBALens(OBAElementProxy):
 
     def __init__(self, obj, source_obj=None, sub_elements=None):
         # Initiera bas-props (Binders etc) via super()
@@ -20,16 +20,16 @@ class OBALense(OBAElementProxy):
         # Lins-specifik property
 
         if not hasattr(obj, "Material"):
-            obj.addProperty("App::PropertyString", "Material", "Lense", "Lens material preset").Material = "Custom"
+            obj.addProperty("App::PropertyString", "Material", "Lens", "Lens material preset").Material = "Custom"
 
         if not hasattr(obj, "RefractiveIndex"):
-            obj.addProperty("App::PropertyFloat", "RefractiveIndex", "Lense", "Brytningsindex").RefractiveIndex = 1.50
+            obj.addProperty("App::PropertyFloat", "RefractiveIndex", "Lens", "Brytningsindex").RefractiveIndex = 1.50
 
         if not hasattr(obj, "AbbeNumber"):
-            obj.addProperty("App::PropertyFloat", "AbbeNumber (V_d)", "Lense", "Abbe number (chromatic dispersion)").AbbeNumber = 50.0
+            obj.addProperty("App::PropertyFloat", "AbbeNumber", "Lens", "Abbe number (chromatic dispersion) (V_d)").AbbeNumber = 50.0
 
         if not hasattr(obj, "UseFresnel"):
-            obj.addProperty("App::PropertyBool", "UseFresnel", "Lense", "Enable Fresnel reflection (ray splitting)").UseFresnel = False
+            obj.addProperty("App::PropertyBool", "UseFresnel", "Lens", "Enable Fresnel reflection (ray splitting)").UseFresnel = False
 
         if not hasattr(obj, "FlipNormal"):
             obj.addProperty("App::PropertyBool", "FlipNormal", "NormalSettings", "Invert surface normal for optical computation").FlipNormal = False
@@ -62,13 +62,13 @@ class OBALense(OBAElementProxy):
             # Om proxyn saknas helt, skapa en ny
             if not hasattr(obj.ViewObject, "Proxy") or obj.ViewObject.Proxy is None:
                 # Skapa ny ViewProvider
-                vp = LenseViewProvider(obj.ViewObject)
+                vp = LensViewProvider(obj.ViewObject)
                 # VIKTIGT: Eftersom __init__ kördes nu, sattes dialog_class korrekt
             else:
                 # Om proxyn fanns kvar men var "död", kör dess restore
                 obj.ViewObject.Proxy.onDocumentRestored(obj.ViewObject)
                 # SÄKERSTÄLL att dialog_class finns (eftersom den inte sparas i filen)
-                obj.ViewObject.Proxy.dialog_class = LenseDialog
+                obj.ViewObject.Proxy.dialog_class = LensDialog
 
             obj.ViewObject.update()
 
@@ -78,7 +78,7 @@ class OBALense(OBAElementProxy):
 # ============================================================
 
 
-class LenseDialog(OBABaseDialog):
+class LensDialog(OBABaseDialog):
     ALLOW_SURFACE_SELECTION = True  # ℹ️ För att visa face select listan
 
     def __init__(self, obj):
@@ -179,14 +179,14 @@ class LenseDialog(OBABaseDialog):
 # ============================================================
 
 
-class LenseViewProvider(OBAViewProviderBase):
+class LensViewProvider(OBAViewProviderBase):
     # ICON = "oba_lens.svg"
     # DIALOG = LenseDialog
 
     def __init__(self, vobj):
         super().__init__(vobj)
         # Denna länk till klassen måste sättas explicit (sparas ej i filen)
-        self.dialog_class = LenseDialog
+        self.dialog_class = LensDialog
 
 
 # ============================================================
@@ -194,7 +194,7 @@ class LenseViewProvider(OBAViewProviderBase):
 # ============================================================
 
 
-def OBA_CreateLense():
+def OBA_CreateLens():
     doc = App.ActiveDocument or App.newDocument()
     sel_ex = Gui.Selection.getSelectionEx()
 
@@ -203,18 +203,18 @@ def OBA_CreateLense():
 
     # Proxy
     if sel_ex:
-        OBALense(lense_obj, sel_ex[0].Object, sel_ex[0].SubElementNames)
+        OBALens(lense_obj, sel_ex[0].Object, sel_ex[0].SubElementNames)
     else:
-        OBALense(lense_obj)
+        OBALens(lense_obj)
 
     # ViewProvider
     if App.GuiUp:
-        LenseViewProvider(lense_obj.ViewObject)
+        LensViewProvider(lense_obj.ViewObject)
 
     doc.recompute()
 
     # Visa dialogen direkt
-    LenseDialog(lense_obj).show()
+    LensDialog(lense_obj).show()
 
 
 # ============================================================

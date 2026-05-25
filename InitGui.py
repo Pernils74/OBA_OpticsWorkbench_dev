@@ -3,25 +3,21 @@ import FreeCAD as App
 import FreeCADGui as Gui
 from PySide import QtCore
 
-RUN_PUBLIC = False  # 🔁 sätt True för public-version
+IS_ACTIVE = True
 
 
-ACTIVE_VARIANT = "PUBLIC" if RUN_PUBLIC else "DEV"
+# def get_module_path():
+#     if "__file__" in globals() and globals()["__file__"]:
+#         return os.path.abspath(globals()["__file__"]).lower()
+#     return App.getUserAppDataDir().lower()
 
 
-module_path = os.path.abspath(__file__).lower()
-IS_DEV_MODULE = "dev" in module_path
-MODULE_VARIANT = "DEV" if IS_DEV_MODULE else "PUBLIC"
+# module_path = get_module_path().lower()
 
+# IS_DEV_MODULE = "dev" in module_path
+# MODULE_VARIANT = "DEV" if IS_DEV_MODULE else "PUBLIC"
 
 # --- fungerar i alla lägen ---
-
-
-# def get_module_dir():
-#     if "__file__" in globals() and globals()["__file__"]:
-#         return os.path.dirname(os.path.abspath(__file__))
-#     # fallback om __file__ saknas (t.ex. makro-läge)
-#     return os.path.join(App.getUserAppDataDir(), "Mod", "sa_optics")
 
 
 # def initialize_icons():
@@ -34,7 +30,9 @@ MODULE_VARIANT = "DEV" if IS_DEV_MODULE else "PUBLIC"
 
 
 class OBA_Optics(Gui.Workbench):
-    MenuText = "OBA optics"
+
+    MenuText = f"OBA optics "
+
     # ToolTip = "OBA optik- och simuleringsverktyg"
 
     COMMAND_PREFIX = "OBA_"
@@ -98,7 +96,7 @@ class OBA_Optics(Gui.Workbench):
         )
 
         hot_reload.register_command(
-            command="OBA_CreateLense",
+            command="OBA_CreateLens",
             impl_module="oba_objects.oba_lens",
             menu="Skapa Lense",
             tooltip="Skapar lins",
@@ -124,6 +122,14 @@ class OBA_Optics(Gui.Workbench):
         # -------------------------
         # --------- Builders --------
         # -------------------------
+
+        hot_reload.register_command(
+            command="OBA_CreateMirrorBuilder",
+            impl_module="oba_objects.oba_mirrorbuilder",
+            menu="Mirror builder",
+            tooltip="Mirror builder",
+            pixmap=get_icon("oba_mirrorbuilder.svg"),
+        )
 
         hot_reload.register_command(
             command="OBA_CreateLensBuilder",
@@ -293,11 +299,12 @@ class OBA_Optics(Gui.Workbench):
             "OBA_CreateMirror",
             "OBA_CreateAbsorber",
             "OBA_CreateDetector",
-            "OBA_CreateLense",
+            "OBA_CreateLens",
             "OBA_CreateGrating",
             "OBA_CreateRayConfig",
             "OBA_ShowRayBounceRange",
             SEP(),
+            "OBA_CreateMirrorBuilder",
             "OBA_CreateLensBuilder",
             "OBA_CreatePlaneBuilder",
             SEP(),
@@ -328,10 +335,9 @@ class OBA_Optics(Gui.Workbench):
 
     def Activated(self):
 
-        if ACTIVE_VARIANT == "DEV":
-            import hot_reload
+        import hot_reload
 
-            hot_reload.start_auto_reload()
+        hot_reload.start_auto_reload()
 
         # import hot_reload
         # hot_reload.start_auto_reload()
@@ -356,10 +362,9 @@ class OBA_Optics(Gui.Workbench):
         Gui.activateWorkbench("OBA_Optics")
 
     def Deactivated(self):
-        if ACTIVE_VARIANT == "DEV":
-            import hot_reload
+        import hot_reload
 
-            hot_reload.stop_auto_reload()
+        hot_reload.stop_auto_reload()
         # import hot_reload
         # hot_reload.stop_auto_reload()
 
@@ -367,24 +372,8 @@ class OBA_Optics(Gui.Workbench):
         return "Gui::PythonWorkbench"
 
 
-class OBA_Optics(Gui.Workbench):
-    MenuText = f"OBA optics ({ACTIVE_VARIANT})"
-
-
-FLAG = "OBA_WORKBENCH_ACTIVE"
-
-if MODULE_VARIANT == ACTIVE_VARIANT:
-
-    current = getattr(App, FLAG, None)
-
-    # ✅ DEV får alltid ta över
-    if MODULE_VARIANT == "DEV" or current is None:
-
-        setattr(App, FLAG, MODULE_VARIANT)
-        Gui.addWorkbench(OBA_Optics())
-
-        App.Console.PrintMessage(f"[OBA] Loaded {MODULE_VARIANT}\n")
-
+if IS_ACTIVE:
+    Gui.addWorkbench(OBA_Optics())
 
 # Gui.addWorkbench(OBA_Optics())
 # Gui.activateWorkbench("OBA_2Workbench")

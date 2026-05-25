@@ -4,7 +4,6 @@ import os
 from PySide import QtCore
 import FreeCADGui as Gui
 
-
 # =======================================================
 # REGISTER COMMAND
 # =======================================================
@@ -98,7 +97,7 @@ def unregister_commands(prefix):
                 pass
 
 
-def reload_workbench(pkg_name="sa_optics", cmd_prefix="OBA_"):
+def reload_workbench(pkg_name="OBA_OpticsWorkbench_dev", cmd_prefix="OBA_"):
     global _RELOADING
 
     if _RELOADING:
@@ -193,7 +192,7 @@ class AutoReloader(QtCore.QObject):
         QtCore.QTimer.singleShot(300, self._reload)
 
     def _reload(self):
-        reload_workbench("sa_optics", self.cmd_prefix)
+        reload_workbench("OBA_OpticsWorkbench_dev", self.cmd_prefix)
 
     def stop(self):
         self.watcher.deleteLater()

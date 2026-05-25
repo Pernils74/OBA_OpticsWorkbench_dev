@@ -138,7 +138,8 @@ class OBARay:
             mode=self.mode,
             parent_id=self.id,  # vilken händelse skapade mig
             path_id=self.path_id,  # Ärver path_id så att alla i samma "gren" har samma path_id. vilken fysisk stråle tillhör jag?
-            medium_stack=self.medium_stack,  # 🔥 ÄRVER STACKEN
+            # 🔥 ✅ SKAPA EN KOPIA AV LISTAN (list() eller .copy())
+            medium_stack=list(self.medium_stack),
         )
 
         child.last_facet = self.last_facet

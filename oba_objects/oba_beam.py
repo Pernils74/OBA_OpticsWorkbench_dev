@@ -14,6 +14,7 @@ BASE_PATH = os.path.dirname(__file__)
 
 
 from .oba_base import OBAElementProxy, OBABaseDialog, OBAViewProviderBase
+from .oba_lens_materials import get_material_list
 
 
 class OBABeam(OBAElementProxy):
@@ -23,6 +24,12 @@ class OBABeam(OBAElementProxy):
 
     def __init__(self, obj):
         super().__init__(obj)
+
+        if not hasattr(obj, "StartMedium"):
+            obj.addProperty("App::PropertyEnumeration", "StartMedium", "Optics")
+            obj.StartMedium = get_material_list()
+            if "Air" in obj.StartMedium:
+                obj.StartMedium = "Air"
 
         self._ensure_prop(obj, "App::PropertyBool", "Lambertian", "Beam", False)
         self._ensure_prop(obj, "App::PropertyFloat", "SpreadAngle", "Beam", 20.0)
@@ -123,6 +130,7 @@ class BeamDialog(OBABaseDialog):
         # -------------------------------------------------
         # Beam parameters
         # -------------------------------------------------
+        self._add_material("Start medium", "StartMedium")
         self._add_check("Lambertian", "Lambertian")
         self._add_spin("Spread angle", "SpreadAngle", 0, 180)
         self._add_int("Max rays", "MaxRays", 1, 10_000_000)
@@ -132,6 +140,20 @@ class BeamDialog(OBABaseDialog):
         self._add_spin("Wavelength (nm)", "Wavelength", 350, 780)
         self._add_spin("Ray line width", "RayLineWidth", 0.5, 10)
         self._add_spin("Preview ray length", "PreviewRayLength", 0.1, 1e9)
+
+    def _add_material(self, label, prop):
+        from .oba_lens_materials import get_material_list
+
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel(label))
+
+        cmb = QtWidgets.QComboBox()
+        cmb.addItems(get_material_list())
+        cmb.setCurrentText(getattr(self.obj, prop))
+        cmb.currentTextChanged.connect(lambda v: setattr(self.obj, prop, v))
+
+        row.addWidget(cmb)
+        self.custom_layout.addLayout(row)
 
     def _add_spin(self, label, prop, mn, mx):
         row = QtWidgets.QHBoxLayout()

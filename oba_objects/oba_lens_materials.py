@@ -31,8 +31,8 @@ MATERIAL_DATA = {
 
 
 def get_material_list():
-    """Returnerar sorterad lista med materialnamn."""
-    return sorted(MATERIAL_DATA.keys())
+    """Returnerar sorterad lista med materialnamn, med 'Air' först."""
+    return ["Air"] + sorted(m for m in MATERIAL_DATA if m != "Air")
 
 
 def get_material_params(name):
