@@ -3,7 +3,7 @@ import FreeCAD as App
 import FreeCADGui as Gui
 from PySide import QtCore
 
-IS_ACTIVE = True
+IS_ACTIVE = False
 
 
 # def get_module_path():
@@ -303,11 +303,11 @@ class OBA_Optics(Gui.Workbench):
             "OBA_CreateGrating",
             "OBA_CreateRayConfig",
             "OBA_ShowRayBounceRange",
-            SEP(),
+            SEP(),  # builders
             "OBA_CreateMirrorBuilder",
             "OBA_CreateLensBuilder",
             "OBA_CreatePlaneBuilder",
-            SEP(),
+            SEP(),  # utils
             "ShowClusterPlotDialog",
             "ShowPowerDensityPlotDialog",
             "ShowPowerVsHitPlotDialog",

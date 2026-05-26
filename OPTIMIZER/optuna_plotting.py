@@ -49,11 +49,11 @@ class OptunaPlotWindow(QtWidgets.QDialog):
         self.cmbX = QtWidgets.QComboBox()
         self.cmbY = QtWidgets.QComboBox()
 
-        controls.addWidget(QtWidgets.QLabel("X:"))
-        controls.addWidget(self.cmbX)
-
         controls.addWidget(QtWidgets.QLabel("Y:"))
         controls.addWidget(self.cmbY)
+
+        controls.addWidget(QtWidgets.QLabel("X:"))
+        controls.addWidget(self.cmbX)
 
         self.cmbX.setMinimumWidth(150)
         self.cmbY.setMinimumWidth(150)

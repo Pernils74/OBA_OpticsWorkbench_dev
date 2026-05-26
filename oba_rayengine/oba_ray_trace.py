@@ -420,41 +420,50 @@ def handle_optical_interaction(
     # ==================================================
     # LENSE
     # ==================================================
+
     elif o_type in ("Lens", "LensBuilder"):
+
         P_in = ray.power
         surface_n = props.get("RefractiveIndex", 1.5)
         use_fresnel = props.get("UseFresnel", False)
 
-        incoming_dir = incoming_dir
-        normal_l = normal_eff
+        # 1. Bestäm om vi går IN eller UT baserat på strålens nuvarande medium
+        # Om strålen redan befinner sig i detta medium (eller linsen), är den på väg UT.
+        if abs(ray.current_n - surface_n) < 1e-5:
+            entering = False
+        else:
+            entering = True
 
-        # entering = incoming_dir.dot(normal_l) < 0
-        # if incoming_dir.dot(normal_l) > 0:
-        #     normal_l = -normal_l
-
+        # 2. Hantera normalen så att den ALLTID pekar MOT den inkommande strålen.
+        # Detta krävs för att standardfunktioner för brytning (refract) och reflektion (reflect) ska fungera.
         dot = incoming_dir.dot(normal_eff)
-        entering = dot < 0
-        normal_l = normal_eff if dot < 0 else -normal_eff
+        if dot < 0:
+            normal_l = normal_eff
+        else:
+            normal_l = -normal_eff
 
-        # n1 är indexet i mediet strålen kommer FRÅN
+        # n1 är mediet strålen kommer FRÅN
         n1 = ray.current_n
 
-        # Bestäm n2 (mediet strålen går TILL)
+        # 3. Bestäm n2 (mediet strålen går TILL)
         if entering:
             n2 = surface_n
         else:
-            # When exiting, n2 should be the previous medium (not always air)
+            # Vid utgång: Hämta föregående medium i stacken (oftast luft/vakuum = 1.0)
             n2 = ray.medium_stack[-2] if len(ray.medium_stack) > 1 else 1.0
 
+        # Beräkna brytningsvinkeln (refract förväntar sig normalen vänd MOT strålen)
         refract_dir = refract(incoming_dir, normal_l, n1, n2)
 
         def fresnel_schlick(incident, normal, n1, n2):
-            cosi = max(-1.0, min(1.0, -incident.dot(normal)))
+            # abs() säkrar att cosinus alltid blir positiv (mellan 0 och 1) oavsett normalriktning
+            cosi = max(0.0, min(1.0, -incident.dot(normal)))
             r0 = ((n1 - n2) / (n1 + n2)) ** 2
             return r0 + (1 - r0) * (1 - cosi) ** 5
 
+        # 4. Beräkna reflektion (R) och transmission (T)
         if not refract_dir:
-            R = 1.0  # totalreflektion
+            R = 1.0  # Totalreflektion (händer oftast vid utgång i skarpa vinklar)
         elif use_fresnel:
             R = fresnel_schlick(incoming_dir, normal_l, n1, n2)
         else:
@@ -463,7 +472,6 @@ def handle_optical_interaction(
         T = 1.0 - R
 
         # --- Logga träffen på parent-rayen ---
-
         ray.log_bounce(
             props["Name"],
             o_type,
@@ -484,6 +492,8 @@ def handle_optical_interaction(
 
         # --- Fresnel-reflektion (NY bounce) ---
         if R > 1e-6:
+            # Reflektion studsar TILLBAKA till mediet vi kom ifrån.
+            # Eftersom normal_l pekar mot strålen, knuffar vi positions-offset LÄNGS normal_l.
             spawned_rays.append(
                 ray.spawn_child(
                     direction=reflect(incoming_dir, normal_l),
@@ -495,6 +505,8 @@ def handle_optical_interaction(
 
         # --- Refraktion (NY bounce) ---
         if refract_dir and T > 1e-6:
+            # Brytning fortsätter FRAMÅT in i nästa medium.
+            # Vi knuffar positions-offset MOTSATT normal_l för att trycka igenom strålen till andra sidan ytan.
             child = ray.spawn_child(
                 direction=refract_dir,
                 power=P_in * T,
@@ -502,7 +514,7 @@ def handle_optical_interaction(
                 extra={"type": "lens_refraction"},
             )
 
-            # ✅ Medium-stack hör till child
+            # ✅ Hantera medium-stacken för den brutna strålen
             if entering:
                 child.enter_medium(n2)
             else:

@@ -98,6 +98,39 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self.lblActiveStudy = QtWidgets.QLabel("Active study: —")
         layout.addWidget(self.lblActiveStudy)
 
+        # --- sampler / parallel options ---
+        samplerLayout = QtWidgets.QHBoxLayout()
+        self.chkConstantLiar = QtWidgets.QCheckBox("Constant liar")
+        self.chkConstantLiar.setChecked(True)
+        self.cmbSampler = QtWidgets.QComboBox()
+        self.cmbSampler.addItems(
+            [
+                "TPESampler",
+                "RandomSampler",
+                "CmaEsSampler",
+                "NSGAIISampler",  # ✅ needed for multi-objective
+            ]
+        )
+        samplerLayout.addWidget(QtWidgets.QLabel("Sampler:"))
+        samplerLayout.addWidget(self.cmbSampler)
+        samplerLayout.addSpacing(20)
+        samplerLayout.addWidget(self.chkConstantLiar)
+        samplerLayout.addStretch()
+        layout.addLayout(samplerLayout)
+
+        # --- trials control ---
+        self.spinTrials = QtWidgets.QSpinBox()
+        self.spinTrials.setRange(-1, 1_000_000)
+        self.spinTrials.setValue(500)
+        self.spinTrials.setSingleStep(50)
+
+        # ✅ visa "∞" när -1
+        self.spinTrials.setSpecialValueText("∞")
+
+        samplerLayout.addWidget(QtWidgets.QLabel("Trials:"))
+        samplerLayout.addWidget(self.spinTrials)
+        samplerLayout.addStretch()
+
         # ✅ tillbaka med widget
         self.targetWeights = TargetWeightsWidget(self)
         self.targetWeights.weightsChanged.connect(self._on_weights_changed)
@@ -409,6 +442,15 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         bounds = self._read_bounds(doc, params)
         payload = self.targetWeights.get_payload()
         metrics = self._build_metrics_config(payload)
+
+        sampler_name = self.cmbSampler.currentText()
+        use_constant_liar = self.chkConstantLiar.isChecked()
+
+        # ✅ detect multi-objective automatically
+        active_metrics = [m for m in metrics if m.get("active", True)]
+        multi_objective = len(active_metrics) > 1
+
+        n_trials = self.spinTrials.value()
         # print("Metrics config:", metrics)
         # ✅ ONLY compute baseline when new study
 
@@ -422,11 +464,15 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             "metrics": metrics,
             "params": params,
             "bounds": bounds,
-            "n_trials": 500,
+            "n_trials": n_trials,
             "study_name": study_name,
             "new_study": new_study,
             "baseline": self._baseline,
             "initial_params": current_params,  # ✅ för att kunna köra enque trials å default
+            # ✅ NEW
+            "sampler": sampler_name,
+            "constant_liar": use_constant_liar,
+            "multi_objective": multi_objective,
         }
 
         print("🚀 Start", "NEW" if new_study else "RESUME")

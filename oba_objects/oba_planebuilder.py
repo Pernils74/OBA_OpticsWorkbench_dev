@@ -112,6 +112,7 @@ class PlaneBuilderDialog(OBABaseDialog):
         # Width
         row1 = QtWidgets.QHBoxLayout()
         self.spin_w = QtWidgets.QDoubleSpinBox()
+        self.spin_w.setRange(0.1, 10000)
         self.spin_w.setValue(obj.Width)
         self.spin_w.valueChanged.connect(lambda v: setattr(obj, "Width", v))
 
@@ -122,6 +123,7 @@ class PlaneBuilderDialog(OBABaseDialog):
         # Height
         row2 = QtWidgets.QHBoxLayout()
         self.spin_h = QtWidgets.QDoubleSpinBox()
+        self.spin_h.setRange(0.1, 10000)
         self.spin_h.setValue(obj.Height)
         self.spin_h.valueChanged.connect(lambda v: setattr(obj, "Height", v))
 

@@ -120,10 +120,12 @@ def OBA_CreateAbsorber(show_dialog=True):
     doc.recompute()
 
     # Visa dialog direkt
-    if show_dialog:
-        AbsorberDialog(absorber_obj).show()
+    # if show_dialog:
+    #     AbsorberDialog(absorber_obj).show()
 
-    return absorber_obj
+    AbsorberDialog(absorber_obj).show()
+
+    # return absorber_obj
 
 
 # ============================================================
@@ -131,13 +133,13 @@ def OBA_CreateAbsorber(show_dialog=True):
 # ============================================================
 
 
-class _CmdAbsorber:
-    def GetResources(self):
-        return {"MenuText": "Create Absorber"}
+# class _CmdAbsorber:
+#     def GetResources(self):
+#         return {"MenuText": "Create Absorber"}
 
-    def Activated(self):
-        OBA_CreateAbsorber()
+#     def Activated(self):
+#         OBA_CreateAbsorber()
 
 
-if "OBA_CreateAbsorber" not in Gui.listCommands():
-    Gui.addCommand("OBA_CreateAbsorber", _CmdAbsorber())
+# if "OBA_CreateAbsorber" not in Gui.listCommands():
+#     Gui.addCommand("OBA_CreateAbsorber", _CmdAbsorber())
