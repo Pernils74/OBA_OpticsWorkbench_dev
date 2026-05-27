@@ -246,8 +246,9 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
                     hits = run_trace()
 
                     # STORE
-                    doc_name = f"{doc.Name}_{batch.Label}_{step.Id}"
-                    store_hits(db, doc_name, hits, dx, dy, dz, moved_str)
+
+                    step_id = step.Id
+                    store_hits(db, step_id, hits, dx, dy, dz, moved_str)
 
                     done_iters += 1
                     prog_bar.setValue(done_iters)
@@ -389,71 +390,39 @@ def run_trace():
     return hits
 
 
-# def trace_and_store(doc_name, db, move_objects, placement_snaps, dx, dy, dz, moved_objects_str):
-def store_hits(db, doc_name, hits, dx, dy, dz, moved_objects_str):
-
+def store_hits(db, step_id, hits, dx, dy, dz, moved_objects_str):
     accum = {}
-
     for hit in hits:
         target = hit.get("object")
         if not target:
             continue
-
         emitter = hit.get("emitter_id") or "__UNKNOWN__"
         key = (target, emitter)
-
         acc = accum.setdefault(
             key,
-            {
-                "count": 0,
-                "power_in": 0.0,
-                "power_out": 0.0,
-                "absorbed_power": 0.0,
-            },
+            {"count": 0, "power_in": 0.0, "power_out": 0.0, "absorbed_power": 0.0},
         )
-
         acc["count"] += 1
         acc["power_in"] += hit.get("power_in") or 0.0
         acc["power_out"] += hit.get("power_out") or 0.0
         acc["absorbed_power"] += hit.get("absorbed_power") or 0.0
-
     rows = []
-
     for (target, emitter), info in accum.items():
-        rows.append(
-            (
-                doc_name,
-                target,
-                emitter,
-                "",
-                moved_objects_str,
-                dx,
-                dy,
-                dz,
-                info["count"],
-                info["power_in"],
-                info["power_out"],
-                info["absorbed_power"],
-            )
+        row = (
+            step_id,
+            target,
+            emitter,
+            "",
+            moved_objects_str,
+            dx,
+            dy,
+            dz,
+            info["count"],
+            info["power_in"],
+            info["power_out"],
+            info["absorbed_power"],
         )
-
-        rows.append(
-            (
-                doc_name,
-                target,
-                "__ALL__",
-                "",
-                moved_objects_str,
-                dx,
-                dy,
-                dz,
-                info["count"],
-                info["power_in"],
-                info["power_out"],
-                info["absorbed_power"],
-            )
-        )
-
+        rows.append(row)
     if rows:
         db.write_hits_batch(rows)
         db.flush_if_needed()

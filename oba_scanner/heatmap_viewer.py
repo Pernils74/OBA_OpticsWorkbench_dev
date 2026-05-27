@@ -2,48 +2,59 @@
 # heatmap_viewer.py
 
 import os
-
 import numpy as np
 import FreeCAD as App
 import FreeCADGui as Gui
 from PySide import QtCore, QtWidgets
 from PySide.QtWidgets import QSizePolicy
 
-
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-
 from matplotlib.figure import Figure
-from mpl_toolkits.mplot3d import proj3d, Axes3D
+from mpl_toolkits.mplot3d import Axes3D
+
+from .scan_db import HitsDB, get_doc_db_path
 
 
-from .batch_runner import resolve_move_target, snapshot_placement, clear_placement_expressions, apply_direct_offset, restore_placement, run_trace, store_hits
-from .scan_db import HitsDB
+from .batch_runner import (
+    resolve_move_target,
+    snapshot_placement,
+    clear_placement_expressions,
+    apply_direct_offset,
+    run_trace,
+    store_hits,
+    restore_placement,
+)
 
 DOCK_OBJECT_NAME = "BeamAbsorberHeatmapDock"
 
 
+# ==========================================================
 class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
-
-    # ==========================================================
-    # INIT
     # ==========================================================
     def __init__(self, parent=None):
         super().__init__("Heatmap Viewer", parent)
         self.setObjectName(DOCK_OBJECT_NAME)
 
-        self.db = HitsDB()
+        self.db = HitsDB(get_doc_db_path())
         self._last_mtime = None
 
-        self._placement_snapshot = {}  # för att kunna klicka i 3d graf och sedan återställa originalplacering
-        self._expr_snapshot = {}
+        self.emitter_checks = {}
+        self.profile_mode = "profile"  # Är för 2d profileplotten
+        # senare: "hist", "scatter", "fft" etc
+        self._placement_snapshot = {}
         self._snapshotted_objects = []
         self._current_moved_objects = ""
+        self._click_busy = False
 
         self._build_ui()
-        self._populate_doc_list()
+
+        self._refresh_db()
+        self._populate_steps()
         self._populate_targets()
-        self._populate_emitters()
-        self._update_plot()
+
+        self.canvas2d.mpl_connect("button_press_event", self._on_2d_click)
+
+        QtCore.QTimer.singleShot(0, self._target_changed)
 
         self._watch = QtCore.QTimer(self)
         self._watch.timeout.connect(self._maybe_refresh)
@@ -59,27 +70,23 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
 
         form = QtWidgets.QFormLayout()
 
-        self.comboDoc = QtWidgets.QComboBox()
-        self.comboTarget = QtWidgets.QComboBox()
+        # DB
+        db_row = QtWidgets.QHBoxLayout()
+        self.lblDB = QtWidgets.QLabel("")
+        self.btnDBRefresh = QtWidgets.QPushButton("↻")
+        db_row.addWidget(QtWidgets.QLabel("DB:"))
+        db_row.addWidget(self.lblDB, 1)
+        db_row.addWidget(self.btnDBRefresh)
+        form.addRow(db_row)
 
-        self.comboPlane = QtWidgets.QComboBox()
-        self.comboPlane.addItems(["XY", "XZ", "YZ"])
+        self.comboStep = QtWidgets.QComboBox()
+        form.addRow("Step:", self.comboStep)
+
+        self.comboTarget = QtWidgets.QComboBox()
+        form.addRow("Target:", self.comboTarget)
 
         self.comboValue = QtWidgets.QComboBox()
-        self.comboValue.addItem("Hits", "hits")
-        self.comboValue.addItem("Power In", "power_in")
-        self.comboValue.addItem("Power Out", "power_out")
-
-        row_doc = QtWidgets.QHBoxLayout()
-        self.btnReload = QtWidgets.QPushButton("Reload")
-        self.btnDeleteDoc = QtWidgets.QPushButton("Delete")
-
-        row_doc.addWidget(self.comboDoc)
-        row_doc.addWidget(self.btnReload)
-        row_doc.addWidget(self.btnDeleteDoc)
-
-        form.addRow("Document:", self._wrap(row_doc))
-        form.addRow("Target object:", self.comboTarget)
+        self.comboValue.addItems(["Hits", "Power In", "Power Out"])
         form.addRow("Value:", self.comboValue)
 
         # Emitters
@@ -88,98 +95,86 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         form.addRow(self.emitterBox)
 
         # Options
+        self.comboPlane = QtWidgets.QComboBox()
+        self.comboPlane.addItems(["XY", "XZ", "YZ"])
+
         self.chkSmooth = QtWidgets.QCheckBox("Smooth")
         self.spinSmooth = QtWidgets.QSpinBox()
         self.spinSmooth.setRange(1, 10)
         self.spinSmooth.setValue(2)
 
-        self.chkPickable = QtWidgets.QCheckBox("Clickable surface")
-        self.chkPickable.setChecked(True)
-
         self.chkPercent = QtWidgets.QCheckBox("Show %")
 
-        row_opt = QtWidgets.QHBoxLayout()
-        row_opt.addWidget(QtWidgets.QLabel("Plane:"))
-        row_opt.addWidget(self.comboPlane)
-        row_opt.addSpacing(10)
-        row_opt.addWidget(self.chkPickable)
+        self.chkPlane2D = QtWidgets.QCheckBox("2D plane view")
 
-        row_opt.addSpacing(20)
-        row_opt.addWidget(self.chkSmooth)
-        row_opt.addWidget(QtWidgets.QLabel("Strength:"))
-        row_opt.addWidget(self.spinSmooth)
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel("Plane"))
+        row.addWidget(self.comboPlane)
+        row.addSpacing(15)
+        row.addWidget(self.chkSmooth)
+        row.addWidget(self.spinSmooth)
+        row.addSpacing(15)
+        row.addWidget(self.chkPercent)
 
-        row_opt.addWidget(self.chkPercent)
+        row.addSpacing(15)
+        row.addWidget(self.chkPlane2D)
+        row.addStretch()
 
-        form.addRow(row_opt)
+        self.lblMoved = QtWidgets.QLabel("Moved: -")
+        form.addRow("Moving:", self.lblMoved)
+        self.lblMoved.setText(self._current_moved_objects)
+
+        form.addRow(row)
         layout.addLayout(form)
 
-        # Plots
-        plotArea = QtWidgets.QHBoxLayout()
+        # PLOTS
+        plotRow = QtWidgets.QHBoxLayout()
 
-        self.fig3d = Figure(figsize=(5, 5))
+        self.fig3d = Figure()
         self.canvas3d = FigureCanvas(self.fig3d)
         self.canvas3d.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.canvas3d.mpl_connect("pick_event", self._on_surface_pick)
 
-        self.figProf = Figure(figsize=(5, 5))
-        self.canvasProf = FigureCanvas(self.figProf)
-        self.canvasProf.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.fig2d = Figure()
+        self.canvas2d = FigureCanvas(self.fig2d)
+        self.canvas2d.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        plotArea.addWidget(self.canvas3d)
-        plotArea.addWidget(self.canvasProf)
-        layout.addLayout(plotArea, 1)
+        plotRow.addWidget(self.canvas3d)
+        plotRow.addWidget(self.canvas2d)
 
-        # Signals
-        self.comboDoc.currentIndexChanged.connect(self._doc_changed)
+        layout.addLayout(plotRow, 1)
+
+        # signals
+        self.comboStep.currentIndexChanged.connect(self._update_plot)
         self.comboTarget.currentIndexChanged.connect(self._target_changed)
-
-        self.btnReload.clicked.connect(self._reload_structure)
-
-        self.comboPlane.currentIndexChanged.connect(self._update_plot)
         self.comboValue.currentIndexChanged.connect(self._update_plot)
-
+        self.comboPlane.currentIndexChanged.connect(self._update_plot)
         self.chkSmooth.toggled.connect(self._update_plot)
         self.spinSmooth.valueChanged.connect(self._update_plot)
         self.chkPercent.toggled.connect(self._update_plot)
-        self.chkPickable.toggled.connect(self._update_plot)
-
-        self.btnDeleteDoc.clicked.connect(self._on_delete_document_clicked)
-
-    def _wrap(self, layout):
-        w = QtWidgets.QWidget()
-        w.setLayout(layout)
-        return w
-
-    def _reload_structure(self):
-        self._last_mtime = None  # reset watcher
-        self._populate_doc_list()
-        self._populate_targets()
-        self._populate_emitters()
-        self._update_plot()
+        self.chkPlane2D.toggled.connect(self._update_plot)
 
     # ==========================================================
-    # DATA
+    # DB
     # ==========================================================
-    def _populate_doc_list(self):
-        current = self.comboDoc.currentText()
-        docs = self.db.list_documents()
+    def _refresh_db(self):
+        path = get_doc_db_path()
+        if self.db.path != path:
+            self.db.close()
+            self.db = HitsDB(path)
+        self.lblDB.setText(os.path.basename(path))
+        self.lblDB.setToolTip(path)
 
-        self.comboDoc.blockSignals(True)
-        self.comboDoc.clear()
-        self.comboDoc.addItems(docs if docs else ["<none>"])
-        if current:
-            i = self.comboDoc.findText(current)
-            if i >= 0:
-                self.comboDoc.setCurrentIndex(i)
-        self.comboDoc.blockSignals(False)
+    # ==========================================================
+    def _populate_steps(self):
+        self.comboStep.clear()
+        self.comboStep.addItems(self.db.list_steps() or ["<none>"])
 
     def _populate_targets(self):
         self.comboTarget.clear()
-        doc = self.comboDoc.currentText()
-        if "<" in doc:
-            return
-        self.comboTarget.addItems(self.db.list_target_objects(doc))
+        for name in self.db.list_target_objects():
+            obj = App.ActiveDocument.getObject(name)
+            if obj:
+                self.comboTarget.addItem(obj.Label, name)
 
     def _populate_emitters(self):
         while self.emitterLayout.count():
@@ -187,141 +182,449 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
             if w:
                 w.deleteLater()
 
-        doc = self.comboDoc.currentText()
-        target = self.comboTarget.currentText()
-        if not doc or not target or "<" in doc:
+        target = self.comboTarget.currentData()
+        if not target:
             return
 
         self.emitter_checks = {}
-        for em in self.db.list_emitters(doc, target):
+        for em in self.db.list_emitters(target):
             chk = QtWidgets.QCheckBox(em)
-            chk.setChecked(em == "__ALL__")
+            chk.setChecked(True)
             chk.toggled.connect(self._update_plot)
             self.emitterLayout.addWidget(chk)
             self.emitter_checks[em] = chk
 
     # ==========================================================
-    # CORE
-    # ==========================================================
-    def _doc_changed(self):
-        self._last_mtime = None
-        self._populate_targets()
-        self._populate_emitters()
-        self._update_plot()
-        self._snapshot_objects()
-
     def _target_changed(self):
         self._populate_emitters()
         self._update_plot()
 
     def _maybe_refresh(self):
         try:
-            mtime = os.path.getmtime(self.db.path)
-        except Exception:
-            return
-        if mtime != self._last_mtime:
-            self._last_mtime = mtime
-            self._update_plot()
+            if os.path.getmtime(self.db.path) != self._last_mtime:
+                self._last_mtime = os.path.getmtime(self.db.path)
+                self._update_plot()
+        except:
+            pass
 
     def _get_selected_emitters(self):
-        if "__ALL__" in self.emitter_checks and self.emitter_checks["__ALL__"].isChecked():
-            return ["__ALL__"]
-        return [e for e, chk in self.emitter_checks.items() if chk.isChecked()]
+        return [e for e, c in self.emitter_checks.items() if c.isChecked()]
+
+    # ==========================================================
+    # CORE
+    # ==========================================================
+
+    def _snapshot_objects(self):
+        doc = App.ActiveDocument
+
+        self._placement_snapshot.clear()
+        self._snapshotted_objects.clear()
+
+        if not hasattr(self, "_current_moved_objects"):
+            return
+
+        if not self._current_moved_objects:
+            return
+
+        names = self._current_moved_objects.split(";")
+
+        for name in names:
+            obj = doc.getObject(name)
+            obj = resolve_move_target(obj)
+
+            if not obj:
+                continue
+
+            if obj.Name in self._placement_snapshot:
+                continue
+
+            snap = snapshot_placement(obj)
+
+            self._placement_snapshot[obj.Name] = snap
+            self._snapshotted_objects.append(obj)
+
+    def _restore_objects(self):
+        doc = App.ActiveDocument
+        for name, snap in self._placement_snapshot.items():
+            obj = doc.getObject(name)
+            if obj:
+                restore_placement(obj, snap)
+        doc.recompute()
+
+    def _update_plot_old(self):
+        result = self._compute_field()
+
+        if result is None:
+            self._clear()
+            return
+
+        Xi, Yi, Vi = result
+
+        # 3D alltid
+        self._plot_3d(Xi, Yi, Vi)
+
+        # 2D beroende på mode
+        if self.profile_mode == "profile":
+            self._plot_2d_profile(Xi, Yi, Vi)
+        else:
+            self._plot_2d_profile(Xi, Yi, Vi)  # fallback
 
     def _update_plot(self):
-        doc = self.comboDoc.currentText()
-        target = self.comboTarget.currentText()
-        if "<" in doc or not target:
-            self._clear_plots()
+        result = self._compute_field()
+
+        if result is None:
+            self._clear()
             return
+
+        Xi, Yi, Vi = result
+
+        # reset snapshot när vi laddar ny data
+        # self._snapshotted_objects = []
+        # self._placement_snapshot = {}
+
+        self._plot_3d(Xi, Yi, Vi)
+
+        if self.chkPlane2D.isChecked():
+            self._plot_2d_plane(Xi, Yi, Vi)
+        else:
+            self._plot_2d_profile(Xi, Yi, Vi)
+
+    def _compute_field(self):
+        target = self.comboTarget.currentData()
+        step = self.comboStep.currentText()
+
+        if not target or step == "<none>":
+            return None
 
         emitters = self._get_selected_emitters()
         if not emitters:
-            self._clear_plots()
-            return
-        # Samlingsarrayer
+            return None
+
         X = Y = Z = V = None
 
-        value_key = self.comboValue.currentText()
-        # value_key är: "Hits", "Power In", "Power Out"
         for em in emitters:
-            # NYTT schema
-            Xi, Yi, Zi, Hi, Pin, Pout, Moved_objects = self.db.read_grid(doc, target, em)
-            if not Xi:
+            data = self.db.read_grid(target, em, step)
+            if not data:
                 continue
-            # Välj korrekt observabel
-            if value_key == "Hits":
-                val = np.asarray(Hi, dtype=float)
-            elif value_key == "Power In":
-                val = np.asarray(Pin, dtype=float)
-            elif value_key == "Power Out":
-                val = np.asarray(Pout, dtype=float)
+
+            Xi, Yi, Zi, Hi, Pin, Pout, moved = data
+
+            if self.comboValue.currentText() == "Hits":
+                val = np.asarray(Hi, float)
+            elif self.comboValue.currentText() == "Power In":
+                val = np.asarray(Pin, float)
             else:
-                continue
+                val = np.asarray(Pout, float)
 
-            self._current_moved_objects = ""  # reset för varje emitter, så att det alltid är korrekt för den emitter som visas i grafen
             if V is None:
-                X = np.asarray(Xi)
-                Y = np.asarray(Yi)
-                Z = np.asarray(Zi)
+                X, Y, Z = map(np.asarray, (Xi, Yi, Zi))
                 V = val.copy()
-
-                if Moved_objects:
-                    self._current_moved_objects = Moved_objects[0]
-
-                self._current_doc_name = doc
+                # ✅ SÄTT vilka objekt som flyttas
+                if moved:
+                    self._current_moved_objects = moved[0]
+                    self.lblMoved.setText(self._current_moved_objects)
             else:
                 V += val
 
         if V is None:
-            self._clear_plots()
-            return
+            return None
 
-        # Projektion
+        # projection
         plane = self.comboPlane.currentText()
-        if plane == "XY":
-            px, py = X, Y
-        elif plane == "XZ":
-            px, py = X, Z
-        else:  # YZ
-            px, py = Y, Z
+        px, py = (X, Y) if plane == "XY" else (X, Z) if plane == "XZ" else (Y, Z)
 
-        # Grid / interpolation
-        Xi, Yi, Vi = self._build_grid(px, py, V)
-
-        # Procentläge
-        if self.chkPercent.isChecked():
-            Vi, _ = self._to_percent(Vi)
-        # Plot
-        self._plot_surface(Xi, Yi, Vi, plane)
-        self._plot_profiles(Xi, Yi, Vi)
-
-    # ==========================================================
-    # GRID / FILTERS
-    # ==========================================================
-    def _build_grid(self, X, Y, V, res=80):
-        xi = np.linspace(X.min(), X.max(), res)
-        yi = np.linspace(Y.min(), Y.max(), res)
-        Xi, Yi = np.meshgrid(xi, yi)
+        Xi, Yi = np.meshgrid(
+            np.linspace(px.min(), px.max(), 60),
+            np.linspace(py.min(), py.max(), 60),
+        )
 
         Vi = np.zeros_like(Xi)
-        for i in range(res):
-            for j in range(res):
-                d = np.sqrt((X - Xi[i, j]) ** 2 + (Y - Yi[i, j]) ** 2)
-                w = 1.0 / (d + 1e-6)
+
+        for i in range(Xi.shape[0]):
+            for j in range(Xi.shape[1]):
+                d = np.sqrt((px - Xi[i, j]) ** 2 + (py - Yi[i, j]) ** 2)
+                w = 1 / (d + 1e-6)
                 Vi[i, j] = np.sum(w * V) / np.sum(w)
 
-        # if self.chkSmooth.isChecked():
-        #     Vi = self._median(Vi, 3)
-
+        # smooth
         if self.chkSmooth.isChecked():
-            strength = self.spinSmooth.value()
-            k = max(1, 2 * strength + 1)
-            Vi = self._median(Vi, k)
+            Vi = self._median(Vi, 2 * self.spinSmooth.value() + 1)
+
+        # percent
+        if self.chkPercent.isChecked():
+            m = np.max(Vi)
+            if m > 0:
+                Vi = Vi / m * 100
 
         return Xi, Yi, Vi
 
-    def _median(self, data, k=3):
+    def _plot_3d(self, Xi, Yi, Vi):
+        self.fig3d.clear()
+        ax = self.fig3d.add_subplot(111, projection="3d")
+
+        # =========================
+        # MAIN SURFACE
+        # =========================
+        ax.plot_surface(Xi, Yi, Vi, cmap="viridis", alpha=0.9)
+
+        # bounds
+        xmin, xmax = Xi.min(), Xi.max()
+        ymin, ymax = Yi.min(), Yi.max()
+        zmin, zmax = Vi.min(), Vi.max()
+
+        mid_x_idx = Vi.shape[0] // 2
+        mid_y_idx = Vi.shape[1] // 2
+
+        mid_x = (xmin + xmax) * 0.5
+        mid_y = (ymin + ymax) * 0.5
+
+        # =========================
+        # GHOST PLANES (TRUE PLANES)
+        # =========================
+
+        # --- X plane (vertical slice)
+        Yp, Zp = np.meshgrid(
+            np.linspace(ymin, ymax, 30),
+            np.linspace(zmin, zmax, 30),
+        )
+        Xp = np.full_like(Yp, mid_x)
+
+        ax.plot_surface(
+            Xp,
+            Yp,
+            Zp,
+            color="white",
+            alpha=0.15,
+            edgecolor="none",
+        )
+
+        # --- Y plane (vertical slice)
+        Xp, Zp = np.meshgrid(
+            np.linspace(xmin, xmax, 30),
+            np.linspace(zmin, zmax, 30),
+        )
+        Yp = np.full_like(Xp, mid_y)
+
+        ax.plot_surface(
+            Xp,
+            Yp,
+            Zp,
+            color="cyan",
+            alpha=0.15,
+            edgecolor="none",
+        )
+
+        # =========================
+        # PROFILE LINES (on surface)
+        # =========================
+
+        # X profile
+        X_line_X = Xi[mid_x_idx, :]
+        X_line_Y = Yi[mid_x_idx, :]
+        X_line_Z = Vi[mid_x_idx, :]
+
+        ax.plot(
+            X_line_X,
+            X_line_Y,
+            X_line_Z,
+            color="white",
+            linewidth=2,
+        )
+
+        # Y profile
+        Y_line_X = Xi[:, mid_y_idx]
+        Y_line_Y = Yi[:, mid_y_idx]
+        Y_line_Z = Vi[:, mid_y_idx]
+
+        ax.plot(
+            Y_line_X,
+            Y_line_Y,
+            Y_line_Z,
+            color="cyan",
+            linewidth=2,
+        )
+
+        # =========================
+        # COSMETICS
+        # =========================
+        # ax.set_title("3D Heatmap + Profile Planes")
+
+        self.canvas3d.draw_idle()
+
+    def _plot_2d_profile(self, Xi, Yi, Vi):
+        self.fig2d.clear()
+        ax = self.fig2d.add_subplot(111)
+
+        mid_x = Vi.shape[0] // 2
+        mid_y = Vi.shape[1] // 2
+
+        ax.plot(Xi[mid_x], Vi[mid_x], label="X profile")
+        ax.plot(Yi[:, mid_y], Vi[:, mid_y], "--", label="Y profile")
+
+        ax.legend()
+        ax.grid(True)
+
+        self.canvas2d.draw_idle()
+
+    def _plot_2d_plane(self, Xi, Yi, Vi):
+        self.fig2d.clear()
+        ax = self.fig2d.add_subplot(111)
+
+        # heatmap
+        c = ax.pcolormesh(Xi, Yi, Vi, cmap="viridis", shading="auto")
+
+        self.fig2d.colorbar(c, ax=ax)
+
+        ax.set_title("2D Plane (clickable)")
+        ax.set_aspect("equal")
+
+        # spara data för klick
+        self._plane_Xi = Xi
+        self._plane_Yi = Yi
+        self._plane_Vi = Vi
+
+        # connect klick
+        # self.canvas2d.mpl_connect("button_press_event", self._on_2d_click)
+
+        self.canvas2d.draw_idle()
+
+    def _on_2d_click(self, event):
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        self.setEnabled(False)
+        # if self._click_busy:
+        #     return
+
+        if event.inaxes is None:
+            return
+        if not self.chkPlane2D.isChecked():
+            return
+        x = event.xdata
+        y = event.ydata
+
+        print("CLICK")
+        print(event.xdata, event.ydata)
+
+        if x is None or y is None:
+            return
+        self._click_busy = True  # 🔥 LOCK
+        try:
+            plane = self.comboPlane.currentText()
+            if plane == "XY":
+                dx, dy, dz = x, y, 0.0
+            elif plane == "XZ":
+                dx, dy, dz = x, 0.0, y
+            else:
+                dx, dy, dz = 0.0, x, y
+            doc = App.ActiveDocument
+            if not doc:
+                return
+            cfg = doc.getObject("OBARayConfig")
+            old_mode = None
+            try:
+                if cfg:
+                    old_mode = cfg.RunMode
+                    cfg.RunMode = "MANUAL"
+                if not self._snapshotted_objects:
+                    self._snapshot_objects()
+                # ✅ viktig
+                self._restore_objects()
+                for obj in self._snapshotted_objects:
+                    snap = self._placement_snapshot[obj.Name]
+                    clear_placement_expressions(obj)
+                    apply_direct_offset(obj, snap, dx, dy, dz)
+                    print("stored:", dx, dy, dz)
+                    # print(self.db.count_rows())
+
+                print("after restore", obj.Placement.Base)
+
+                doc.recompute()
+
+                print("after recompute", obj.Placement.Base)
+
+                before = obj.Placement.Base
+                hits = run_trace()
+                after = obj.Placement.Base
+                # print(before)
+                # print(after)
+
+                step = self.comboStep.currentText()
+                moved = self._current_moved_objects if hasattr(self, "_current_moved_objects") else ""
+
+                store_hits(self.db, step, hits, dx, dy, dz, moved)
+                self.db.commit()
+            finally:
+                if cfg and old_mode is not None:
+                    cfg.RunMode = old_mode
+            self._update_plot()
+        finally:
+            self.setEnabled(True)
+            QtWidgets.QApplication.restoreOverrideCursor()
+            # self._click_busy = False  # 🔓 UNLOCK
+
+    def _on_2d_click_old(self, event):
+        if event.inaxes is None:
+            return
+        if not self.chkPlane2D.isChecked():
+            return
+        x = event.xdata
+        y = event.ydata
+        if x is None or y is None:
+            return
+        # -----------------------------
+        # konvertera till dx,dy,dz
+        # -----------------------------
+        plane = self.comboPlane.currentText()
+        if plane == "XY":
+            dx, dy, dz = x, y, 0.0
+        elif plane == "XZ":
+            dx, dy, dz = x, 0.0, y
+        else:  # YZ
+            dx, dy, dz = 0.0, x, y
+        doc = App.ActiveDocument
+        if not doc:
+            return
+        cfg = doc.getObject("OBARayConfig")
+        old_mode = None
+        try:
+            # ✅ BLOCK AUTO TRACE
+            if cfg:
+                old_mode = cfg.RunMode
+                cfg.RunMode = "MANUAL"
+            # -----------------------------
+            # snapshot (om inte gjort)
+            # -----------------------------
+            if not self._snapshotted_objects:
+                self._snapshot_objects()
+            # -----------------------------
+            # flytta objekt
+            # -----------------------------
+            for obj in self._snapshotted_objects:
+                snap = self._placement_snapshot[obj.Name]
+                clear_placement_expressions(obj)
+
+                apply_direct_offset(obj, snap, dx, dy, dz)
+            doc.recompute()
+            # -----------------------------
+            # TRACE + STORE
+            # -----------------------------
+            hits = run_trace()
+
+            step = self.comboStep.currentText()
+            moved = self._current_moved_objects if hasattr(self, "_current_moved_objects") else ""
+
+            store_hits(self.db, step, hits, dx, dy, dz, moved)
+            self.db.commit()
+        finally:
+            # ✅ ALLTID ÅTERSTÄLL
+            if cfg and old_mode is not None:
+                cfg.RunMode = old_mode
+        # -----------------------------
+        # uppdatera graf
+        # -----------------------------
+        self._update_plot()
+
+    # ==========================================================
+    def _median(self, data, k):
         pad = k // 2
         p = np.pad(data, pad, mode="edge")
         out = np.zeros_like(data)
@@ -330,249 +633,21 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
                 out[i, j] = np.median(p[i : i + k, j : j + k])
         return out
 
-    def _to_percent(self, data):
-        m = np.max(data)
-        if not np.isfinite(m) or m <= 0:
-            return np.zeros_like(data), 0
-        return data / m * 100.0, m
-
-    # ==========================================================
-    # PLOTS
-    # ==========================================================
-
-    def _plot_surface(self, Xi, Yi, Vi, plane):
-        self.current_Xi = Xi
-        self.current_Yi = Yi
-        self.current_Vi = Vi
+    def _clear(self):
         self.fig3d.clear()
-        ax = self.fig3d.add_subplot(111, projection="3d")
-        # Alltid rita snygg yta först
-        # ax.plot_surface(Xi, Yi, Vi, cmap="viridis", alpha=0.5)
-        # ✅ Bara om checkbox är aktiv → overlay scatter
-        if self.chkPickable.isChecked():
-            ax.plot_surface(Xi, Yi, Vi, cmap="viridis", alpha=0.5)
-            # LITE glesare → snyggare + snabbare
-            # step = 3  # kan tweakas
-            step = max(1, int(len(Xi) / 40))
-            xs = Xi[::step, ::step].flatten()
-            ys = Yi[::step, ::step].flatten()
-            zs = Vi[::step, ::step].flatten()
-            self._scatter = ax.scatter(xs, ys, zs, c=zs, cmap="viridis", alpha=0.5, s=12, picker=True)
-            self._scatter_data = (xs, ys, zs)
-        else:
-            ax.plot_surface(Xi, Yi, Vi, cmap="viridis")
-            self._scatter = None
-            self._scatter_data = None
-        ax.set_title(f"{plane}")
+        self.fig2d.clear()
         self.canvas3d.draw_idle()
-
-    def _on_surface_pick(self, event):
-
-        if not self.chkPickable.isChecked():
-            return
-        if self._scatter is None or event.artist != self._scatter:
-            return
-        ind = event.ind
-        if ind is None or len(ind) == 0:
-            return
-        i = ind[0]
-        X, Y, Z = self._scatter_data
-        x_val = X[i]
-        y_val = Y[i]
-        z_val = Z[i]
-
-        App.Console.PrintMessage("\n--- Klick ---\n")
-        App.Console.PrintMessage(f"X: {x_val:.4f}\n")
-        App.Console.PrintMessage(f"Y: {y_val:.4f}\n")
-        App.Console.PrintMessage(f"Z: {z_val:.4f}\n")
-
-        ax = event.artist.axes
-        # ✅ robust remove
-        if hasattr(self, "_current_click_point"):
-            try:
-                self._current_click_point.remove()
-            except Exception:
-                self._current_click_point.set_visible(False)
-
-        z_offset = 0.1 * (np.max(self.current_Vi) - np.min(self.current_Vi))
-        # punkt ovanför
-        self._current_click_point = ax.scatter([x_val], [y_val], [z_val + z_offset], color="red", alpha=1.0, s=100, zorder=100)
-        self.canvas3d.draw_idle()
-
-        # ✅ säkerställ snapshot finns
-        if not self._snapshotted_objects:
-            self._snapshot_objects()
-
-        plane = self.comboPlane.currentText()
-        if plane == "XY":
-            dx, dy, dz = x_val, y_val, 0.0
-        elif plane == "XZ":
-            dx, dy, dz = x_val, 0.0, y_val
-        else:  # YZ
-            dx, dy, dz = 0.0, x_val, y_val
-        self._move_objects_to_offset(dx, dy, dz)
-
-        # ----------------------------------
-        # Kör trace + skriv till DB
-        # ----------------------------------
-
-        doc = App.ActiveDocument
-
-        move_objects = {}
-        placement_snaps = {}
-
-        for obj in self._snapshotted_objects:
-            move_objects[obj.Name] = obj
-            placement_snaps[obj.Name] = self._placement_snapshot[obj.Name]
-
-        moved_str = self._current_moved_objects or ""
-
-        doc_name = self._current_doc_name
-        moved_str = self._current_moved_objects
-
-        hits = run_trace()
-        store_hits(self.db, doc_name, hits, dx, dy, dz, moved_str)
-        self.db.commit()  # spar direkt så det syns i grafen
-
-        # trace_and_store(doc, self.db, move_objects, placement_snaps, dx, dy, dz, moved_str)
-
-        self._update_profile_markers(x_val, y_val, z_val)
-
-    def _plot_profiles(self, Xi, Yi, Vi):
-        self.figProf.clear()
-        ax = self.figProf.add_subplot(111)
-        ax.plot(Xi[Vi.shape[0] // 2], Vi[Vi.shape[0] // 2], label="X profile")
-        ax.plot(Yi[:, Vi.shape[1] // 2], Vi[:, Vi.shape[1] // 2], "--", label="Y profile")
-
-        self._profile_X = Xi[Vi.shape[0] // 2]
-        self._profile_Y = Yi[:, Vi.shape[1] // 2]
-
-        self._profile_X_values = Vi[Vi.shape[0] // 2]
-        self._profile_Y_values = Vi[:, Vi.shape[1] // 2]
-
-        ax.legend()
-        ax.grid(True)
-        self.canvasProf.draw_idle()
-
-    def _update_profile_markers(self, x_val, y_val, z_val):
-        if not hasattr(self, "_profile_X"):
-            return
-
-        ax = self.figProf.axes[0]
-        # ✅ ta bort gamla markers + linjer
-        if hasattr(self, "_profile_markers"):
-            for m in self._profile_markers:
-                try:
-                    m.remove()
-                except:
-                    pass
-
-        if hasattr(self, "_profile_hline"):
-            try:
-                self._profile_hline.remove()
-            except:
-                pass
-
-        # ✅ hitta index
-        idx_x = np.argmin(np.abs(self._profile_X - x_val))
-        idx_y = np.argmin(np.abs(self._profile_Y - y_val))
-
-        val_x = self._profile_X_values[idx_x]
-        val_y = self._profile_Y_values[idx_y]
-
-        # ✅ punkter
-        m1 = ax.scatter(self._profile_X[idx_x], val_x, color="red", s=60, zorder=10)
-        m2 = ax.scatter(self._profile_Y[idx_y], val_y, color="blue", s=60, zorder=10)
-
-        # ✅ NYTT: horisontell linje
-        # z_val = (val_x + val_y) * 0.5  # eller direkt från klick om du vill
-        col = "blue" if z_val > np.mean(self._profile_X_values) else "red"
-        self._profile_hline = ax.axhline(y=z_val, color=col, linestyle="--", linewidth=1, alpha=0.7)
-        ax.text(ax.get_xlim()[0], z_val, f"{z_val:.2f}", verticalalignment="bottom", fontsize=8, color="black")
-
-        self._profile_markers = [m1, m2]
-
-        self.canvasProf.draw_idle()
-
-    # ==========================================================
-    def _clear_plots(self):
-        self.fig3d.clear()
-        self.figProf.clear()
-        self.canvas3d.draw_idle()
-        self.canvasProf.draw_idle()
-
-    def _on_delete_document_clicked(self):
-        doc = self.comboDoc.currentText()
-        if "<" in doc:
-            return
-        if QtWidgets.QMessageBox.question(self, "Delete", f"Delete {doc}?") == QtWidgets.QMessageBox.Yes:
-            self.db.delete_document(doc)
-            self._populate_doc_list()
-            self._clear_plots()
-
-    # ==========================================================
-    # Click i 3d graf
-    # ==========================================================
-
-    def _snapshot_objects(self, objects=None):
-        doc = App.ActiveDocument
-        # ✅ fallback: hämta från current step
-        if objects is None:
-            if not hasattr(self, "_current_moved_objects") or not self._current_moved_objects:
-                return
-            names = self._current_moved_objects.split(";")
-            objects = []
-            for n in names:
-                o = doc.getObject(n)
-                if o:
-                    objects.append(o)
-        # ✅ reset snapshots
-        self._placement_snapshot.clear()
-        self._snapshotted_objects.clear()
-
-        # ✅ snapshot
-        for obj in objects:
-            target = resolve_move_target(obj)
-            if not target:
-                continue
-            if target.Name in self._placement_snapshot:
-                continue
-            snap = snapshot_placement(target)
-            self._placement_snapshot[target.Name] = snap
-            self._snapshotted_objects.append(target)
-
-    def _restore_objects(self):
-        doc = App.ActiveDocument
-
-        for name, snap in self._placement_snapshot.items():
-            obj = doc.getObject(name)
-            if not obj:
-                continue
-
-            restore_placement(obj, snap)
-
-        doc.recompute()
-
-    def _move_objects_to_offset(self, dx, dy, dz):
-        print("Snapshot contains:", [o.Name for o in self._snapshotted_objects])
-
-        if not self._snapshotted_objects:
-            print("No objects to move")
-            return
-
-        for obj in self._snapshotted_objects:
-            snap = self._placement_snapshot.get(obj.Name)
-            if not snap:
-                continue
-
-            clear_placement_expressions(obj)
-            apply_direct_offset(obj, snap, dx, dy, dz)
-            print(f"Moved {obj.Name} by dx={dx:.3f}, dy={dy:.3f}, dz={dz:.3f}")
-        App.ActiveDocument.recompute()
+        self.canvas2d.draw_idle()
 
     def closeEvent(self, event):
-        self.db.commit()
-        self._restore_objects()
+        try:
+            if self._snapshotted_objects:
+                App.Console.PrintMessage("Restoring objects on close...\n")
+                self._restore_objects()
+
+        except Exception as e:
+            App.Console.PrintError(f"Restore failed: {e}\n")
+        self.db.close()
         super().closeEvent(event)
 
 
@@ -586,5 +661,6 @@ def ShowHeatmapViewer():
 
     dock = BeamAbsorberHeatmapDock(mw)
     mw.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
+    dock.setFloating(True)  # viktigt
     dock.show()
     return dock

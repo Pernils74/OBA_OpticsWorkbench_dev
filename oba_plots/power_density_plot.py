@@ -252,14 +252,48 @@ class PowerDensityPlotDialog(QtWidgets.QDialog):
         )
 
         if H is not None:
-            if self.spnSigma.value() > 0:
-                H = gaussian_filter(H, sigma=self.spnSigma.value())
+            # if self.spnSigma.value() > 0:
+            #     H = gaussian_filter(H, sigma=self.spnSigma.value())
+
+            sigma = self.spnSigma.value()
+
+            if sigma > 0:
+                pad_bins = int(max(1, sigma * 3))  # 3σ padding
+
+                # bin size (viktig!)
+                dx_bin = (xedges[-1] - xedges[0]) / (len(xedges) - 1)
+                dy_bin = (yedges[-1] - yedges[0]) / (len(yedges) - 1)
+
+                # ✅ pad BEFORE gaussian
+                H = np.pad(H, pad_width=pad_bins, mode="constant")
+
+                # ✅ then smooth
+                H = gaussian_filter(H, sigma=sigma)
+
+                # ✅ expand extent to match padded grid
+                x0 = xedges[0] - dx_bin * pad_bins
+                x1 = xedges[-1] + dx_bin * pad_bins
+                y0 = yedges[0] - dy_bin * pad_bins
+                y1 = yedges[-1] + dy_bin * pad_bins
+            else:
+                x0, x1 = xedges[0], xedges[-1]
+                y0, y1 = yedges[0], yedges[-1]
+
             if self.chkLog.isChecked():
                 H = np.log10(H + 1e-12)
 
             H_plot = H.T
             x0, x1 = xedges[0], xedges[-1]
             y0, y1 = yedges[0], yedges[-1]
+
+            pad_frac = 0.05
+            dx = x1 - x0
+            dy = y1 - y0
+
+            x0 -= dx * pad_frac
+            x1 += dx * pad_frac
+            y0 -= dy * pad_frac
+            y1 += dy * pad_frac
 
             # 🔥 flip axes
             if self.chkFlip.isChecked():
@@ -272,15 +306,9 @@ class PowerDensityPlotDialog(QtWidgets.QDialog):
                 extent=[x0, x1, y0, y1],
                 cmap="plasma",
                 aspect="equal" if self.chkEqual.isChecked() else "auto",
+                interpolation="bilinear",
             )
 
-            # im = ax2d.imshow(
-            #     H.T,
-            #     origin="lower",
-            #     extent=[xedges[0], xedges[-1], yedges[0], yedges[-1]],
-            #     cmap="plasma",
-            #     aspect="equal" if self.chkEqual.isChecked() else "auto",
-            # )
             self.fig2d.colorbar(im, ax=ax2d)
 
         self.canvas2d.draw_idle()

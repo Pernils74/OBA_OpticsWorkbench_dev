@@ -58,13 +58,13 @@ class BatchGroupProxy:
         ShowBatchGroupPanel(vobj.Object)
         return True
 
-    # def __getstate__(self):
-    #     # Vi sparar inga Python‑fält, bara Properties
-    #     return None
+    def __getstate__(self):
+        #     # Vi sparar inga Python‑fält, bara Properties
+        return None
 
-    # def __setstate__(self, state):
-    #     # Anropas vid reopen, innan onDocumentRestored
-    #     return None
+    def __setstate__(self, state):
+        #     # Anropas vid reopen, innan onDocumentRestored
+        return None
 
 
 class BatchGroupViewProvider:
@@ -104,11 +104,35 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         self.setObjectName(DOCK_NAME)
         self.setWindowTitle("Batch Group – Steps")
 
-        self.batch = batch_obj
+        # self.batch = batch_obj
+        self.batch_name = batch_obj.Name
         self._cancel = False
 
         main = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(main)
+
+        # --------------------------------------------------
+        # DB info
+        # --------------------------------------------------
+        db_row = QtWidgets.QHBoxLayout()
+
+        self.lbl_db = QtWidgets.QLabel("")
+        self.btn_db_refresh = QtWidgets.QPushButton("↻")
+        self.btn_db_refresh.setMaximumWidth(30)
+
+        self.btn_db_clear = QtWidgets.QPushButton("Clear")
+        self.btn_db_clear.setToolTip("Delete all scan data (keep DB)")
+
+        self.btn_db_reset = QtWidgets.QPushButton("Reset")
+        self.btn_db_reset.setToolTip("Delete and recreate database")
+
+        db_row.addWidget(QtWidgets.QLabel("DB:"))
+        db_row.addWidget(self.lbl_db, 1)
+        db_row.addWidget(self.btn_db_refresh)
+        db_row.addWidget(self.btn_db_clear)
+        db_row.addWidget(self.btn_db_reset)
+
+        lay.addLayout(db_row)
 
         # --------------------------------------------------
         # Step list
@@ -133,7 +157,7 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         self.btn_run.setIcon(QtGui.QIcon(os.path.join(ICON_DIR, "run.svg")))
         self.btn_stop.setIcon(QtGui.QIcon(os.path.join(ICON_DIR, "stop.svg")))
         self.btn_heatmap.setIcon(QtGui.QIcon(os.path.join(ICON_DIR, "heatmap.svg")))
-        self.btn_xyz_list.setIcon(QtGui.QIcon(os.path.join(ICON_DIR, "xyz_scan_list")))
+        self.btn_xyz_list.setIcon(QtGui.QIcon(os.path.join(ICON_DIR, "xyz_scan_list.svg")))
 
         row.addWidget(self.btn_heatmap)
         row.addWidget(self.btn_xyz_list)
@@ -156,6 +180,9 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         # --------------------------------------------------
         # Signals
         # --------------------------------------------------
+        self.btn_db_refresh.clicked.connect(self._update_db_label)
+        self.btn_db_reset.clicked.connect(self._reset_db)
+        self.btn_db_clear.clicked.connect(self._clear_db)
         self.btn_add.clicked.connect(self._add_step)
         self.btn_run.clicked.connect(self._run)
         self.btn_stop.clicked.connect(self._stop)
@@ -164,13 +191,109 @@ class BatchGroupDock(QtWidgets.QDockWidget):
 
         # QtCore.QTimer.singleShot(0, self.refresh_list)
 
+        self._update_db_label()
         self.refresh_list()
 
     # --------------------------------------------------
+
+    def _clear_db(self):
+        from .scan_db import HitsDB, get_doc_db_path
+
+        path = get_doc_db_path()
+        if not path or not os.path.exists(path):
+            QtWidgets.QMessageBox.warning(self, "DB", "No database file found")
+            return
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Clear DB",
+            "This will delete ALL scan data.\n\nContinue?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+        )
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+        try:
+            db = HitsDB(path)
+            db.clear_all()
+            db.close()
+            self._update_db_label()
+            self.refresh_list()
+            QtWidgets.QMessageBox.information(self, "DB", "All scan data cleared.")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "DB error", str(e))
+
+    def _get_batch(self):
+        doc = App.ActiveDocument
+        if not doc:
+            self.close()
+            return None
+
+        obj = doc.getObject(self.batch_name)
+        if not obj:
+            self.close()
+            return None
+
+        return obj
+
+    def _update_db_label(self):
+        try:
+            from .scan_db import get_doc_db_path
+
+            path = get_doc_db_path()
+
+            # visa kort version i UI
+            short = os.path.basename(path)
+            self.lbl_db.setText(short)
+            self.lbl_db.setToolTip(path)  # full path som tooltip
+
+        except Exception as e:
+            self.lbl_db.setText("<no DB>")
+            self.lbl_db.setToolTip(str(e))
+
+    def _reset_db(self):
+        from .scan_db import get_doc_db_path, HitsDB
+
+        path = get_doc_db_path()
+
+        if not path:
+            QtWidgets.QMessageBox.warning(self, "DB", "No database path")
+            return
+
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Recreate DB",
+            f"This will DELETE all data in:\n\n{path}\n\nContinue?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+        )
+
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+
+        try:
+            # 🔴 stäng ev. öppen DB genom att bara skapa ny senare
+            if os.path.exists(path):
+                os.remove(path)
+
+            # ✅ skapa ny DB (schema init)
+            db = HitsDB(path)
+            db.close()
+
+            self._update_db_label()
+
+            QtWidgets.QMessageBox.information(self, "DB", "Database recreated.")
+
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "DB error", str(e))
+
+    # --------------------------------------------------
+
     def refresh_list(self):
         self.list.clear()
 
-        for s in self.batch.Group:
+        batch = self._get_batch()
+        if not batch:
+            return
+
+        for s in batch.Group:
             if not s.TypeId.startswith("App::FeaturePython"):
                 continue
 
@@ -192,7 +315,11 @@ class BatchGroupDock(QtWidgets.QDockWidget):
     # Step handling
     # --------------------------------------------------
     def _add_step(self):
-        step = create_step_object(self.batch)
+        batch = self._get_batch()
+        if not batch:
+            return
+
+        step = create_step_object(batch)
         dlg = StepEditDialog(self)
 
         if dlg.exec_():
@@ -216,15 +343,20 @@ class BatchGroupDock(QtWidgets.QDockWidget):
             step.Active = values[1]
         else:
             # Cancel → ta bort steget
-            self.batch.removeObject(step)
-            step.Document.removeObject(step.Name)
+            batch.removeObject(step)
+            batch.Document.recompute()
 
         self.batch.Document.recompute()
         self.refresh_list()
 
     def _open_step_dialog(self, item):
         name = item.data(QtCore.Qt.UserRole)
-        step = self.batch.Document.getObject(name)
+
+        batch = self._get_batch()
+        if not batch:
+            return
+
+        step = batch.Document.getObject(name)
 
         dlg = StepEditDialog(self)
 
@@ -275,15 +407,19 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         items = self.list.selectedItems()
         if not items:
             return
+        batch = self._get_batch()
+        if not batch:
+            return
+        doc = batch.Document
 
-        doc = self.batch.Document
         doc.openTransaction("Delete Step")
 
         for item in items:
             name = item.data(QtCore.Qt.UserRole)
             obj = doc.getObject(name)
             if obj:
-                self.batch.removeObject(obj)
+                batch.removeObject(obj)
+
                 doc.removeObject(obj.Name)
 
         doc.commitTransaction()
@@ -293,8 +429,14 @@ class BatchGroupDock(QtWidgets.QDockWidget):
     # --------------------------------------------------
     def _run(self):
         self._cancel = False
+
+        batch = self._get_batch()
+        if not batch:
+            QtWidgets.QMessageBox.critical(self, "Error", "Batch object no longer exists")
+            return
+
         run_steps_for_batch(
-            self.batch,
+            batch,
             self.prog,
             self.lbl,
             lambda: QtWidgets.QApplication.processEvents(),
@@ -313,7 +455,7 @@ class BatchGroupDock(QtWidgets.QDockWidget):
             QtWidgets.QMessageBox.warning(self, "XYZ list", str(e))
 
     def _open_heatmap(self):
-        ShowHeatmapViewer()
+        viewer = ShowHeatmapViewer()
 
 
 # --------------------------------------------------
