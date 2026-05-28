@@ -99,6 +99,7 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         self.comboPlane.addItems(["XY", "XZ", "YZ"])
 
         self.chkSmooth = QtWidgets.QCheckBox("Smooth")
+        self.chkSmooth.setChecked(True)
         self.spinSmooth = QtWidgets.QSpinBox()
         self.spinSmooth.setRange(1, 10)
         self.spinSmooth.setValue(2)
@@ -501,8 +502,8 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         x = event.xdata
         y = event.ydata
 
-        print("CLICK")
-        print(event.xdata, event.ydata)
+        # print("CLICK")
+        # print(event.xdata, event.ydata)
 
         if x is None or y is None:
             return
@@ -531,26 +532,41 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
                 for obj in self._snapshotted_objects:
                     snap = self._placement_snapshot[obj.Name]
                     clear_placement_expressions(obj)
+
+                    step_id = self.comboStep.currentText()
+                    step_obj = None
+                    for s in App.ActiveDocument.Objects:
+                        if getattr(s, "Id", "") == step_id:
+                            step_obj = s
+                            break
+
                     apply_direct_offset(obj, snap, dx, dy, dz)
-                    print("stored:", dx, dy, dz)
+
+                    if step_obj is not None:
+                        step_obj.StepOffset = App.Vector(dx, dy, dz)
+
+                    dx_eff = dx
+                    dy_eff = dy
+                    dz_eff = dz
+                    print("stored:", dx_eff, dy_eff, dz_eff)
                     # print(self.db.count_rows())
 
-                print("after restore", obj.Placement.Base)
+                # print("after restore", obj.Placement.Base)
 
                 doc.recompute()
 
-                print("after recompute", obj.Placement.Base)
+                # print("after recompute", obj.Placement.Base)
 
-                before = obj.Placement.Base
+                # before = obj.Placement.Base
                 hits = run_trace()
-                after = obj.Placement.Base
+                # after = obj.Placement.Base
                 # print(before)
                 # print(after)
 
                 step = self.comboStep.currentText()
                 moved = self._current_moved_objects if hasattr(self, "_current_moved_objects") else ""
 
-                store_hits(self.db, step, hits, dx, dy, dz, moved)
+                store_hits(self.db, step, hits, dx_eff, dy_eff, dz_eff, moved)
                 self.db.commit()
             finally:
                 if cfg and old_mode is not None:

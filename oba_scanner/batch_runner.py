@@ -218,6 +218,8 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
             if stop_flag_func():
                 break
 
+            step_offset = getattr(step, "StepOffset", App.Vector(0, 0, 0))  # offset utifall man har klickat i heatmap
+
             moved_str, step_move_objects = _resolve_step_objects(step, data, label_to_name, move_objects)
 
             plan = data.get("plan", "XY")
@@ -239,7 +241,7 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
                     dx, dy, dz = _compute_offset(ai, A, radius, plan, rot_axis, rot_angle)
 
                     # APPLY
-                    _apply_offset(step_move_objects, placement_snaps, dx, dy, dz)
+                    _apply_offset(step_move_objects, placement_snaps, dx, dy, dz, step_offset)
                     doc.recompute()
 
                     # TRACE
@@ -248,7 +250,10 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
                     # STORE
 
                     step_id = step.Id
-                    store_hits(db, step_id, hits, dx, dy, dz, moved_str)
+                    dx_eff = dx + step_offset.x
+                    dy_eff = dy + step_offset.y
+                    dz_eff = dz + step_offset.z
+                    store_hits(db, step_id, hits, dx_eff, dy_eff, dz_eff, moved_str)
 
                     done_iters += 1
                     prog_bar.setValue(done_iters)
@@ -345,9 +350,16 @@ def _compute_offset(ai, A, radius, plan, rot_axis, rot_angle):
     return rotate(dx, dy, dz, rot_axis, rot_angle)
 
 
-def _apply_offset(objects, snaps, dx, dy, dz):
+def _apply_offset(objects, snaps, dx, dy, dz, step_offset):
     for name, obj in objects.items():
-        apply_direct_offset(obj, snaps[name], dx, dy, dz)
+        apply_direct_offset(
+            obj,
+            snaps[name],
+            dx + step_offset.x,
+            dy + step_offset.y,
+            dz + step_offset.z,
+        )
+        # apply_direct_offset(obj, snaps[name], dx, dy, dz)
 
 
 def _restore_all(move_objects, snaps):

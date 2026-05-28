@@ -346,7 +346,7 @@ class OBA_Optics(Gui.Workbench):
         file_path = r"C:\temp\S12_orginal.FCStd"
         file_path = r"C:\temp\test_med_scan.FCStd"
         file_path = r"C:\temp\test2.FCStd"
-        file_path = r"C:\temp\__OBA_optiskt_modell_för_AI__.FCStd"
+        file_path = r"C:\temp\__OBA_optiskt_modell_för_AI.FCStd"
 
         if os.path.exists(file_path):
             doc = next(

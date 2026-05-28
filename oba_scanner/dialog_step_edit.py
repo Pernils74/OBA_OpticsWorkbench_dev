@@ -108,6 +108,33 @@ class StepEditDialog(QtWidgets.QDialog):
         layout.addLayout(form)
 
         # --------------------------------------------------------
+        # Offset (per step)
+        # --------------------------------------------------------
+        form = QtWidgets.QFormLayout()
+
+        self.offX = QtWidgets.QDoubleSpinBox()
+        self.offX.setRange(-1e6, 1e6)
+        self.offX.setDecimals(4)
+
+        self.offY = QtWidgets.QDoubleSpinBox()
+        self.offY.setRange(-1e6, 1e6)
+        self.offY.setDecimals(4)
+
+        self.offZ = QtWidgets.QDoubleSpinBox()
+        self.offZ.setRange(-1e6, 1e6)
+        self.offZ.setDecimals(4)
+
+        self.offX.setSingleStep(0.05)
+        self.offY.setSingleStep(0.05)
+        self.offZ.setSingleStep(0.05)
+
+        form.addRow("Offset X:", self.offX)
+        form.addRow("Offset Y:", self.offY)
+        form.addRow("Offset Z:", self.offZ)
+
+        layout.addLayout(form)
+
+        # --------------------------------------------------------
         # Buttons
         # --------------------------------------------------------
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
@@ -153,6 +180,10 @@ class StepEditDialog(QtWidgets.QDialog):
             self.rs.value(),
             self.rotAxis.currentText(),
             self.rotAngle.value(),
+            # offset
+            self.offX.value(),
+            self.offY.value(),
+            self.offZ.value(),
         )
 
         # ------------------------------------------------------------

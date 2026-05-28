@@ -304,7 +304,11 @@ class BatchGroupDock(QtWidgets.QDockWidget):
             except Exception:
                 json_str = "<invalid json>"
 
-            text = f"{s.Title} (ID: {s.Id}) | {json_str}"
+            # text = f"{s.Title} (ID: {s.Id}) | {json_str}"
+            off = getattr(s, "StepOffset", App.Vector(0, 0, 0))
+            off_str = f"off=({off.x:.2f},{off.y:.2f},{off.z:.2f})"
+            text = f"{s.Title} (ID: {s.Id}) | {off_str} | {json_str}"
+
             it = QtWidgets.QListWidgetItem(text)
             it.setData(QtCore.Qt.UserRole, s.Name)
             if not getattr(s, "Active", True):
@@ -316,6 +320,8 @@ class BatchGroupDock(QtWidgets.QDockWidget):
     # --------------------------------------------------
     def _add_step(self):
         batch = self._get_batch()
+
+        print(" [_add_step]", batch)
         if not batch:
             return
 
@@ -324,6 +330,8 @@ class BatchGroupDock(QtWidgets.QDockWidget):
 
         if dlg.exec_():
             values = dlg.values()
+
+            step.StepOffset = App.Vector(values[12], values[13], values[14])
 
             data = {
                 "plan": values[2],
@@ -346,7 +354,8 @@ class BatchGroupDock(QtWidgets.QDockWidget):
             batch.removeObject(step)
             batch.Document.recompute()
 
-        self.batch.Document.recompute()
+        batch.Document.recompute()
+
         self.refresh_list()
 
     def _open_step_dialog(self, item):
@@ -379,6 +388,12 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         dlg.rotAxis.setCurrentText(data.get("rotAxis", "X"))
         dlg.rotAngle.setValue(float(data.get("rotAngle", 0.0)))
 
+        step_offset = getattr(step, "StepOffset", App.Vector(0, 0, 0))
+
+        dlg.offX.setValue(step_offset.x)
+        dlg.offY.setValue(step_offset.y)
+        dlg.offZ.setValue(step_offset.z)
+
         if dlg.exec_():
             values = dlg.values()
             step.DataJSON = json.dumps(
@@ -397,6 +412,7 @@ class BatchGroupDock(QtWidgets.QDockWidget):
                 indent=2,
             )
 
+            step.StepOffset = App.Vector(values[12], values[13], values[14])
             step.Id = values[0]
             step.Active = values[1]
 
@@ -469,6 +485,8 @@ def create_step_object(parent_group):
     step.addProperty("App::PropertyString", "Id")
     step.addProperty("App::PropertyString", "DataJSON")
     step.addProperty("App::PropertyBool", "Active")
+    step.addProperty("App::PropertyVector", "StepOffset")
+    step.StepOffset = App.Vector(0, 0, 0)
 
     step.Title = "Step"
     step.Id = datetime.datetime.now().strftime("ST_%Y%m%d_%H%M%S")
