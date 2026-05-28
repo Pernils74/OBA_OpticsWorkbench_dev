@@ -20,18 +20,29 @@ from .filter_panel import ClusterHitFilterPanel
 
 # -------------------------------------------------
 class PowerVsHitPlotDialog(QtWidgets.QDialog):
-    """
-    Power vs Hit/Bounce-plot
-    Visar hur energi förändras längs strålgången.
-    """
+
+    LABELS = {
+        None: "",
+        "power_in": "Power In",
+        "power_out": "Power Out",
+        "absorbed_power": "Absorbed Power",
+        "ray_count": "Ray Count",
+        "ray_length_seg": "Segment Length",
+        "ray_length_total": "Total Length",
+        "loss_per_meter": "Loss per meter",
+    }
 
     def __init__(self):
         super().__init__(Gui.getMainWindow())
 
-        self.setWindowTitle("Power vs Hit")
-        self.resize(1100, 720)
+        self.setWindowTitle("Power / Rays vs Hit")
+        self.resize(1150, 720)
 
         self._init_ui()
+
+        # ✅ NU finns comboboxarna
+        self.cmbY1.setCurrentIndex(1)  # Power In
+        self.cmbY2.setCurrentIndex(0)  # None
 
         OBARayManager().add_listener(self.on_rays_updated)
         self.reload_plot()
@@ -48,22 +59,27 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         btnReload.clicked.connect(self.reload_plot)
         top.addWidget(btnReload)
 
-        top.addWidget(QtWidgets.QLabel("Quantity:"))
-        self.cmbQuantity = QtWidgets.QComboBox()
-        self.cmbQuantity.addItem("Power In", userData="power_in")
-        self.cmbQuantity.addItem("Power Out", userData="power_out")
-        self.cmbQuantity.addItem("Absorbed Power", userData="absorbed_power")
-        top.addWidget(self.cmbQuantity)
+        # -------- LEFT AXIS --------
+        top.addWidget(QtWidgets.QLabel("Y1:"))
+        self.cmbY1 = QtWidgets.QComboBox()
+        self._fill_quantity_combo(self.cmbY1)
+        self.cmbY1.setCurrentIndex(0)
+        top.addWidget(self.cmbY1)
 
-        self.chkNormalize = QtWidgets.QCheckBox("Normalize to %")
-        top.addWidget(self.chkNormalize)
+        self.chkNorm1 = QtWidgets.QCheckBox("Y1 %")
+        top.addWidget(self.chkNorm1)
 
-        self.chkShowRayCount = QtWidgets.QCheckBox("Show Ray Count")
-        top.addWidget(self.chkShowRayCount)
+        # -------- RIGHT AXIS --------
+        top.addWidget(QtWidgets.QLabel("Y2:"))
+        self.cmbY2 = QtWidgets.QComboBox()
+        self._fill_quantity_combo(self.cmbY2)
+        self.cmbY2.setCurrentIndex(1)
+        top.addWidget(self.cmbY2)
 
-        self.chkLogY = QtWidgets.QCheckBox("Log Y")
-        top.addWidget(self.chkLogY)
+        self.chkNorm2 = QtWidgets.QCheckBox("Y2 %")
+        top.addWidget(self.chkNorm2)
 
+        # -------- OPTIONS --------
         top.addStretch(1)
 
         self.chkShowFilter = QtWidgets.QCheckBox("Show Filter")
@@ -92,10 +108,23 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         root.addWidget(self.lblStatus)
 
         # ---------- SIGNALS ----------
-        self.cmbQuantity.currentIndexChanged.connect(self.reload_plot)
-        self.chkNormalize.stateChanged.connect(self.reload_plot)
-        self.chkShowRayCount.stateChanged.connect(self.reload_plot)
-        self.chkLogY.stateChanged.connect(self.reload_plot)
+        self.cmbY1.currentIndexChanged.connect(self.reload_plot)
+        self.cmbY2.currentIndexChanged.connect(self.reload_plot)
+        self.chkNorm1.stateChanged.connect(self.reload_plot)
+        self.chkNorm2.stateChanged.connect(self.reload_plot)
+
+    # -------------------------------------------------
+    def _fill_quantity_combo(self, cmb):
+        cmb.addItem("None", None)  # ✅ NY
+        cmb.addItem("Power In", "power_in")
+        cmb.addItem("Power Out", "power_out")
+        cmb.addItem("Absorbed Power", "absorbed_power")
+        cmb.addItem("Ray Count", "ray_count")
+
+        cmb.addItem("Ray Length (segment)", "ray_length")
+        cmb.addItem("Ray Length (cumulative)", "ray_length_total")
+
+        cmb.addItem("Loss per meter", "loss_per_meter")
 
     # -------------------------------------------------
     def on_rays_updated(self):
@@ -103,19 +132,27 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
 
     # -------------------------------------------------
     def reload_plot(self):
+        import numpy as np
+
+        length_samples = defaultdict(list)
+
         hits, _ = collect_ray_hits_and_stats(mode="final")
 
         if self.filterPanel.emitter_list.count() == 0:
             self.filterPanel.set_mode("final")
 
         filter_spec = self.filterPanel.get_filter_spec()
-        quantity = self.cmbQuantity.currentData()
+
+        q1 = self.cmbY1.currentData()
+        q2 = self.cmbY2.currentData()
 
         # -------------------------------------------------
-        # Samla data per bounce
+        # Collect per bounce
         # -------------------------------------------------
-        power_per_bounce = defaultdict(float)
-        ray_count_per_bounce = defaultdict(int)
+        data1 = defaultdict(float)
+        data2 = defaultdict(float) if q2 is not None else None
+
+        count_per_bounce = defaultdict(int)
 
         for h in hits:
             if h["emitter_id"] not in filter_spec["emitters"]:
@@ -124,87 +161,146 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
                 continue
 
             b = h["bounce"]
-            val = h.get(quantity)
-            if val is None:
-                continue
 
-            power_per_bounce[b] += val
-            ray_count_per_bounce[b] += 1
+            seg = h.get("segment_distance", 0.0)
+            length_samples[b].append(seg)
 
-        if not power_per_bounce:
+            count_per_bounce[b] += 1
+
+            def get_val(q):
+                if q is None:
+                    return 0.0
+
+                elif q == "ray_count":
+                    return 1.0
+
+                elif q == "ray_length_seg":
+                    return seg
+
+                elif q == "ray_length_total":
+                    return h.get("total_distance", 0.0)
+
+                elif q == "loss_per_meter":
+                    absorbed = h.get("absorbed_power", 0.0)
+                    return absorbed / seg if seg > 1e-12 else 0.0
+
+                else:
+                    return h.get(q, 0.0)
+
+            data1[b] += get_val(q1)
+
+            if data2 is not None:
+                data2[b] += get_val(q2)
+
+        # -------------------------------------------------
+        # FINALIZE DATA (✅ här sker all logik)
+        # -------------------------------------------------
+        def finalize_data(q, data):
+            result = {}
+
+            for b in data:
+                samples = length_samples[b]
+                n = count_per_bounce[b]
+
+                if q == "ray_length_seg":
+                    # ✅ spridning (mycket mer informativ)
+                    result[b] = np.std(samples)
+
+                elif q == "ray_length_total":
+                    result[b] = data[b] / n if n > 0 else 0.0
+
+                elif q == "loss_per_meter":
+                    result[b] = data[b] / n if n > 0 else 0.0
+
+                else:
+                    result[b] = data[b]
+
+            return result
+
+        data1 = finalize_data(q1, data1)
+
+        if data2 is not None:
+            data2 = finalize_data(q2, data2)
+
+        if not data1:
             self.fig.clear()
             self.canvas.draw_idle()
             self.lblStatus.setText("No data")
             return
 
-        bounces = sorted(power_per_bounce.keys())
-        powers = [power_per_bounce[b] for b in bounces]
-        ray_counts = [ray_count_per_bounce[b] for b in bounces]
+        bounces = sorted(data1.keys())
+
+        y1 = [data1[b] for b in bounces]
+        y2 = [data2[b] for b in bounces] if data2 is not None else None
 
         # -------------------------------------------------
-        # Normalisering till %
+        # NORMALIZATION
         # -------------------------------------------------
-        if self.chkNormalize.isChecked() and powers:
-            base = powers[0]
-            if abs(base) > 1e-12:
-                powers = [100.0 * p / base for p in powers]
-            else:
-                powers = [0.0 for _ in powers]
+        def normalize(vals):
+            if not vals:
+                return vals
+            base = vals[0]
+            if abs(base) < 1e-12:
+                return [0.0] * len(vals)
+            return [100.0 * v / base for v in vals]
+
+        if self.chkNorm1.isChecked():
+            y1 = normalize(y1)
+
+        if self.chkNorm2.isChecked() and y2 is not None:
+            y2 = normalize(y2)
 
         # -------------------------------------------------
-        # Plot
+        # PLOT
         # -------------------------------------------------
         self.fig.clear()
-        ax = self.fig.add_subplot(111)
+        ax1 = self.fig.add_subplot(111)
 
-        ax.plot(
+        ax1.plot(
             bounces,
-            powers,
+            y1,
             marker="o",
             linewidth=2.0,
             color="tab:blue",
-            label=quantity,
+            label=self.LABELS.get(q1, str(q1)),
         )
 
-        ax.set_xlabel("Hit / Bounce Index")
-        ax.set_ylabel("Power (%)" if self.chkNormalize.isChecked() else "Power")
+        ax1.set_xlabel("Bounce Index")
+        ax1.set_ylabel(self.LABELS.get(q1, str(q1)) + (" (%)" if self.chkNorm1.isChecked() else ""))
 
-        ax.grid(True)
+        ax1.grid(True)
 
-        if self.chkLogY.isChecked():
-            ax.set_yscale("log")
+        if q2 is not None and y2 is not None:
+            ax2 = ax1.twinx()
 
-        # -------------------------------------------------
-        # Sekundär Y-axel: Ray Count
-        # -------------------------------------------------
-        if self.chkShowRayCount.isChecked():
-            ax2 = ax.twinx()
             ax2.plot(
                 bounces,
-                ray_counts,
+                y2,
                 linestyle="--",
                 marker="s",
-                color="tab:gray",
-                alpha=0.85,
-                label="Ray Count",
+                linewidth=2.0,
+                color="tab:red",
+                label=self.LABELS.get(q2, str(q2)),
             )
-            ax2.set_ylabel("Ray Count")
+
+            ax2.set_ylabel(self.LABELS.get(q2, str(q2)) + (" (%)" if self.chkNorm2.isChecked() else ""))
 
             ax2.legend(loc="upper right")
+            self.chkNorm2.setEnabled(True)
+        else:
+            self.chkNorm2.setEnabled(False)
 
-        ax.legend(loc="upper left")
+        ax1.legend(loc="upper left")
 
         self.canvas.draw_idle()
 
         # -------------------------------------------------
-        # Status
+        # STATUS
         # -------------------------------------------------
-        total_hits = sum(ray_counts)
-        total_power = sum(powers)
+        total_hits = sum(count_per_bounce.values())
 
-        self.lblStatus.setText(f"Bounces: {len(bounces)} | Hits: {total_hits} | Σ Power: {total_power:.6g}")
+        self.lblStatus.setText(f"Bounces: {len(bounces)} | Hits: {total_hits}")
 
-    # -------------------------------------------------
     def closeEvent(self, event):
         OBARayManager().remove_listener(self.on_rays_updated)
         super().closeEvent(event)

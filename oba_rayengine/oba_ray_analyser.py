@@ -675,6 +675,8 @@ def collect_ray_hits_and_stats(
         ray_power_out = 0.0
         ray_power_in = 0.0
         ray_absorbed = 0.0
+        ray_length_sum = 0.0
+        ray_final_length = 0.0
 
         for h in ray.history:
             if not isinstance(h, dict):
@@ -709,6 +711,9 @@ def collect_ray_hits_and_stats(
                 "power_out": h.get("power_out", 0.0),
                 "power_in": extra.get("power_in", 0.0),
                 "absorbed_power": extra.get("absorbed_power", 0.0),
+                # distance
+                "segment_distance": h.get("segment_distance", 0.0),
+                "total_distance": h.get("total_distance", 0.0),
             }
 
             hits.append(hit)
@@ -719,6 +724,9 @@ def collect_ray_hits_and_stats(
             ray_power_out += hit["power_out"]
             ray_power_in += hit["power_in"]
             ray_absorbed += hit["absorbed_power"]
+
+            ray_length_sum += hit["segment_distance"]
+            ray_final_length = hit["total_distance"]
 
         if not ray_points:
             continue
@@ -743,6 +751,10 @@ def collect_ray_hits_and_stats(
                 "power_in_sum": 0.0,
                 "power_out_sum": 0.0,
                 "absorbed_power_sum": 0.0,
+                # ✅ NYA
+                "length_sum": 0.0,
+                "final_length_sum": 0.0,
+                "ray_count": 0,
             },
         )
 
@@ -751,6 +763,9 @@ def collect_ray_hits_and_stats(
         g["power_out_sum"] += ray_power_out
         g["power_in_sum"] += ray_power_in
         g["absorbed_power_sum"] += ray_absorbed
+        g["length_sum"] += ray_length_sum
+        g["final_length_sum"] += ray_final_length
+        g["ray_count"] += 1
 
     # --------------------------------------------------
     # FINALIZE STATISTIK
@@ -766,6 +781,8 @@ def collect_ray_hits_and_stats(
         cx = sum(p[0] for p in pts) / n
         cy = sum(p[1] for p in pts) / n
         cz = sum(p[2] for p in pts) / n
+        mean_length = g["length_sum"] / max(g["ray_count"], 1)
+        mean_final_length = g["final_length_sum"] / max(g["ray_count"], 1)
 
         stats[key] = {
             "centroid": (cx, cy, cz),
@@ -773,6 +790,11 @@ def collect_ray_hits_and_stats(
             "power_in": g["power_in_sum"],
             "power_out": g["power_out_sum"],
             "absorbed_power": g["absorbed_power_sum"],
+            "length": {
+                "sum": g["length_sum"],  # total path length (alla segment från alla rays)
+                "mean": mean_length,  # genomsnittlig längd per ray
+                "mean_final": mean_final_length,  # slutlig ray-längd (global trace length)
+            },
             "min_bounce": min(g["bounces"]),
             "max_bounce": max(g["bounces"]),
             "mean_bounce": sum(g["bounces"]) / len(g["bounces"]),

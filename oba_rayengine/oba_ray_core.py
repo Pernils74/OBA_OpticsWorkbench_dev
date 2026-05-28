@@ -35,6 +35,9 @@ class OBARay:
 
         self.history = []  # historik
 
+        self.total_distance = 0.0  # Total dist ray har färdats
+        self.last_segment_distance = 0.0  # Hur lång sista sträckan är .
+
         if medium_stack is None:
             self.medium_stack = [1.0]  # Startar i luft
         else:
@@ -43,6 +46,18 @@ class OBARay:
         OBARayManager().add(self)
 
     def add_segment(self, end_point, interaction_type=None, hit_face_label=None):  # origin_face=None, origin_label=None):
+
+        start_point = self.points[-1]
+        # 🔥 distance beräkning
+        dx = end_point.x - start_point.x
+        dy = end_point.y - start_point.y
+        dz = end_point.z - start_point.z
+        dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+        self.last_segment_distance = dist
+        self.total_distance += dist
+
+        # print("add segemnt", interaction_type)
+        # resten
         self.points.append(end_point)
 
         # Logga senaste träffade yta.
@@ -50,6 +65,7 @@ class OBARay:
             self.last_hit_label = hit_face_label
 
         if interaction_type:
+            # print("[add_segment]", interaction_type)
             self.history.append(interaction_type)
 
     # -----------------------------
@@ -108,6 +124,8 @@ class OBARay:
             "normal": (normal.x, normal.y, normal.z),
             "incoming_dir": ((incoming_dir.x, incoming_dir.y, incoming_dir.z) if incoming_dir else None),
             "outgoing_dir": ((outgoing_dir.x, outgoing_dir.y, outgoing_dir.z) if outgoing_dir else None),
+            "segment_distance": self.last_segment_distance,
+            "total_distance": self.total_distance,
         }
 
         if extra:
@@ -141,6 +159,9 @@ class OBARay:
             # 🔥 ✅ SKAPA EN KOPIA AV LISTAN (list() eller .copy())
             medium_stack=list(self.medium_stack),
         )
+
+        # ✅ KRITISKT: Kopiera förälderns accumulated distance så att child respekterar global max_length
+        child.total_distance = self.total_distance
 
         child.last_facet = self.last_facet
         child.last_target_id = self.last_target_id
