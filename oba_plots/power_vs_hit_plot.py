@@ -27,8 +27,9 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         "power_out": "Power Out",
         "absorbed_power": "Absorbed Power",
         "ray_count": "Ray Count",
-        "ray_length_seg": "Segment Length",
-        "ray_length_total": "Total Length",
+        "ray_length_seg_mean": "Segment Length (mean)",
+        "ray_length_seg_std": "Segment Length (std dev)",
+        "ray_length_total": "Total Path Length (mean)",
         "loss_per_meter": "Loss per meter",
     }
 
@@ -121,7 +122,9 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         cmb.addItem("Absorbed Power", "absorbed_power")
         cmb.addItem("Ray Count", "ray_count")
 
-        cmb.addItem("Ray Length (segment)", "ray_length")
+        cmb.addItem("Segment Length Mean", "ray_length_seg_mean")
+        cmb.addItem("Segment Length Std", "ray_length_seg_std")
+
         cmb.addItem("Ray Length (cumulative)", "ray_length_total")
 
         cmb.addItem("Loss per meter", "loss_per_meter")
@@ -174,8 +177,8 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
                 elif q == "ray_count":
                     return 1.0
 
-                elif q == "ray_length_seg":
-                    return seg
+                # elif q == "ray_length_seg":
+                #     return seg
 
                 elif q == "ray_length_total":
                     return h.get("total_distance", 0.0)
@@ -202,9 +205,11 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
                 samples = length_samples[b]
                 n = count_per_bounce[b]
 
-                if q == "ray_length_seg":
-                    # ✅ spridning (mycket mer informativ)
-                    result[b] = np.std(samples)
+                if q == "ray_length_seg_mean":
+                    result[b] = np.mean(samples) if samples else 0.0
+
+                elif q == "ray_length_seg_std":
+                    result[b] = np.std(samples) if samples else 0.0
 
                 elif q == "ray_length_total":
                     result[b] = data[b] / n if n > 0 else 0.0
@@ -253,17 +258,31 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         # -------------------------------------------------
         # PLOT
         # -------------------------------------------------
+
+        def is_bar_quantity(q):
+            if self.chkNorm1.isChecked() or self.chkNorm2.isChecked():
+                return False
+            return q in ("ray_length_seg_mean", "ray_length_seg_std", "ray_count")
+
         self.fig.clear()
         ax1 = self.fig.add_subplot(111)
 
-        ax1.plot(
-            bounces,
-            y1,
-            marker="o",
-            linewidth=2.0,
-            color="tab:blue",
-            label=self.LABELS.get(q1, str(q1)),
-        )
+        width = 0.4
+
+        if is_bar_quantity(q1):
+            ax1.bar([b - width / 2 for b in bounces], y1, width=width, color="tab:blue", alpha=0.7, label=self.LABELS.get(q1, str(q1)))
+            # ax1.bar(bounces, y1, alpha=0.7, color="tab:blue", label=self.LABELS.get(q1, str(q1)))
+        else:
+            ax1.plot(bounces, y1, marker="o", linewidth=2.0, color="tab:blue", label=self.LABELS.get(q1, str(q1)))
+
+        # ax1.plot(
+        #     bounces,
+        #     y1,
+        #     marker="o",
+        #     linewidth=2.0,
+        #     color="tab:blue",
+        #     label=self.LABELS.get(q1, str(q1)),
+        # )
 
         ax1.set_xlabel("Bounce Index")
         ax1.set_ylabel(self.LABELS.get(q1, str(q1)) + (" (%)" if self.chkNorm1.isChecked() else ""))
@@ -273,15 +292,29 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         if q2 is not None and y2 is not None:
             ax2 = ax1.twinx()
 
-            ax2.plot(
-                bounces,
-                y2,
-                linestyle="--",
-                marker="s",
-                linewidth=2.0,
-                color="tab:red",
-                label=self.LABELS.get(q2, str(q2)),
-            )
+            if is_bar_quantity(q2):
+                ax2.bar([b + width / 2 for b in bounces], y2, width=width, color="tab:red", alpha=0.5, label=self.LABELS.get(q2, str(q2)))
+                # ax2.bar(bounces, y2, alpha=0.7, color="tab:red", label=self.LABELS.get(q2, str(q2)))
+            else:
+                ax2.plot(
+                    bounces,
+                    y2,
+                    linestyle="--",
+                    marker="s",
+                    linewidth=2.0,
+                    color="tab:red",
+                    label=self.LABELS.get(q2, str(q2)),
+                )
+
+            # ax2.plot(
+            #     bounces,
+            #     y2,
+            #     linestyle="--",
+            #     marker="s",
+            #     linewidth=2.0,
+            #     color="tab:red",
+            #     label=self.LABELS.get(q2, str(q2)),
+            # )
 
             ax2.set_ylabel(self.LABELS.get(q2, str(q2)) + (" (%)" if self.chkNorm2.isChecked() else ""))
 

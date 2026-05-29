@@ -23,6 +23,9 @@ from .batch_runner import (
     run_trace,
     store_hits,
     restore_placement,
+    find_batch_object,
+    find_step_by_id,
+    run_steps_for_batch,
 )
 
 DOCK_OBJECT_NAME = "BeamAbsorberHeatmapDock"
@@ -73,11 +76,32 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         # DB
         db_row = QtWidgets.QHBoxLayout()
         self.lblDB = QtWidgets.QLabel("")
+
         self.btnDBRefresh = QtWidgets.QPushButton("↻")
+        self.btnRun = QtWidgets.QPushButton("Run step")
+        self.btnStop = QtWidgets.QPushButton("Stop")
+
+        self.btnCommitClose = QtWidgets.QPushButton("Commit & Close")
+
         db_row.addWidget(QtWidgets.QLabel("DB:"))
         db_row.addWidget(self.lblDB, 1)
+
         db_row.addWidget(self.btnDBRefresh)
+        db_row.addSpacing(20)
+        db_row.addWidget(self.btnRun)
+        db_row.addWidget(self.btnStop)
+
+        db_row.addWidget(self.btnCommitClose)
+
         form.addRow(db_row)
+
+        # --------------------------------------------------
+        # Progress
+        # --------------------------------------------------
+        self.prog = QtWidgets.QProgressBar()
+        self.lbl = QtWidgets.QLabel("")
+        layout.addWidget(self.prog)
+        layout.addWidget(self.lbl)
 
         self.comboStep = QtWidgets.QComboBox()
         form.addRow("Step:", self.comboStep)
@@ -154,6 +178,11 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         self.chkPercent.toggled.connect(self._update_plot)
         self.chkPlane2D.toggled.connect(self._update_plot)
 
+        self.btnRun.clicked.connect(self._run_single)
+        self.btnStop.clicked.connect(self._stop_run)
+
+        self.btnCommitClose.clicked.connect(self._commit_and_close)
+
     # ==========================================================
     # DB
     # ==========================================================
@@ -194,6 +223,88 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
             chk.toggled.connect(self._update_plot)
             self.emitterLayout.addWidget(chk)
             self.emitter_checks[em] = chk
+
+    # ==========================================================
+
+    def _run_single(self):
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+
+        self._cancel = False
+
+        try:
+            doc = App.ActiveDocument
+            batch = find_batch_object(doc)
+
+            if not batch:
+                QtWidgets.QMessageBox.warning(self, "Run", "No BatchGroup found")
+                return
+
+            step_id = self.comboStep.currentText()
+
+            # ✅ reset progress
+            self.prog.setValue(0)
+            self.lbl.setText("Running...")
+
+            run_steps_for_batch(
+                batch,
+                self.prog,
+                self.lbl,
+                pump_events_func=lambda: QtWidgets.QApplication.processEvents(),
+                stop_flag_func=lambda: False,
+                only_step_id=step_id,  # ✅ här är magin
+            )
+
+            step_obj = find_step_by_id(doc, step_id)
+
+            if step_obj and self._snapshotted_objects:
+
+                for obj in self._snapshotted_objects:
+                    snap = self._placement_snapshot[obj.Name]
+
+                    apply_direct_offset(obj, snap, step_obj.StepOffset.x, step_obj.StepOffset.y, step_obj.StepOffset.z)
+
+                doc.recompute()
+
+            # ✅ synka mtime så vi inte dubbel‑refreshar
+            try:
+                self._last_mtime = os.path.getmtime(self.db.path)
+            except:
+                pass
+
+            self._update_plot()
+            self.lbl.setText("Done")
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+
+    def _stop_run(self):
+        self._cancel = True
+
+    def _commit_and_close(self):
+
+        if not self._snapshotted_objects:
+            self.close()
+            return
+
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Commit position",
+            "Keep current moved positions as new base?\n\n" "This will remove Placement expressions.",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+        )
+
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+
+        for obj in self._snapshotted_objects:
+            clear_placement_expressions(obj)
+
+        # 🔑 gör current state permanent
+        self._placement_snapshot.clear()
+        self._snapshotted_objects.clear()
+
+        App.ActiveDocument.recompute()
+
+        self.close()
 
     # ==========================================================
     def _target_changed(self):
@@ -568,6 +679,7 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
 
                 store_hits(self.db, step, hits, dx_eff, dy_eff, dz_eff, moved)
                 self.db.commit()
+
             finally:
                 if cfg and old_mode is not None:
                     cfg.RunMode = old_mode
@@ -576,68 +688,6 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
             self.setEnabled(True)
             QtWidgets.QApplication.restoreOverrideCursor()
             # self._click_busy = False  # 🔓 UNLOCK
-
-    def _on_2d_click_old(self, event):
-        if event.inaxes is None:
-            return
-        if not self.chkPlane2D.isChecked():
-            return
-        x = event.xdata
-        y = event.ydata
-        if x is None or y is None:
-            return
-        # -----------------------------
-        # konvertera till dx,dy,dz
-        # -----------------------------
-        plane = self.comboPlane.currentText()
-        if plane == "XY":
-            dx, dy, dz = x, y, 0.0
-        elif plane == "XZ":
-            dx, dy, dz = x, 0.0, y
-        else:  # YZ
-            dx, dy, dz = 0.0, x, y
-        doc = App.ActiveDocument
-        if not doc:
-            return
-        cfg = doc.getObject("OBARayConfig")
-        old_mode = None
-        try:
-            # ✅ BLOCK AUTO TRACE
-            if cfg:
-                old_mode = cfg.RunMode
-                cfg.RunMode = "MANUAL"
-            # -----------------------------
-            # snapshot (om inte gjort)
-            # -----------------------------
-            if not self._snapshotted_objects:
-                self._snapshot_objects()
-            # -----------------------------
-            # flytta objekt
-            # -----------------------------
-            for obj in self._snapshotted_objects:
-                snap = self._placement_snapshot[obj.Name]
-                clear_placement_expressions(obj)
-
-                apply_direct_offset(obj, snap, dx, dy, dz)
-            doc.recompute()
-            # -----------------------------
-            # TRACE + STORE
-            # -----------------------------
-            hits = run_trace()
-
-            step = self.comboStep.currentText()
-            moved = self._current_moved_objects if hasattr(self, "_current_moved_objects") else ""
-
-            store_hits(self.db, step, hits, dx, dy, dz, moved)
-            self.db.commit()
-        finally:
-            # ✅ ALLTID ÅTERSTÄLL
-            if cfg and old_mode is not None:
-                cfg.RunMode = old_mode
-        # -----------------------------
-        # uppdatera graf
-        # -----------------------------
-        self._update_plot()
 
     # ==========================================================
     def _median(self, data, k):

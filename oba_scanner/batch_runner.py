@@ -186,7 +186,7 @@ def resolve_move_target(obj):
 # ============================================================
 
 
-def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag_func):
+def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag_func, only_step_id=None):
     App.Console.PrintLog("▶ Starting batch run\n")
 
     doc = batch.Document
@@ -217,6 +217,9 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
         for step, data, A, rf, rt, R in parsed_steps:
             if stop_flag_func():
                 break
+
+            if only_step_id and step.Id != only_step_id:
+                continue
 
             step_offset = getattr(step, "StepOffset", App.Vector(0, 0, 0))  # offset utifall man har klickat i heatmap
 
@@ -438,3 +441,30 @@ def store_hits(db, step_id, hits, dx, dy, dz, moved_objects_str):
     if rows:
         db.write_hits_batch(rows)
         db.flush_if_needed()
+
+
+# ============================================================
+# UTILS
+# ============================================================
+
+
+def find_batch_object(doc):
+    if not doc:
+        return None
+
+    for obj in doc.Objects:
+        if obj.TypeId == "App::DocumentObjectGroupPython" and hasattr(obj, "GroupId"):
+            return obj
+
+    return None
+
+
+def find_step_by_id(doc, step_id):
+    if not doc:
+        return None
+
+    for obj in doc.Objects:
+        if getattr(obj, "Id", "") == step_id:
+            return obj
+
+    return None

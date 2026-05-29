@@ -287,6 +287,14 @@ class OBA_Optics(Gui.Workbench):
             pixmap=get_icon("batch_movedddd.svg"),
         )
 
+        hot_reload.register_command(
+            command="OBA_CreateOpticalObject",
+            impl_module="oba_objects.oba_optical_base",
+            menu="Nya optial object",
+            tooltip="Rensa logger",
+            pixmap=get_icon("batch_movedddd.svg"),
+        )
+
         # --- Reload command ---
         Gui.addCommand("OBA_ReloadWorkbench", hot_reload.OBA_Reload_Command())
 
@@ -328,6 +336,9 @@ class OBA_Optics(Gui.Workbench):
             "OBA_ListObjects",
             "_ClearLogger",
             "OBA_ShowRayHistory",
+            SEP(),
+            SEP(),
+            "OBA_CreateOpticalObject",
         ]
 
         self.appendToolbar("OBA Tools", self.list)
