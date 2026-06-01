@@ -116,6 +116,7 @@ class LensDialog(OBABaseDialog):
         self.spin_index.setDecimals(4)
         self.spin_index.setValue(self.obj.RefractiveIndex)
         self.spin_index.valueChanged.connect(self._update_index)
+        self.spin_index.setSingleStep(0.05)
         row_index.addWidget(self.spin_index)
         self.custom_layout.addLayout(row_index)
 
@@ -146,18 +147,44 @@ class LensDialog(OBABaseDialog):
 
     def _update_material(self, name):
         self.obj.Material = name
-        n_d, v_d = MATERIAL_DATA.get(name, (1.5, 50.0))
+        is_custom = name == "Custom"
 
+        data = MATERIAL_DATA.get(name, {})
+
+        n_d = data.get("n_d", data.get("n"))
+        v_d = data.get("Vd")
+
+        # ✅ SKYDD MOT None (detta är nyckeln)
+        if n_d is None:
+            n_d = self.obj.RefractiveIndex if is_custom else 1.5
+
+        if v_d is None:
+            v_d = self.obj.AbbeNumber if is_custom else 50.0
+
+        # -----------------------
+        # UI update
+        # -----------------------
         self.spin_index.blockSignals(True)
         self.spin_abbe.blockSignals(True)
 
-        self.spin_index.setValue(n_d)
-        self.spin_abbe.setValue(v_d)
-        self.obj.RefractiveIndex = n_d
-        self.obj.AbbeNumber = v_d
+        self.spin_index.setValue(float(n_d))
+        self.spin_abbe.setValue(float(v_d))
 
         self.spin_index.blockSignals(False)
         self.spin_abbe.blockSignals(False)
+
+        # -----------------------
+        # DATA update
+        # -----------------------
+        if not is_custom:
+            self.obj.RefractiveIndex = float(n_d)
+            self.obj.AbbeNumber = float(v_d)
+
+        # -----------------------
+        # UI state
+        # -----------------------
+        self.spin_index.setEnabled(is_custom)
+        self.spin_abbe.setEnabled(is_custom)
 
     def _update_index(self, val):
         self.obj.RefractiveIndex = val

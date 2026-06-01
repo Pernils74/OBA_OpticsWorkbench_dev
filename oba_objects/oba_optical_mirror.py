@@ -4,18 +4,25 @@ from PySide import QtWidgets
 # OPTICAL PROPERTIES (✅ endast optik)
 # ============================================================
 
-OPTICAL_PROPERTIES = [
-    {
-        "type": "App::PropertyFloat",
-        "name": "Focal",
-        "group": "Optical",
-        "default": 100.0,
-    }
-]
+# OPTICAL_PROPERTIES = [
+#     {
+#         "type": "App::PropertyFloat",
+#         "name": "Focal",
+#         "group": "Optical",
+#         "default": 100.0,
+#     }
+# ]
+
+
+AFFECTS_GEOMETRY = False
 
 # ============================================================
 # CALCULATE (geometry → optics)
 # ============================================================
+
+
+def update_calculated_properties(obj):
+    pass  # eller inget
 
 
 def calculate_focal(obj):
@@ -63,4 +70,5 @@ def update_calculated_properties(obj):
 def build_dialog(dlg, obj, layout):
 
     # ✅ Focal
-    dlg._spin(layout, "Focal", "Focal")
+    # dlg._spin(layout, "Focal", "Focal")
+    pass

@@ -4,7 +4,8 @@
 # n_d avser d-linjen (587.6 nm)
 # Abbe-tal: Högt = låg dispersion, Lågt = hög dispersion
 
-MATERIAL_DATA = {
+MATERIAL_DATA_old = {
+    # Name : () brytindex, Abbe - tal)
     # Custom → använd objektets egna värden
     "Custom": (None, None),
     # Optical glass
@@ -25,6 +26,92 @@ MATERIAL_DATA = {
 }
 
 
+MATERIAL_DATA = {
+    # --------------------------------------------------
+    # Custom → använd objektets egna värden
+    # --------------------------------------------------
+    "Custom": {
+        "type": "custom",
+        "n": None,
+        "Vd": None,
+    },
+    # --------------------------------------------------
+    # Optical glass (Sellmeier-data)
+    # --------------------------------------------------
+    "N-BK7": {
+        "type": "sellmeier",
+        "B": [1.03961212, 0.231792344, 1.01046945],
+        "C": [0.00600069867, 0.0200179144, 103.560653],
+        "n_d": 1.5168,
+        "Vd": 64.17,
+    },
+    "Fused Silica": {
+        "type": "sellmeier",
+        "B": [0.6961663, 0.4079426, 0.8974794],
+        "C": [0.00467914826, 0.0135120631, 97.9340025],
+        "n_d": 1.4585,
+        "Vd": 67.8,
+    },
+    "N-SF11": {
+        "type": "sellmeier",
+        "B": [1.73759695, 0.313747346, 1.89878101],
+        "C": [0.013188707, 0.0623068142, 155.23629],
+        "n_d": 1.7847,
+        "Vd": 25.76,
+    },
+    # --------------------------------------------------
+    # Optical glass (Abbe fallback)
+    # --------------------------------------------------
+    "F2": {
+        "type": "abbe",
+        "n_d": 1.6200,
+        "Vd": 36.37,
+    },
+    "SF2": {
+        "type": "abbe",
+        "n_d": 1.6477,
+        "Vd": 33.85,
+    },
+    # --------------------------------------------------
+    # Kristaller
+    # --------------------------------------------------
+    "Sapphire": {
+        "type": "abbe",
+        "n_d": 1.7680,
+        "Vd": 72.2,
+    },
+    "Zinc Selenide": {
+        "type": "constant",  # IR-material – ofta konstant används
+        "n": 2.4030,
+    },
+    # --------------------------------------------------
+    # Plast
+    # --------------------------------------------------
+    "Acrylic (PMMA)": {
+        "type": "abbe",
+        "n_d": 1.4910,
+        "Vd": 57.2,
+    },
+    "Polycarbonate": {
+        "type": "abbe",
+        "n_d": 1.5850,
+        "Vd": 29.9,
+    },
+    # --------------------------------------------------
+    # Vätskor / Luft
+    # --------------------------------------------------
+    "Water": {
+        "type": "abbe",
+        "n_d": 1.3330,
+        "Vd": 55.7,
+    },
+    "Air": {
+        "type": "constant",
+        "n": 1.0003,
+    },
+}
+
+
 # --------------------------------------------------
 # Hjälpfunktioner
 # --------------------------------------------------
@@ -36,14 +123,66 @@ def get_material_list():
 
 
 def get_material_params(name):
-    """
-    Returnerar (n_d, V_d).
-    Faller tillbaka på BK7-liknande värden.
-    """
-    return MATERIAL_DATA.get(name, (1.5168, 55.0))
+    data = MATERIAL_DATA.get(name, {})
+
+    n = data.get("n_d", data.get("n", 1.5168))
+    v = data.get("Vd", 55.0)
+
+    return n, v
+
+
+def sellmeier_n(wavelength_nm, B, C):
+    lam = wavelength_nm / 1000.0
+    lam2 = lam * lam
+
+    n2 = 1.0
+    for b, c in zip(B, C):
+        denom = lam2 - c
+        if abs(denom) < 1e-9:
+            continue
+        n2 += b * lam2 / denom
+
+    return n2**0.5
 
 
 def get_refractive_index(name, wavelength_nm=550.0, override_n=None):
+
+    if override_n is not None:
+        return override_n
+
+    data = MATERIAL_DATA.get(name)
+
+    if not data:
+        return 1.5
+
+    mat_type = data.get("type", "abbe")
+
+    # -----------------------------
+    # CONSTANT
+    # -----------------------------
+    if mat_type == "constant":
+        return data["n"]
+
+    # -----------------------------
+    # SELLMEIER
+    # -----------------------------
+    if mat_type == "sellmeier":
+        return sellmeier_n(wavelength_nm, data["B"], data["C"])
+
+    # -----------------------------
+    # ABBE (fallback)
+    # -----------------------------
+    n_d = data.get("n_d", 1.5)
+    v_d = data.get("Vd", 50.0)
+
+    if v_d <= 0:
+        return n_d
+
+    offset = (wavelength_nm - 587.6) / 1000.0
+    return n_d - (offset * (n_d - 1.0) / v_d)
+
+
+def get_refractive_index_old(name, wavelength_nm=550.0, override_n=None):
     """
     Returnerar brytningsindex vid given våglängd.
 

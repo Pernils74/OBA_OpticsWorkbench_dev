@@ -110,23 +110,20 @@ def build_shape(obj):
 
         w = getattr(obj, "Width", obj.Diameter)
         h = getattr(obj, "Height", obj.Diameter)
+
+        p1 = App.Vector(-w / 2, -h / 2, 0)
+        p2 = App.Vector(w / 2, -h / 2, 0)
+        p3 = App.Vector(w / 2, h / 2, 0)
+        p4 = App.Vector(-w / 2, h / 2, 0)
+
+        wire = Part.makePolygon([p1, p2, p3, p4, p1])
+        plane = Part.Face(wire)
+        return plane
+
         plane = Part.makePlane(w, h)
         # ✅ CENTERA
         plane.translate(App.Vector(-w / 2.0, -h / 2.0, 0))
         return plane
-
-        optical = getattr(obj, "OpticalType", "None")
-        # ✅ INGEN OPTIK → riktig yta (width/height)
-        if optical == "None":
-            w = getattr(obj, "Width", obj.Diameter)
-            h = getattr(obj, "Height", obj.Diameter)
-            plane = Part.makePlane(w, h)
-            # ✅ CENTERA
-            plane.translate(App.Vector(-w / 2.0, -h / 2.0, 0))
-            return plane
-        # ✅ OPTIK → måste vara volym
-        else:
-            return Part.makeCylinder(obj.Diameter / 2.0, obj.Thickness)
 
     # --------------------------------------------------------
     # PLANO CONVEX
@@ -138,7 +135,7 @@ def build_shape(obj):
     #     sphere.translate(App.Vector(0, 0, T - R))
     #     return cyl.common(sphere)
 
-    if st == "PlanoConvex":
+    if st == "PlanoConvex_old":
         R = abs(obj.Radius1)
         r = D / 2.0
         sag = R - math.sqrt(R * R - r * r)
@@ -164,16 +161,37 @@ def build_shape(obj):
     # PLANO CONCAVE
     # --------------------------------------------------------
 
-    # if st == "PlanoConcave":
-    #     R = abs(obj.Radius1)
-    #     sphere = Part.makeSphere(R)
-    #     sphere.translate(App.Vector(0, 0, T + R))
+    if st == "PlanoConvex":
+        R = abs(obj.Radius1)
+        r = D / 2.0
+        if R <= r:
+            App.Console.PrintWarning(f"Invalid geometry: Radius {R} < aperture {r}, fallback used\n")
+            return cyl  # ✅ skydd
 
-    #     return cyl.cut(sphere)
+        sag = R - math.sqrt(R * R - r * r)
+        # ----------------------------------------------------
+        # full cylinder
+        # ----------------------------------------------------
+        base = Part.makeCylinder(r, T - sag)
+        # ----------------------------------------------------
+        # sphere
+        # ----------------------------------------------------
+        sphere = Part.makeSphere(R)
+        sphere.translate(App.Vector(0, 0, T - R))
+
+        cap_cyl = Part.makeCylinder(r, sag + 0.001)
+        cap_cyl.translate(App.Vector(0, 0, T - sag))
+
+        cap = sphere.common(cap_cyl)
+        return base.fuse(cap)
 
     if st == "PlanoConcave":
         R = abs(obj.Radius1)
         r = D / 2.0
+        if R <= r:
+            App.Console.PrintWarning(f"Invalid geometry: Radius {R} < aperture {r}, fallback used\n")
+            return cyl
+
         sag = R - math.sqrt(R * R - r * r)
         # ----------------------------------------------------
         # full cylinder
@@ -187,9 +205,7 @@ def build_shape(obj):
         sphere.translate(App.Vector(0, 0, T + R - sag))
         # ----------------------------------------------------
         # cut
-        # ----------------------------------------------------
-
-        return base.cut(sphere)
+        # ----------------------------------------------------        return base.cut(sphere)
 
     # --------------------------------------------------------
     # BICONVEX

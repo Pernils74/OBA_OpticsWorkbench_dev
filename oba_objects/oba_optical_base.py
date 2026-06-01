@@ -3,11 +3,7 @@ import Part
 
 from PySide import QtWidgets
 
-from .oba_base import (
-    OBABaseDialog,
-    OBAElementProxy,
-    OBAViewProviderBase,
-)
+from .oba_base import OBABaseDialog, OBAElementProxy, OBAViewProviderBase, _trigger_ray_engine
 
 from . import oba_optical_lens
 from . import oba_optical_mirror
@@ -34,6 +30,7 @@ class OBAOpticalObject(OBAElementProxy):
         super().__init__(obj)
 
         self._updating = False
+        self._init_done = False  # ✅ sätt direkt
 
         self._add_base_properties(obj)
 
@@ -56,8 +53,8 @@ class OBAOpticalObject(OBAElementProxy):
         self._add_prop(obj, "App::PropertyBool", "IsOptical", "Base", True)
 
         if not hasattr(obj, "OpticalType"):
-            obj.addProperty("App::PropertyEnumeration", "OpticalType", "Optics")
-            obj.OpticalType = ["None", "Lens", "Mirror"]
+            obj.addProperty("App::PropertyEnumeration", "OpticalType", "Base")
+            obj.OpticalType = ["None", "Lens", "Mirror", "Absorber", "Detector"]
             obj.OpticalType = "None"
 
         if not hasattr(obj, "ShapeType"):
@@ -72,6 +69,7 @@ class OBAOpticalObject(OBAElementProxy):
 
     def _ensure_dynamic_properties(self):
         obj = self.Object
+
         # =====================================================
         # SHAPE ENUM (ALLTID)
         # =====================================================
@@ -79,21 +77,21 @@ class OBAOpticalObject(OBAElementProxy):
 
         if obj.ShapeType not in oba_optical_shapes.SHAPES:
             obj.ShapeType = oba_optical_shapes.SHAPES[0]
+
         # =====================================================
         # SHAPE PROPERTIES (från module)
         # =====================================================
         shape_props = oba_optical_shapes.SHAPE_PROPERTIES.get(obj.ShapeType, [])
-        # Collect valid property names
 
         # =====================================================
         # SPECIAL CASE: PLANE
         # =====================================================
         if obj.ShapeType == "Plane":
-            # ✅ Width
+
             if not hasattr(obj, "Width"):
                 obj.addProperty("App::PropertyFloat", "Width", "Shape")
                 obj.Width = getattr(obj, "Diameter", 50.0)
-            # ✅ Height
+
             if not hasattr(obj, "Height"):
                 obj.addProperty("App::PropertyFloat", "Height", "Shape")
                 obj.Height = getattr(obj, "Diameter", 50.0)
@@ -108,21 +106,59 @@ class OBAOpticalObject(OBAElementProxy):
                 if "default" in p:
                     setattr(obj, p["name"], p["default"])
 
-                # setattr(obj, p["name"], p["default"])
-
         # =====================================================
-        # OPTICAL PROPERTIES
+        # OPTICAL MODULE
         # =====================================================
         mod = OPTICAL_MODULES.get(obj.OpticalType)
-        if mod and hasattr(mod, "OPTICAL_PROPERTIES"):
+
+        if not mod:
+            return
+
+        created_props = False
+
+        # =====================================================
+        # ADD OPTICAL PROPERTIES
+        # =====================================================
+
+        if hasattr(mod, "OPTICAL_PROPERTIES"):  # and obj.ShapeType != "Plane":
             for p in mod.OPTICAL_PROPERTIES:
+
                 if not hasattr(obj, p["name"]):
                     obj.addProperty(p["type"], p["name"], p["group"])
+                    created_props = True
 
                     if "default" in p:
                         setattr(obj, p["name"], p["default"])
 
-                    # setattr(obj, p["name"], p["default"])
+        # =====================================================
+        # INIT MODULE (material etc)
+        # =====================================================
+        if hasattr(mod, "ensure_initialized"):
+            mod.ensure_initialized(obj)
+
+        # if hasattr(mod, "init_properties"):
+        #     mod.init_properties(obj)
+
+        # # Fallback om bara init_material finns
+        # elif hasattr(mod, "init_material"):
+        #     mod.init_material(obj)
+
+        # =====================================================
+        # INITIAL SYNC (Focal → Radius)
+        # =====================================================
+        if getattr(mod, "AFFECTS_GEOMETRY", False):
+
+            if hasattr(mod, "update_calculated_properties"):
+
+                # ✅ kör alltid en initial sync när properties finns
+                mod.update_calculated_properties(obj)
+
+            elif hasattr(mod, "calculate_focal"):
+
+                # fallback: räkna focal från radius
+                f = mod.calculate_focal(obj)
+                if hasattr(obj, "Focal") and f != 0:
+                    obj.Focal = f
 
     # ========================================================
     # PROP HELPER
@@ -141,27 +177,26 @@ class OBAOpticalObject(OBAElementProxy):
 
     def build_shape(self):
         obj = self.Object
-        # ✅ OPTICAL först → skriver t.ex Radius1/Radius2
+
         mod = OPTICAL_MODULES.get(obj.OpticalType)
 
-        if mod and hasattr(mod, "update_calculated_properties"):
-            mod.update_calculated_properties(obj)
+        # ✅ endast om optical påverkar geometri
+        if mod and getattr(mod, "AFFECTS_GEOMETRY", False):
+            if hasattr(mod, "update_calculated_properties"):
+                mod.update_calculated_properties(obj)
 
-        # ✅ SHAPE bygger med uppdaterade värden
-        shape = oba_optical_shapes.build_shape(obj)
-        self.body.Shape = shape
-        self._rebuild_binders()
+        pl = self.body.Placement.copy() if self.body.Shape else App.Placement()
 
-    def build_shape_old(self):
-        obj = self.Object
-        # ✅ SHAPE bygger geometri
+        self.clear_binders(obj)
+
         shape = oba_optical_shapes.build_shape(obj)
-        # ✅ OPTICAL påverkar parametrar
-        mod = OPTICAL_MODULES.get(obj.OpticalType)
-        if mod and hasattr(mod, "update_calculated_properties"):
-            mod.update_calculated_properties(obj)
+
         self.body.Shape = shape
+        self.body.Placement = pl
+
+        self.body.touch()
         self._rebuild_binders()
+        _trigger_ray_engine("Shape rebuilt", obj)
 
     # ========================================================
     # BINDERS
@@ -180,17 +215,34 @@ class OBAOpticalObject(OBAElementProxy):
     # ========================================================
 
     def onChanged(self, obj, prop):
-        if not getattr(self, "_init_done", False):
+        # ✅ alltid safe
+        if not hasattr(self, "_init_done"):
             return
 
-        if self._updating:
+        if not self._init_done or getattr(self, "_updating", False):
             return
+
         try:
             self._updating = True
+
+            mod = OPTICAL_MODULES.get(obj.OpticalType)
 
             if prop in ("OpticalType", "ShapeType"):
                 self._ensure_dynamic_properties()
 
+            # ✅ OPTICAL update separat
+            # if mod and getattr(mod, "AFFECTS_GEOMETRY", False):
+            #     mod.update_calculated_properties(obj)
+
+            trigger_props = getattr(mod, "TRIGGER_PROPS", ())
+            if prop in trigger_props and getattr(mod, "AFFECTS_GEOMETRY", False):
+                mod.update_calculated_properties(obj)
+                # ✅ FORCE rebuild direkt
+                self.build_shape()
+
+                # return
+
+            # ✅ ENDAST geometry rebuild triggar shape
             if prop in (
                 "ShapeType",
                 "OpticalType",
@@ -200,14 +252,21 @@ class OBAOpticalObject(OBAElementProxy):
                 "Radius2",
                 "Width",
                 "Height",
-                "Focal",  # ✅
-                "Material",  # ✅
-                "Wavelength",
             ):
                 self.build_shape()
 
+            vp = getattr(obj.ViewObject, "Proxy", None)
+            if vp and hasattr(vp, "dialog") and vp.dialog:
+                vp.dialog.update_ui_from_object()
+
         finally:
             self._updating = False
+
+        if prop == "OpticalType":
+            self.update_icon(obj)
+
+    def onDocumentRestored(self, obj):
+        self._init_done = True
 
 
 # ============================================================
@@ -223,11 +282,13 @@ class OpticalObjectDialog(OBABaseDialog):
         self.obj = obj
         self.dynamic_widget = None
 
+        self.obj.ViewObject.Proxy.dialog = self
         self.build_ui()
 
     # ========================================================
 
     def build_ui(self):
+        self._spinboxes = {}
 
         if self.dynamic_widget:
             self.custom_layout.removeWidget(self.dynamic_widget)
@@ -265,13 +326,11 @@ class OpticalObjectDialog(OBABaseDialog):
 
     def _combo_shape(self, layout):
         opt = self.obj.OpticalType
-
         if opt == "Lens":
             shapes = ["Plane", "PlanoConvex", "PlanoConcave", "BiConvex", "BiConcave"]
 
         elif opt == "Mirror":
             shapes = ["Plane", "Concave", "Convex"]
-
         else:
             shapes = oba_optical_shapes.SHAPES
 
@@ -296,12 +355,11 @@ class OpticalObjectDialog(OBABaseDialog):
     # ========================================================
 
     def _combo_optical(self, layout):
-
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel("Optical"))
 
         cmb = QtWidgets.QComboBox()
-        cmb.addItems(["None", "Lens", "Mirror"])
+        cmb.addItems(["None", "Lens", "Mirror", "Absorber", "Detector"])
         cmb.setCurrentText(self.obj.OpticalType)
 
         def changed(v):
@@ -316,12 +374,11 @@ class OpticalObjectDialog(OBABaseDialog):
     # ========================================================
 
     def _spin(self, layout, label, prop):
-
         if not hasattr(self.obj, prop):
             return
-
-        row = QtWidgets.QHBoxLayout()
-        row.addWidget(QtWidgets.QLabel(label))
+        self._spinboxes = getattr(self, "_spinboxes", {})
+        row = QtWidgets.QHBoxLayout()  # ❌ saknas just nu
+        row.addWidget(QtWidgets.QLabel(label))  # ❌ saknas
 
         w = QtWidgets.QDoubleSpinBox()
         w.setRange(-1e9, 1e9)
@@ -329,16 +386,15 @@ class OpticalObjectDialog(OBABaseDialog):
 
         w.valueChanged.connect(lambda v: setattr(self.obj, prop, v))
 
+        self._spinboxes[prop] = w  # ✅ spara
+
         row.addWidget(w)
         layout.addLayout(row)
 
     def _check(self, layout, label, prop):
-
         if not hasattr(self.obj, prop):
             return
-
         row = QtWidgets.QHBoxLayout()
-
         chk = QtWidgets.QCheckBox(label)
         chk.setChecked(getattr(self.obj, prop))
 
@@ -346,9 +402,19 @@ class OpticalObjectDialog(OBABaseDialog):
             setattr(self.obj, prop, bool(v))
 
         chk.stateChanged.connect(changed)
-
         row.addWidget(chk)
         layout.addLayout(row)
+
+    def update_ui_from_object(self):
+        for prop, w in list(self._spinboxes.items()):
+            try:
+                if hasattr(self.obj, prop):
+                    w.blockSignals(True)
+                    w.setValue(getattr(self.obj, prop))
+                    w.blockSignals(False)
+            except RuntimeError:
+                # widget borttagen → ta bort referens
+                del self._spinboxes[prop]
 
 
 # ============================================================

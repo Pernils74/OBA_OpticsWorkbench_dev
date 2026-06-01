@@ -28,6 +28,8 @@ class OBAOpticalObject(OBAElementProxy):
     def __init__(self, obj):
         super().__init__(obj)
 
+        self._init_done = False  # ✅ sätt direkt
+
         # =====================================================
         # BASE
         # =====================================================

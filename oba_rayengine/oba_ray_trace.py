@@ -426,19 +426,35 @@ def handle_optical_interaction(
     elif o_type in ("Lens", "LensBuilder"):
 
         P_in = ray.power
-        surface_n = props.get("RefractiveIndex", 1.5)
+        # surface_n = props.get("RefractiveIndex", 1.5)
+        material = props.get("Material", "Air")
+
+        surface_n = get_refractive_index(
+            material,
+            wavelength_nm=ray.wavelength,
+            override_n=props.get("RefractiveIndex") if material == "Custom" else None,
+        )
+
         use_fresnel = props.get("UseFresnel", False)
 
         # 1. Bestäm om vi går IN eller UT baserat på strålens nuvarande medium
         # Om strålen redan befinner sig i detta medium (eller linsen), är den på väg UT.
-        if abs(ray.current_n - surface_n) < 1e-5:
-            entering = False
-        else:
+        # if abs(ray.current_n - surface_n) < 1e-5:
+        #     entering = False
+        # else:
+        #     entering = True
+
+        dot = incoming_dir.dot(normal_eff)
+
+        if dot < 0:
             entering = True
+        else:
+            entering = False
 
         # 2. Hantera normalen så att den ALLTID pekar MOT den inkommande strålen.
         # Detta krävs för att standardfunktioner för brytning (refract) och reflektion (reflect) ska fungera.
-        dot = incoming_dir.dot(normal_eff)
+        # dot = incoming_dir.dot(normal_eff)
+
         if dot < 0:
             normal_l = normal_eff
         else:
@@ -618,8 +634,7 @@ def handle_optical_interaction(
     # ==================================================
     # ABSORBER
     # ==================================================
-
-    else:
+    elif o_type == "Absorber":
         absorption = props.get("Absorption", 1.0)
 
         P_in = ray.power
@@ -660,6 +675,9 @@ def handle_optical_interaction(
                 "transmitted_power": P_out,
             },
         )
+
+    else:
+        pass
 
     return spawned_rays
 
@@ -911,10 +929,11 @@ def propagate_occ(ray, ray_targets, max_bounce, max_length):
 
         incoming_dir = direction
 
+        opt_type = props.get("OpticalType")
         # ==================================================
         # DETECTOR
         # ==================================================
-        if props.get("OpticalType") == "Detector":
+        if opt_type == "Detector":
 
             mode = props.get("HitMode")
             if isinstance(mode, int):
@@ -969,34 +988,41 @@ def propagate_occ(ray, ray_targets, max_bounce, max_length):
         # VANLIG OPTIK
         # ==================================================
 
-        ray.add_segment(
-            hit_p,
-            hit_face_label=target["label"],
-        )
+        if opt_type in (
+            "Lens",
+            "Mirror",
+            "Absorber",
+            "Grating",
+        ):
 
-        ray.bounce_count += 1
-
-        spawned = handle_optical_interaction(
-            ray,
-            hit_p,
-            normal,
-            incoming_dir,
-            props,
-        )
-
-        for child in spawned:
-            # ✅ också viktigt här
-            child.total_distance = ray.total_distance
-
-            propagate_occ(
-                child,
-                ray_targets,
-                max_bounce,
-                max_length,
+            ray.add_segment(
+                hit_p,
+                hit_face_label=target["label"],
             )
 
-        if ray.power < 1e-12:
-            break
+            ray.bounce_count += 1
+
+            spawned = handle_optical_interaction(
+                ray,
+                hit_p,
+                normal,
+                incoming_dir,
+                props,
+            )
+
+            for child in spawned:
+                # ✅ också viktigt här
+                child.total_distance = ray.total_distance
+
+                propagate_occ(
+                    child,
+                    ray_targets,
+                    max_bounce,
+                    max_length,
+                )
+
+            if ray.power < 1e-12:
+                break
 
 
 def propagate_mesh(ray, mesh_targets, max_bounce, max_length):
@@ -1113,10 +1139,11 @@ def propagate_mesh(ray, mesh_targets, max_bounce, max_length):
 
         incoming_dir = direction
 
+        opt_type = props.get("OpticalType")
         # ==================================================
         # DETECTOR
         # ==================================================
-        if props.get("OpticalType") == "Detector":
+        if opt_type == "Detector":
 
             mode = props.get("HitMode")
             if isinstance(mode, int):
@@ -1167,31 +1194,38 @@ def propagate_mesh(ray, mesh_targets, max_bounce, max_length):
         # VANLIG OPTIK
         # ==================================================
 
-        ray.add_segment(
-            hit_p,
-            hit_face_label=target["label"],
-        )
+        if opt_type in (
+            "Lens",
+            "Mirror",
+            "Absorber",
+            "Grating",
+        ):
 
-        ray.bounce_count += 1
-
-        spawned = handle_optical_interaction(
-            ray,
-            hit_p,
-            normal,
-            incoming_dir,
-            props,
-        )
-
-        for child in spawned:
-            propagate_mesh(
-                child,
-                mesh_targets,
-                max_bounce,
-                max_length,
+            ray.add_segment(
+                hit_p,
+                hit_face_label=target["label"],
             )
 
-        if ray.power < 1e-12:
-            break
+            ray.bounce_count += 1
+
+            spawned = handle_optical_interaction(
+                ray,
+                hit_p,
+                normal,
+                incoming_dir,
+                props,
+            )
+
+            for child in spawned:
+                propagate_mesh(
+                    child,
+                    mesh_targets,
+                    max_bounce,
+                    max_length,
+                )
+
+            if ray.power < 1e-12:
+                break
 
 
 def propagate_mesh_old(ray, mesh_targets, max_bounce, max_length):

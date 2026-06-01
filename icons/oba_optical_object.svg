@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="64" height="64"
+     viewBox="0 0 64 64">
+
+  <!-- Convex (left) -->
+  <path d="
+    M 14 12
+    L 14 52
+    L 18 52
+    Q 34 32 18 12
+    Z"
+    fill="#4a90e2"
+    stroke="#2171b5"
+    stroke-width="2"/>
+
+  <!-- Concave (right) -->
+  <path d="
+    M 32 12
+    L 32 52
+    L 36 52
+    Q 22 32 36 12
+    Z"
+    fill="#4a90e2"
+    stroke="#2171b5"
+    stroke-width="2"/>
+
+  <!-- Plane (center, semi-transparent for blend effect) -->
+  <polygon points="22,18 42,14 42,50 22,46"
+           fill="#4a90e2"
+           stroke="#2171b5"
+           stroke-width="2"
+           opacity="0.7"/>
+
+  <!-- Unified highlight -->
+  <line x1="14" y1="12" x2="36" y2="12"
+        stroke="#ffffff"
+        stroke-width="1.5"/>
+
+  <!-- Common PLUS (centered, symbolizing merge) -->
+  <g transform="translate(32,32)">
+    <circle cx="0" cy="0" r="12" fill="#555"/>
+    <rect x="-7" y="-2" width="14" height="4" fill="#ffffff"/>
+    <rect x="-2" y="-7" width="4" height="14" fill="#ffffff"/>
+  </g>
+
+</svg>

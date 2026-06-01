@@ -538,6 +538,17 @@ class OBAElementProxy:
         if obj.Label != new_label:
             obj.Label = new_label
 
+    def update_icon(self, obj):
+        """
+        Tvinga uppdatering av ikon i GUI
+        """
+
+        try:
+            if hasattr(obj, "ViewObject") and obj.ViewObject:
+                obj.ViewObject.signalChangeIcon()
+        except Exception:
+            pass
+
     def __getstate__(self):
         return None
 

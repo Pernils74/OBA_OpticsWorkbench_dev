@@ -124,28 +124,36 @@ class OBA_Optics(Gui.Workbench):
         # -------------------------
 
         hot_reload.register_command(
-            command="OBA_CreateMirrorBuilder",
-            impl_module="oba_objects.oba_mirrorbuilder",
-            menu="Mirror builder",
-            tooltip="Mirror builder",
-            pixmap=get_icon("oba_mirrorbuilder.svg"),
+            command="OBA_CreateOpticalObject",
+            impl_module="oba_objects.oba_optical_base",
+            menu="Nya optial object",
+            tooltip="Rensa logger",
+            pixmap=get_icon("oba_optical_object.svg"),
         )
 
-        hot_reload.register_command(
-            command="OBA_CreateLensBuilder",
-            impl_module="oba_objects.oba_lensbuilder",
-            menu="Lens builder",
-            tooltip="Lens builder",
-            pixmap=get_icon("oba_lensbuilder.svg"),
-        )
+        # hot_reload.register_command(
+        #     command="OBA_CreateMirrorBuilder",
+        #     impl_module="oba_objects.oba_mirrorbuilder",
+        #     menu="Mirror builder",
+        #     tooltip="Mirror builder",
+        #     pixmap=get_icon("oba_mirrorbuilder.svg"),
+        # )
 
-        hot_reload.register_command(
-            command="OBA_CreatePlaneBuilder",
-            impl_module="oba_objects.oba_planebuilder",
-            menu="Plane builder",
-            tooltip="Plane builder",
-            pixmap=get_icon("oba_planebuilder.svg"),
-        )
+        # hot_reload.register_command(
+        #     command="OBA_CreateLensBuilder",
+        #     impl_module="oba_objects.oba_lensbuilder",
+        #     menu="Lens builder",
+        #     tooltip="Lens builder",
+        #     pixmap=get_icon("oba_lensbuilder.svg"),
+        # )
+
+        # hot_reload.register_command(
+        #     command="OBA_CreatePlaneBuilder",
+        #     impl_module="oba_objects.oba_planebuilder",
+        #     menu="Plane builder",
+        #     tooltip="Plane builder",
+        #     pixmap=get_icon("oba_planebuilder.svg"),
+        # )
 
         # -------------------------
         # --------- Utils --------
@@ -287,14 +295,6 @@ class OBA_Optics(Gui.Workbench):
             pixmap=get_icon("batch_movedddd.svg"),
         )
 
-        hot_reload.register_command(
-            command="OBA_CreateOpticalObject",
-            impl_module="oba_objects.oba_optical_base",
-            menu="Nya optial object",
-            tooltip="Rensa logger",
-            pixmap=get_icon("batch_movedddd.svg"),
-        )
-
         # --- Reload command ---
         Gui.addCommand("OBA_ReloadWorkbench", hot_reload.OBA_Reload_Command())
 
@@ -312,9 +312,10 @@ class OBA_Optics(Gui.Workbench):
             "OBA_CreateRayConfig",
             "OBA_ShowRayBounceRange",
             SEP(),  # builders
-            "OBA_CreateMirrorBuilder",
-            "OBA_CreateLensBuilder",
-            "OBA_CreatePlaneBuilder",
+            "OBA_CreateOpticalObject",
+            # "OBA_CreateMirrorBuilder",
+            # "OBA_CreateLensBuilder",
+            # "OBA_CreatePlaneBuilder",
             SEP(),  # utils
             "ShowClusterPlotDialog",
             "ShowPowerDensityPlotDialog",
@@ -338,7 +339,6 @@ class OBA_Optics(Gui.Workbench):
             "OBA_ShowRayHistory",
             SEP(),
             SEP(),
-            "OBA_CreateOpticalObject",
         ]
 
         self.appendToolbar("OBA Tools", self.list)
