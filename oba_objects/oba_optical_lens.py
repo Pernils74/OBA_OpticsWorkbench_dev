@@ -10,7 +10,7 @@ from .oba_lens_materials import (
 # OPTICAL PROPERTIES (✅ endast optik)
 # ============================================================
 
-OPTICAL_PROPERTIES = [
+EXTRA_PROPERTIES = [
     {
         "type": "App::PropertyFloat",
         "name": "Focal",
@@ -37,6 +37,9 @@ OPTICAL_PROPERTIES = [
 ]
 
 
+SUPPORTED_SHAPES = ["Plane", "PlanoConvex", "PlanoConcave", "BiConvex", "BiConcave"]
+
+
 TRIGGER_PROPS = {
     "Material",
     "Focal",
@@ -57,10 +60,10 @@ def init_material(obj):
 
     mats = [m for m in get_material_list() if m != "Air"]
 
-    # ✅ Sätt enum-lista
+    # # ✅ Sätt enum-lista
     obj.Material = mats
 
-    # ✅ Sätt värde SOM FINNS I LISTAN
+    # # ✅ Sätt värde SOM FINNS I LISTAN
     if obj.Material not in mats:
         obj.Material = mats[0]
 
@@ -135,7 +138,7 @@ def calculate_focal(obj):
 
 
 def update_calculated_properties(obj):
-    print("updated är kallad")
+    # print("updated är kallad")
     if not hasattr(obj, "Focal"):
         return
 
@@ -239,10 +242,11 @@ def build_dialog(dlg, obj, layout):
         row.addWidget(cmb)
         layout.addLayout(row)
 
-    if obj.ShapeType != "Plane":
+    print("objjj", obj)
+    if obj.ShapeModel != "Plane":
         # ✅ Focal
-        dlg._spin(layout, "Focal", "Focal")
+        dlg._create_widget(layout, "Focal")
         # ✅ Wavelength
-        dlg._spin(layout, "Wavelength", "Wavelength")
+        dlg._create_widget(layout, "Wavelength")
 
-        dlg._check(layout, "UseFresnel", "UseFresnel")
+        dlg._create_widget(layout, "UseFresnel")

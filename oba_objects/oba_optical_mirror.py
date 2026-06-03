@@ -1,4 +1,8 @@
+# oba_optical_mirror.py
+
 from PySide import QtWidgets
+
+from .oba_mirror import OPTICAL_PROPERTIES
 
 # ============================================================
 # OPTICAL PROPERTIES (✅ endast optik)
@@ -13,6 +17,27 @@ from PySide import QtWidgets
 #     }
 # ]
 
+SUPPORTED_SHAPES = [
+    "Plane",
+    "Concave",
+    "Convex",
+]
+
+
+# OPTICAL_PROPERTIES = [
+#     {
+#         "type": "App::PropertyFloat",
+#         "name": "Reflectivity",
+#         "group": "Optical",
+#         "default": 0.95,
+#     },
+#     {
+#         "type": "App::PropertyFloat",
+#         "name": "Transmissivity",
+#         "group": "Optical",
+#         "default": 0.0,
+#     },
+# ]
 
 AFFECTS_GEOMETRY = False
 
@@ -68,7 +93,9 @@ def update_calculated_properties(obj):
 
 
 def build_dialog(dlg, obj, layout):
+    return
+    for p in OPTICAL_PROPERTIES:
+        dlg._spin(layout, p["name"], p["name"])
 
-    # ✅ Focal
-    # dlg._spin(layout, "Focal", "Focal")
-    pass
+    # dlg._spin(layout, "Reflectivity", "Reflectivity")
+    # dlg._spin(layout, "Transmissivity", "Transmissivity")

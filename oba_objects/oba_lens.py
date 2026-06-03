@@ -11,6 +11,46 @@ from .oba_lens_materials import MATERIAL_DATA, get_material_list
 # ============================================================
 
 
+OPTICAL_PROPERTIES = [
+    {
+        "name": "Material",
+        "type": "App::PropertyString",
+        "group": "Lens",
+        "default": "Custom",
+    },
+    {
+        "name": "RefractiveIndex",
+        "type": "App::PropertyFloat",
+        "group": "Lens",
+        "default": 1.50,
+    },
+    {
+        "name": "AbbeNumber",
+        "type": "App::PropertyFloat",
+        "group": "Lens",
+        "default": 50.0,
+    },
+    {
+        "name": "UseFresnel",
+        "type": "App::PropertyBool",
+        "group": "Lens",
+        "default": False,
+    },
+    {
+        "name": "FlipNormal",
+        "type": "App::PropertyBool",
+        "group": "NormalSettings",
+        "default": False,
+    },
+    {
+        "name": "ShowSurfaceNormal",
+        "type": "App::PropertyBool",
+        "group": "NormalSettings",
+        "default": False,
+    },
+]
+
+
 class OBALens(OBAElementProxy):
 
     def __init__(self, obj, source_obj=None, sub_elements=None):
@@ -19,28 +59,33 @@ class OBALens(OBAElementProxy):
 
         # Lins-specifik property
 
-        if not hasattr(obj, "Material"):
-            obj.addProperty("App::PropertyString", "Material", "Lens", "Lens material preset").Material = "Custom"
+        for p in OPTICAL_PROPERTIES:
+            if not hasattr(obj, p["name"]):
+                obj.addProperty(p["type"], p["name"], p["group"])
+                setattr(obj, p["name"], p["default"])
 
-        if not hasattr(obj, "RefractiveIndex"):
-            obj.addProperty("App::PropertyFloat", "RefractiveIndex", "Lens", "Brytningsindex").RefractiveIndex = 1.50
+        # if not hasattr(obj, "Material"):
+        #     obj.addProperty("App::PropertyString", "Material", "Lens", "Lens material preset").Material = "Custom"
 
-        if not hasattr(obj, "AbbeNumber"):
-            obj.addProperty("App::PropertyFloat", "AbbeNumber", "Lens", "Abbe number (chromatic dispersion) (V_d)").AbbeNumber = 50.0
+        # if not hasattr(obj, "RefractiveIndex"):
+        #     obj.addProperty("App::PropertyFloat", "RefractiveIndex", "Lens", "Brytningsindex").RefractiveIndex = 1.50
 
-        if not hasattr(obj, "UseFresnel"):
-            obj.addProperty("App::PropertyBool", "UseFresnel", "Lens", "Enable Fresnel reflection (ray splitting)").UseFresnel = False
+        # if not hasattr(obj, "AbbeNumber"):
+        #     obj.addProperty("App::PropertyFloat", "AbbeNumber", "Lens", "Abbe number (chromatic dispersion) (V_d)").AbbeNumber = 50.0
 
-        if not hasattr(obj, "FlipNormal"):
-            obj.addProperty("App::PropertyBool", "FlipNormal", "NormalSettings", "Invert surface normal for optical computation").FlipNormal = False
+        # if not hasattr(obj, "UseFresnel"):
+        #     obj.addProperty("App::PropertyBool", "UseFresnel", "Lens", "Enable Fresnel reflection (ray splitting)").UseFresnel = False
 
-        if not hasattr(obj, "ShowSurfaceNormal"):
-            obj.addProperty(
-                "App::PropertyBool",
-                "ShowSurfaceNormal",
-                "NormalSettings",
-                "Show surface normal preview",
-            ).ShowSurfaceNormal = False
+        # if not hasattr(obj, "FlipNormal"):
+        #     obj.addProperty("App::PropertyBool", "FlipNormal", "NormalSettings", "Invert surface normal for optical computation").FlipNormal = False
+
+        # if not hasattr(obj, "ShowSurfaceNormal"):
+        #     obj.addProperty(
+        #         "App::PropertyBool",
+        #         "ShowSurfaceNormal",
+        #         "NormalSettings",
+        #         "Show surface normal preview",
+        #     ).ShowSurfaceNormal = False
 
         # OpticalType = Lense (styr ikon via basen)
         if not hasattr(obj, "OpticalType"):
@@ -242,20 +287,3 @@ def OBA_CreateLens():
 
     # Visa dialogen direkt
     LensDialog(lense_obj).show()
-
-
-# ============================================================
-#  K O M M A N D O
-# ============================================================
-
-
-# class _CmdLense:
-#     def GetResources(self):
-#         return {"MenuText": "Create Lense"}
-
-#     def Activated(self):
-#         OBA_CreateLense()
-
-
-# if "OBA_CreateLense" not in Gui.listCommands():
-#     Gui.addCommand("OBA_CreateLense", _CmdLense())

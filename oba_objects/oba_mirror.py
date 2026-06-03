@@ -5,10 +5,24 @@ import FreeCADGui as Gui
 from PySide import QtWidgets
 from .oba_base import OBABaseDialog, OBAElementProxy, OBAViewProviderBase, _trigger_ray_engine
 
-
 # ============================================================
 #  O B J E K T  –  M I R R O R
 # ============================================================
+
+OPTICAL_PROPERTIES = [
+    {
+        "name": "Reflectivity",
+        "type": "App::PropertyFloat",
+        "group": "Mirror",
+        "default": 0.95,
+    },
+    {
+        "name": "Transmissivity",
+        "type": "App::PropertyFloat",
+        "group": "Mirror",
+        "default": 0.0,
+    },
+]
 
 
 class OBAMirror(OBAElementProxy):
@@ -21,17 +35,14 @@ class OBAMirror(OBAElementProxy):
         if not hasattr(obj, "Binders"):
             obj.addProperty("App::PropertyLinkList", "Binders", "Optics")
 
-        # Spegel-specifikt
-        if not hasattr(obj, "Reflectivity"):
-            obj.addProperty("App::PropertyFloat", "Reflectivity", "Mirror").Reflectivity = 0.95
-
-        # ✨ NYTT FÄLT för semitransparent spegel
-        if not hasattr(obj, "Transmissivity"):
-            obj.addProperty("App::PropertyFloat", "Transmissivity", "Mirror").Transmissivity = 0.0
-
         if not hasattr(obj, "OpticalType"):
             obj.addProperty("App::PropertyString", "OpticalType", "Base", "Type of optical element")
         obj.OpticalType = "Mirror"  # eller vad din sub‑klass ska sätta
+
+        for p in OPTICAL_PROPERTIES:
+            if not hasattr(obj, p["name"]):
+                obj.addProperty(p["type"], p["name"], p["group"], p.get("doc", ""))
+                setattr(obj, p["name"], p["default"])
 
         if source_obj:
             self.add_binders(obj, source_obj, sub_elements)

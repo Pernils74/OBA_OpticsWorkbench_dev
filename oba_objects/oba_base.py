@@ -89,21 +89,6 @@ def _trigger_ray_engine(reason="", source=None, force=False):
 # ============================================================
 
 
-def is_interactive_transform_old():
-    import FreeCADGui as Gui
-
-    return any(
-        Gui.isCommandActive(cmd)
-        for cmd in (
-            "Std_TransformManip",
-            "Std_Transform",
-            "Std_Move",
-            "Draft_Move",
-            "Draft_Translate",
-        )
-    )
-
-
 def is_interactive_transform():
     # 1. GUI‑kommandon (kan vara instabila!)
     cmds = (
@@ -343,7 +328,7 @@ class OBARealtimeObserver:
     # OPTIONAL: deletion (kan förenklas eller tas bort)
     # --------------------------------------------------
 
-    def slotDeletedObject(self, obj):
+    def slotDeletedObject_old(self, obj):
         if not self.enabled:
             return
         doc = App.ActiveDocument
@@ -356,6 +341,33 @@ class OBARealtimeObserver:
             reason=f"object_deleted:{obj.Name}",
             source=obj,
         )
+
+    def slotDeletedObject(self, obj):
+        if not self.enabled:
+            return
+
+        doc = App.ActiveDocument
+        if not doc:
+            return
+
+        # samla alla binder-namn först (för safety)
+        binder_names = []
+
+        if hasattr(obj, "Binders"):
+            binder_names = [b.Name for b in obj.Binders if b]
+
+        for name in binder_names:
+            if doc.getObject(name):
+                try:
+                    doc.removeObject(name)
+                except Exception:
+                    pass
+
+        if hasattr(obj, "OpticalType"):
+            _trigger_ray_engine(
+                reason=f"object_deleted:{obj.Name}",
+                source=obj,
+            )
 
 
 # Säkerställ exakt EN registrerad observer
@@ -376,11 +388,11 @@ class OBAElementProxy:
     Basklass för Mirror / Absorber / Lens etc
     """
 
-    def __init__(self, obj):
+    def __init__(self, obj, use_binders=True):
         obj.Proxy = self
         self.Object = obj
 
-        if not hasattr(obj, "Binders"):
+        if use_binders and not hasattr(obj, "Binders"):
             obj.addProperty("App::PropertyLinkList", "Binders", "Optics", "Länkade ytor")
 
     def onChanged(self, obj, prop):
@@ -409,6 +421,18 @@ class OBAElementProxy:
         #     return
 
         _trigger_ray_engine(f"Property changed: {obj.Name}.{prop}", obj)
+
+    # def onDelete(self, obj, subelements):
+    #     doc = obj.Document
+    #     if not doc:
+    #         return True
+    #     for b in list(getattr(obj, "Binders", [])):
+    #         if b:
+    #             try:
+    #                 doc.removeObject(b.Name)
+    #             except Exception:
+    #                 pass
+    #     return True
 
     def add_binders(self, obj, source_obj, sub_elements):
         """
@@ -573,6 +597,12 @@ class OBAViewProviderBase:
         # Gemensam preview-root (Coin3D)
         # self._preview_root = None
         # self._final_root = None
+
+    # def claimChildren(self):
+    #     obj = self.Object
+    #     if hasattr(obj, "Binders"):
+    #         return obj.Binders
+    #     return []
 
     def attach(self, vobj):
         """Called when ViewProvider is attached to ViewObject."""

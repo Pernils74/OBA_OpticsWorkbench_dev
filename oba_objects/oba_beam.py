@@ -23,7 +23,7 @@ class OBABeam(OBAElementProxy):
     """
 
     def __init__(self, obj):
-        super().__init__(obj)
+        super().__init__(obj, use_binders=False)
 
         if not hasattr(obj, "StartMedium"):
             obj.addProperty("App::PropertyEnumeration", "StartMedium", "Optics")

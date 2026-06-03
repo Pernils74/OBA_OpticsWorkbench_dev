@@ -1,3 +1,4 @@
+# oba_optical_shapes.py
 import math
 
 import Part
@@ -20,10 +21,34 @@ SHAPES = [
 # ============================================================
 # SHAPE PROPERTIES
 # ============================================================
-
 SHAPE_PROPERTIES = {
-    "Plane": [],
+    "Plane": [
+        {
+            "type": "App::PropertyFloat",
+            "name": "Width",
+            "group": "Shape",
+            "default": 10.0,
+        },
+        {
+            "type": "App::PropertyFloat",
+            "name": "Height",
+            "group": "Shape",
+            "default": 10.0,
+        },
+    ],
     "PlanoConvex": [
+        {
+            "type": "App::PropertyFloat",
+            "name": "Diameter",
+            "group": "Geometry",
+            "default": 50.0,
+        },
+        {
+            "type": "App::PropertyFloat",
+            "name": "Thickness",
+            "group": "Geometry",
+            "default": 10.0,
+        },
         {
             "type": "App::PropertyFloat",
             "name": "Radius1",
@@ -34,12 +59,36 @@ SHAPE_PROPERTIES = {
     "PlanoConcave": [
         {
             "type": "App::PropertyFloat",
+            "name": "Diameter",
+            "group": "Geometry",
+            "default": 50.0,
+        },
+        {
+            "type": "App::PropertyFloat",
+            "name": "Thickness",
+            "group": "Geometry",
+            "default": 10.0,
+        },
+        {
+            "type": "App::PropertyFloat",
             "name": "Radius1",
             "group": "Shape",
             "default": 100.0,
         },
     ],
     "BiConvex": [
+        {
+            "type": "App::PropertyFloat",
+            "name": "Diameter",
+            "group": "Geometry",
+            "default": 50.0,
+        },
+        {
+            "type": "App::PropertyFloat",
+            "name": "Thickness",
+            "group": "Geometry",
+            "default": 10.0,
+        },
         {
             "type": "App::PropertyFloat",
             "name": "Radius1",
@@ -56,6 +105,18 @@ SHAPE_PROPERTIES = {
     "BiConcave": [
         {
             "type": "App::PropertyFloat",
+            "name": "Diameter",
+            "group": "Geometry",
+            "default": 50.0,
+        },
+        {
+            "type": "App::PropertyFloat",
+            "name": "Thickness",
+            "group": "Geometry",
+            "default": 10.0,
+        },
+        {
+            "type": "App::PropertyFloat",
             "name": "Radius1",
             "group": "Shape",
             "default": -100.0,
@@ -70,6 +131,18 @@ SHAPE_PROPERTIES = {
     "Concave": [
         {
             "type": "App::PropertyFloat",
+            "name": "Diameter",
+            "group": "Geometry",
+            "default": 50.0,
+        },
+        {
+            "type": "App::PropertyFloat",
+            "name": "Thickness",
+            "group": "Geometry",
+            "default": 10.0,
+        },
+        {
+            "type": "App::PropertyFloat",
             "name": "Radius1",
             "group": "Shape",
             "default": 200.0,
@@ -78,19 +151,41 @@ SHAPE_PROPERTIES = {
     "Convex": [
         {
             "type": "App::PropertyFloat",
+            "name": "Diameter",
+            "group": "Geometry",
+            "default": 50.0,
+        },
+        {
+            "type": "App::PropertyFloat",
+            "name": "Thickness",
+            "group": "Geometry",
+            "default": 10.0,
+        },
+        {
+            "type": "App::PropertyFloat",
             "name": "Radius1",
             "group": "Shape",
             "default": 200.0,
         },
     ],
 }
-
 # ============================================================
 # BUILD
 # ============================================================
 
 
+def shape_is_ready(obj):
+    props = SHAPE_PROPERTIES.get(obj.ShapeType, [])
+    for p in props:
+        if p["name"] not in obj.PropertiesList:
+            return False
+    return True
+
+
 def build_shape(obj):
+
+    # if not shape_is_ready(obj):
+    #     return
 
     D = obj.Diameter
     T = obj.Thickness

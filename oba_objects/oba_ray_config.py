@@ -28,7 +28,7 @@ class OBARayConfig(OBAElementProxy):
     TRACE_IGNORE_PROPERTIES = {"Proxy", "Label"}
 
     def __init__(self, obj):
-        super().__init__(obj)
+        super().__init__(obj, use_binders=False)  # ✅ Inga binders på configobjektet
 
         # -------- Core tracing --------
 
@@ -398,7 +398,8 @@ def OBA_CreateRayConfig(doc=None, show_dialog=True):
         return cfg
 
     # 1. Skapa objektet
-    cfg = doc.addObject("App::DocumentObjectGroupPython", "OBARayConfig")
+    # cfg = doc.addObject("App::DocumentObjectGroupPython", "OBARayConfig")
+    cfg = doc.addObject("Part::FeaturePython", "OBARayConfig")
 
     # 2. Koppla Proxy (Python-logik)
     OBARayConfig(cfg)
