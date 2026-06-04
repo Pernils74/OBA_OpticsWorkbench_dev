@@ -51,7 +51,12 @@ class OBAOpticalObject(OBAElementProxy):
         self._updating = False
         self._init_done = False
 
+        self.dialog = None
+
         self.Object = obj
+        # self.ShapeObj = getattr(obj, "ShapeObj", None)
+        # shape_obj = obj.ShapeObj
+        # self.ShapeObj = obj.ShapeObject  # referens till shape-objektet
 
         if not hasattr(obj, "OpticalType"):
             obj.addProperty("App::PropertyString", "OpticalType", "Base", "Type of optical element")
@@ -59,6 +64,9 @@ class OBAOpticalObject(OBAElementProxy):
 
         if not hasattr(obj, "Binders"):
             obj.addProperty("App::PropertyLinkList", "Binders", "Optics")
+
+        if not hasattr(obj, "GeomHash"):
+            obj.addProperty("App::PropertyString", "GeomHash", "Base")
 
         # ✅ debounce timer
         self._recompute_timer = QtCore.QTimer()
@@ -215,10 +223,23 @@ class OBAOpticalObject(OBAElementProxy):
     # ========================================================
 
     def _do_build(self):
-        self.build_shape()
+        if getattr(self, "_updating", False):
+            return
+        self._updating = True
+        try:
+            self.build_shape()
+        finally:
+            self._updating = False
+
+    def _geom_hash(self, shape):
+        try:
+            return str(shape.BoundBox) + str(shape.Volume)
+        except:
+            return ""
 
     def build_shape(self):
         obj = self.Object
+        shape_obj = obj.ShapeObj
 
         mod = OPTICAL_MODULES.get(obj.OpticalModel)
 
@@ -228,15 +249,33 @@ class OBAOpticalObject(OBAElementProxy):
             if hasattr(mod, "update_calculated_properties"):
                 mod.update_calculated_properties(obj)
 
-        pl = obj.Placement.copy() if hasattr(obj, "Placement") else App.Placement()
+        pl = shape_obj.Placement.copy() if hasattr(shape_obj, "Placement") else App.Placement()
 
         shape = oba_optical_shapes.build_shape(obj)
+        new_hash = self._geom_hash(shape)
 
-        obj.Shape = shape
-        obj.touch()
-        obj.Placement = pl
+        geometry_changed = new_hash != obj.GeomHash
 
-        self._rebuild_binders()
+        if geometry_changed:
+            shape_obj.Shape = shape
+            obj.GeomHash = new_hash
+
+        # print("shape =", shape)
+        # print("is None =", shape is None)
+        # print("faces", len(shape.Faces))
+        # print("solids", len(shape.Solids))
+        # print("volume", shape.Volume)
+
+        if not shape_obj.Placement.isSame(pl):
+            shape_obj.Placement = pl
+
+        if obj.OpticalModel != "None":
+            # ✅ rebuild ONLY if geometry changed
+            if geometry_changed or not obj.Binders:
+                self._rebuild_binders()
+        else:
+            parent = obj.InList[0] if obj.InList else App.ActiveDocument
+            self.clear_binders(parent)
 
         _trigger_ray_engine("Shape rebuilt", obj)
 
@@ -244,106 +283,137 @@ class OBAOpticalObject(OBAElementProxy):
     # BINDERS (ON GROUP)
     # ========================================================
 
+    def _build_optical_binders(self):
+        obj = self.Object
+        doc = obj.Document
+        shape_obj = obj.ShapeObj
+
+        if not doc or not shape_obj or not shape_obj.Shape:
+            return
+
+        if obj.OpticalModel == "None":
+            return
+
+        # ✅ 1. rensa gamla
+        for b in list(getattr(obj, "Binders", [])):
+            try:
+                doc.removeObject(b.Name)
+            except:
+                pass
+
+        obj.Binders = []
+
+        binders = []
+
+        # ✅ 2. skapa från ShapeObj
+        for i, face in enumerate(shape_obj.Shape.Faces):
+
+            name = f"{obj.Name}_Face_{i+1}"
+
+            try:
+                b = doc.addObject("PartDesign::ShapeBinder", name)
+            except:
+                continue
+
+            # ✅ KRITISK: Support på ShapeObj
+            b.Support = [(shape_obj, (f"Face{i+1}",))]
+            b.TraceSupport = True
+            b.ViewObject.Visibility = False
+
+            # ✅ lägg under group (DU MISSADE DETTA)
+            obj.addObject(b)
+
+            binders.append(b)
+
+        obj.Binders = binders
+
     def _rebuild_binders(self):
         obj = self.Object
-
-        if not hasattr(obj, "Shape") or not obj.Shape:
+        doc = obj.Document
+        shape_obj = getattr(obj, "ShapeObj", None)
+        # ----------------------------------------
+        # basic guards
+        # ----------------------------------------
+        if not doc or not shape_obj:
             return
-
-        group = obj.InList[0] if obj.InList else None
-        if not group:
+        if obj.OpticalModel == "None":
             return
+        shape = shape_obj.Shape
+        if not shape or shape.isNull():
+            return
+        # ----------------------------------------
+        # samla faces
+        # ----------------------------------------
+        faces = shape.Faces
+        face_count = len(faces)
+        # ----------------------------------------
+        # check om antal binders matchar
+        # ----------------------------------------
+        current_binders = list(getattr(obj, "Binders", []))
 
-        self.clear_binders(group)
+        if len(current_binders) == face_count:
+            # ✅ redan synkat → gör inget
+            return
+        # ----------------------------------------
+        # RENSNING (endast om mismatch)
+        # ----------------------------------------
+        for b in current_binders:
+            try:
+                doc.removeObject(b.Name)
+            except Exception:
+                pass
+        obj.Binders = []
+        # ----------------------------------------
+        # SKAPA NYA BINDERS
+        # ----------------------------------------
+        new_binders = []
+        for i in range(face_count):
+            name = f"{obj.Name}_Face_{i+1}"
+            # unik naming safety
+            if doc.getObject(name):
+                name = f"{name}_{i}"
+            try:
+                b = doc.addObject("PartDesign::ShapeBinder", name)
+            except Exception as e:
+                print("[OBA] binder create failed:", e)
+                continue
 
-        faces = [f"Face{i+1}" for i in range(len(obj.Shape.Faces))]
-        self.add_binders(group, obj, faces)
+            # ✅ BINDER KOPPLAD TILL ShapeObj
+            b.Support = [(shape_obj, (f"Face{i+1}",))]
+            b.TraceSupport = True
+            b.ViewObject.Visibility = False
+
+            # ✅ LÄGG UNDER GROUP DIREKT
+            obj.addObject(b)
+
+            new_binders.append(b)
+
+        # ----------------------------------------
+        # assign lista
+        # ----------------------------------------
+        obj.Binders = new_binders
 
     # ========================================================
     # CHANGED
     # ========================================================
 
-    def onChanged_new(self, obj, prop):
-
-        # ----------------------------------------
-        # 1. SKYDD (init + recursion)
-        # ----------------------------------------
-        if not getattr(self, "_init_done", False):
+    def _update_dialog_props(self, obj, props, readonly=False):
+        dlg = getattr(obj.Proxy, "dialog", None)
+        if not dlg:
             return
+        for prop in props:
+            if prop in dlg._spinboxes:
+                try:
+                    w = dlg._spinboxes[prop]
+                    w.blockSignals(True)
+                    w.setValue(getattr(obj, prop))
+                    w.blockSignals(False)
 
-        if getattr(self, "_updating", False):
-            return
+                    # ✅ GRÅA UT
+                    w.setEnabled(not readonly)
 
-        # ----------------------------------------
-        # 2. HÄMTA MODUL / BEHAVIOUR
-        # ----------------------------------------
-        mod = OPTICAL_MODULES.get(obj.OpticalModel)
-        beh = OPTICAL_BEHAVIOUR.get(obj.OpticalModel)
-
-        try:
-            self._updating = True
-
-            # ----------------------------------------
-            # 3. STRUCTURE CHANGE (model / shape)
-            # ----------------------------------------
-            if prop in ("OpticalModel", "ShapeType"):
-
-                # ✅ 1: skapa ALLA properties först
-                self._ensure_dynamic_properties()
-
-                print("[AFTER___]:", obj.PropertiesList)
-
-                # ✅ 2: uppdatera optics → radius
-                if mod and getattr(mod, "AFFECTS_GEOMETRY", False):
-                    if hasattr(mod, "update_calculated_properties"):
-                        mod.update_calculated_properties(obj)
-
-                # ✅ 3: bygg shape sist
-                self.build_shape()
-
-                # ✅ rebuild GUI
-                vobj = getattr(obj, "ViewObject", None)
-                if vobj and getattr(vobj, "Proxy", None):
-                    dlg = getattr(vobj.Proxy, "dialog", None)
-                    if dlg:
-                        QtCore.QTimer.singleShot(0, dlg.build_ui)
-
-                return
-
-            # ----------------------------------------
-            # 4. OPTICAL TRIGGERS (Focal, Material etc)
-            # ----------------------------------------
-            if mod:
-
-                triggers = getattr(mod, "TRIGGER_PROPS", set())
-
-                if prop in triggers:
-
-                    # ✅ säkerställ att shape props finns
-                    self._ensure_dynamic_properties()
-
-                    # ✅ DESIGN MODE → påverkar geometri
-                    if getattr(mod, "AFFECTS_GEOMETRY", False):
-
-                        if hasattr(mod, "update_calculated_properties"):
-                            mod.update_calculated_properties(obj)
-
-                    # ✅ bygg shape
-                    self.build_shape()
-
-            # ----------------------------------------
-            # 5. (OPTIONAL) BEHAVIOUR TRIGGERS
-            # ----------------------------------------
-            # framtida:
-            # if beh and hasattr(beh, "TRIGGER_PROPS") ...
-
-        finally:
-            self._updating = False
-
-        # ----------------------------------------
-        # 6. FREECAD INFORM
-        # ----------------------------------------
-        obj.touch()
+                except:
+                    pass
 
     def onChanged(self, obj, prop):
         # ----------------------------------------
@@ -367,17 +437,16 @@ class OBAOpticalObject(OBAElementProxy):
             # ----------------------------------------
             if prop in ("OpticalModel", "ShapeType"):
                 self._ensure_dynamic_properties()
-                print("[AFTER___]:", obj.PropertiesList)
-                # rebuild GUI
-                vobj = getattr(obj, "ViewObject", None)
-                if vobj and getattr(vobj, "Proxy", None):
-                    dlg = getattr(vobj.Proxy, "dialog", None)
-                    if dlg:
-                        QtCore.QTimer.singleShot(0, dlg.build_ui)
 
-                # rebuild shape
+                print("[AFTER___]:", obj.PropertiesList)
+                dlg = getattr(obj.Proxy, "dialog", None)
+
+                if dlg:
+                    QtCore.QTimer.singleShot(0, dlg.build_ui)
+
                 self.build_shape()
                 return
+
             # ----------------------------------------
             # 4. OPTICAL TRIGGERS (Focal, Material etc)
             # ----------------------------------------
@@ -388,11 +457,15 @@ class OBAOpticalObject(OBAElementProxy):
                     if getattr(mod, "AFFECTS_GEOMETRY", False):
 
                         if hasattr(mod, "update_calculated_properties"):
-                            mod.update_calculated_properties(obj)
+                            updated_props = mod.update_calculated_properties(obj)
+                            # ✅ uppdatera UI ENDAST för dessa
+                            if updated_props:
+                                self._update_dialog_props(obj, updated_props, readonly=True)
 
                     # rebuild shape efter ändring
                     self.build_shape()
-                    self._update_dialog(obj, prop)
+                    # obj.touch()
+                    # self._update_dialog(obj, prop)
 
             # ----------------------------------------
             # 5. (OPTIONAL) BEHAVIOUR TRIGGERS
@@ -400,11 +473,13 @@ class OBAOpticalObject(OBAElementProxy):
             # här kan du senare lägga:
             # if beh and hasattr(beh, "TRIGGER_PROPS") ...
         finally:
+
             self._updating = False
         # ----------------------------------------
         # 6. FREECAD INFORM
         # ----------------------------------------
-        obj.touch()
+        # obj.touch()
+        pass
 
     def _update_dialog(self, obj, prop):
         vobj = getattr(obj, "ViewObject", None)
@@ -417,10 +492,33 @@ class OBAOpticalObject(OBAElementProxy):
                 else:
                     dlg.update_ui_from_object()
 
-    def execute(self, obj):
+    def execute_test(self, obj):
+        return  # seems the only way is to build in onchange
+        if getattr(self, "_updating", False):
+            return
 
-        if not getattr(self, "_updating", False):
+        self._updating = True
+        try:
             self.build_shape()
+
+            # ✅ SYNKA UI HÄR (KRITISK)
+            dlg = getattr(obj.Proxy, "dialog", None)
+            if dlg:
+                dlg.update_ui_from_object()
+
+        finally:
+            self._updating = False
+
+    def execute(self, obj):
+        if getattr(self, "_updating", False):
+            return
+
+        self._updating = True
+        try:
+            self.build_shape()
+            # self._update_dialog(obj, None)
+        finally:
+            self._updating = False
 
     def onDocumentRestored(self, obj):
         self._init_done = True
@@ -439,7 +537,14 @@ class OpticalObjectDialog(OBABaseDialog):
         self.obj = obj
         self.dynamic_widget = None
 
-        self.obj.ViewObject.Proxy.dialog = self
+        # shape_obj = getattr(self.obj, "ShapeObj", None)
+
+        # if shape_obj and shape_obj.ViewObject and shape_obj.ViewObject.Proxy:
+        #     shape_obj.ViewObject.Proxy.dialog = self
+
+        self.obj.Proxy.dialog = self
+        #  self.obj.ShapeObj.ViewObject.Proxy.dialog = self
+
         self.build_ui()
 
     # ========================================================
@@ -666,13 +771,13 @@ class OpticalObjectViewProvider(OBAViewProviderBase):
         self.dialog_class = OpticalObjectDialog
 
     def updateData(self, obj, prop):
-
         if prop == "OpticalModel":
-
-            if obj.OpticalModel == "Lens":
-                obj.ViewObject.Transparency = 90
-            else:
-                obj.ViewObject.Transparency = 10
+            shape_obj = getattr(obj, "ShapeObj", None)
+            if shape_obj and hasattr(shape_obj, "ViewObject"):
+                if obj.OpticalModel == "Lens":
+                    shape_obj.ViewObject.Transparency = 90
+                else:
+                    shape_obj.ViewObject.Transparency = 10
 
 
 # ============================================================
@@ -683,16 +788,29 @@ class OpticalObjectViewProvider(OBAViewProviderBase):
 def OBA_CreateOpticalObject(show_dialog=True):
     doc = App.ActiveDocument or App.newDocument()
 
-    obj = doc.addObject("Part::FeaturePython", "OpticalObject")
+    # ✅ group = container
+    group = doc.addObject("App::DocumentObjectGroupPython", "OpticalObject")
 
-    OBAOpticalObject(obj)
+    # ✅ shape = visuell geometri
+    # shape_obj = doc.addObject("Part::FeaturePython", "OpticalShape")
+    shape_obj = doc.addObject("Part::Feature", "OpticalShape")
+
+    # ✅ koppla ihop
+    group.addObject(shape_obj)
+
+    # ✅ spara referens
+    group.addProperty("App::PropertyLink", "ShapeObj", "Base")
+    group.ShapeObj = shape_obj
+
+    # ✅ proxy på GROUP (inte på shape)
+    OBAOpticalObject(group)
 
     if App.GuiUp:
-        OpticalObjectViewProvider(obj.ViewObject)
+        OpticalObjectViewProvider(group.ViewObject)
 
     doc.recompute()
 
     if show_dialog:
-        OpticalObjectDialog(obj).show()
+        OpticalObjectDialog(group).show()
 
-    return obj
+    return group

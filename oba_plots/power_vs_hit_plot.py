@@ -80,6 +80,14 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         self.chkNorm2 = QtWidgets.QCheckBox("Y2 %")
         top.addWidget(self.chkNorm2)
 
+        self.chkShowLabels = QtWidgets.QCheckBox("Show Labels")
+        self.chkShowLabels.setChecked(True)
+        top.addWidget(self.chkShowLabels)
+
+        self.chkShowLegend = QtWidgets.QCheckBox("Show Legend")
+        self.chkShowLegend.setChecked(True)
+        top.addWidget(self.chkShowLegend)
+
         # -------- OPTIONS --------
         top.addStretch(1)
 
@@ -113,6 +121,8 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         self.cmbY2.currentIndexChanged.connect(self.reload_plot)
         self.chkNorm1.stateChanged.connect(self.reload_plot)
         self.chkNorm2.stateChanged.connect(self.reload_plot)
+        self.chkShowLabels.stateChanged.connect(self.reload_plot)
+        self.chkShowLegend.stateChanged.connect(self.reload_plot)
 
     # -------------------------------------------------
     def _fill_quantity_combo(self, cmb):
@@ -130,6 +140,21 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         cmb.addItem("Loss per meter", "loss_per_meter")
 
     # -------------------------------------------------
+    def add_labels(self, ax, x, y, color):
+        if not self.chkShowLabels.isChecked():
+            return
+        if not y:
+            return
+        max_val = max(y)
+        for xi, yi in zip(x, y):
+            txt = f"{yi:.2f}"
+            # ✅ markera max
+            if yi == max_val:
+                txt += " (max)"
+            ax.annotate(txt, (xi, yi), textcoords="offset points", xytext=(0, 6), ha="center", fontsize=10, color=color)  # lite offset uppåt
+
+    # -------------------------------------------------
+
     def on_rays_updated(self):
         QtCore.QTimer.singleShot(0, self.reload_plot)
 
@@ -241,19 +266,23 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         # -------------------------------------------------
         # NORMALIZATION
         # -------------------------------------------------
-        def normalize(vals):
+        def normalize(vals, ref=None):
             if not vals:
                 return vals
-            base = vals[0]
-            if abs(base) < 1e-12:
+
+            if ref is None:
+                ref = vals[0]  # fallback (gamla beteendet)
+
+            if abs(ref) < 1e-12:
                 return [0.0] * len(vals)
-            return [100.0 * v / base for v in vals]
+
+            return [100.0 * v / ref for v in vals]
 
         if self.chkNorm1.isChecked():
-            y1 = normalize(y1)
+            y1 = normalize(y1, max(y1))
 
         if self.chkNorm2.isChecked() and y2 is not None:
-            y2 = normalize(y2)
+            y2 = normalize(y2, max(y2))
 
         # -------------------------------------------------
         # PLOT
@@ -285,6 +314,9 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         # )
 
         ax1.set_xlabel("Bounce Index")
+
+        self.add_labels(ax1, bounces, y1, "blue")
+
         ax1.set_ylabel(self.LABELS.get(q1, str(q1)) + (" (%)" if self.chkNorm1.isChecked() else ""))
 
         ax1.grid(True)
@@ -305,6 +337,7 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
                     color="tab:red",
                     label=self.LABELS.get(q2, str(q2)),
                 )
+            self.add_labels(ax2, bounces, y2, "red")
 
             # ax2.plot(
             #     bounces,
@@ -318,12 +351,15 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
 
             ax2.set_ylabel(self.LABELS.get(q2, str(q2)) + (" (%)" if self.chkNorm2.isChecked() else ""))
 
-            ax2.legend(loc="upper right")
+            if self.chkShowLegend.isChecked():
+                ax2.legend(loc="upper right")
+
             self.chkNorm2.setEnabled(True)
         else:
             self.chkNorm2.setEnabled(False)
 
-        ax1.legend(loc="upper left")
+        if self.chkShowLegend.isChecked():
+            ax1.legend(loc="upper left")
 
         self.canvas.draw_idle()
 

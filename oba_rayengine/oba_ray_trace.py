@@ -1035,7 +1035,7 @@ def propagate_mesh(ray, mesh_targets, max_bounce, max_length):
         # STOP CONDITIONS
         # -----------------------------
         if ray.bounce_count >= max_bounce:
-            print("max bounce ")
+            # print("max bounce ")
             break
 
         # ✅ GLOBAL LENGTH LIMIT

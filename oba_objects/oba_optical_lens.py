@@ -138,76 +138,72 @@ def calculate_focal(obj):
 
 
 def update_calculated_properties(obj):
-    # print("updated är kallad")
-    if not hasattr(obj, "Focal"):
-        return
+    updated = []
 
     material = getattr(obj, "Material", "N-BK7")
 
     n = get_refractive_index(material, wavelength_nm=getattr(obj, "Wavelength", 550.0))
 
-    if material == "Air":
-        App.Console.PrintWarning("Air is not a valid lens material\n")
-        return
-
     if n <= 1.0:
-        return
+        return updated
 
     f = obj.Focal
     st = obj.ShapeType
 
     try:
-
-        # ----------------------------------------------------
-        # PLANO CONVEX
-        # ----------------------------------------------------
         if st == "PlanoConvex":
-
             if f == 0:
-                return
+                return updated
 
             R = f * (n - 1.0)
-            obj.Radius1 = R
 
-        # ----------------------------------------------------
-        # PLANO CONCAVE
-        # ----------------------------------------------------
+            if obj.Radius1 != R:
+                obj.Radius1 = R
+                updated.append("Radius1")
+
         elif st == "PlanoConcave":
-
             if f == 0:
-                return
+                return updated
 
             R = -f * (n - 1.0)
-            obj.Radius1 = abs(R)
+            R = abs(R)
 
-        # ----------------------------------------------------
-        # BI CONVEX
-        # ----------------------------------------------------
+            if obj.Radius1 != R:
+                obj.Radius1 = R
+                updated.append("Radius1")
+
         elif st == "BiConvex":
-
             if f == 0:
-                return
+                return updated
 
             R = 2.0 * f * (n - 1.0)
 
-            obj.Radius1 = R
-            obj.Radius2 = -R
+            if obj.Radius1 != R:
+                obj.Radius1 = R
+                updated.append("Radius1")
 
-        # ----------------------------------------------------
-        # BI CONCAVE
-        # ----------------------------------------------------
+            if obj.Radius2 != -R:
+                obj.Radius2 = -R
+                updated.append("Radius2")
+
         elif st == "BiConcave":
-
             if f == 0:
-                return
+                return updated
 
             R = -2.0 * f * (n - 1.0)
 
-            obj.Radius1 = R
-            obj.Radius2 = -R
+            if obj.Radius1 != R:
+                obj.Radius1 = R
+                updated.append("Radius1")
+
+            if obj.Radius2 != -R:
+                obj.Radius2 = -R
+                updated.append("Radius2")
 
     except:
         pass
+
+    return updated
 
 
 # ============================================================
