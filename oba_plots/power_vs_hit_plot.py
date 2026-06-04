@@ -288,6 +288,17 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         # PLOT
         # -------------------------------------------------
 
+        def legend_label(q, y, normalized):
+            if not y:
+                return self.LABELS.get(q, str(q))
+
+            max_val = max(y)
+
+            if normalized:
+                return f"{self.LABELS.get(q, str(q))} (max={max_val:.1f}%)"
+            else:
+                return f"{self.LABELS.get(q, str(q))} (max={max_val:.3g})"
+
         def is_bar_quantity(q):
             if self.chkNorm1.isChecked() or self.chkNorm2.isChecked():
                 return False
@@ -299,10 +310,26 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         width = 0.4
 
         if is_bar_quantity(q1):
-            ax1.bar([b - width / 2 for b in bounces], y1, width=width, color="tab:blue", alpha=0.7, label=self.LABELS.get(q1, str(q1)))
+            ax1.bar(
+                [b - width / 2 for b in bounces],
+                y1,
+                width=width,
+                color="tab:blue",
+                alpha=0.7,
+                # label=self.LABELS.get(q1, str(q1)),
+                label=legend_label(q1, y1, self.chkNorm1.isChecked()),
+            )
             # ax1.bar(bounces, y1, alpha=0.7, color="tab:blue", label=self.LABELS.get(q1, str(q1)))
         else:
-            ax1.plot(bounces, y1, marker="o", linewidth=2.0, color="tab:blue", label=self.LABELS.get(q1, str(q1)))
+            ax1.plot(
+                bounces,
+                y1,
+                marker="o",
+                linewidth=2.0,
+                color="tab:blue",
+                # label=self.LABELS.get(q1, str(q1)),
+                label=legend_label(q1, y1, self.chkNorm1.isChecked()),
+            )
 
         # ax1.plot(
         #     bounces,
@@ -325,7 +352,15 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
             ax2 = ax1.twinx()
 
             if is_bar_quantity(q2):
-                ax2.bar([b + width / 2 for b in bounces], y2, width=width, color="tab:red", alpha=0.5, label=self.LABELS.get(q2, str(q2)))
+                ax2.bar(
+                    [b + width / 2 for b in bounces],
+                    y2,
+                    width=width,
+                    color="tab:red",
+                    alpha=0.5,
+                    # label=self.LABELS.get(q2, str(q2)),
+                    label=legend_label(q2, y2, self.chkNorm2.isChecked()),
+                )
                 # ax2.bar(bounces, y2, alpha=0.7, color="tab:red", label=self.LABELS.get(q2, str(q2)))
             else:
                 ax2.plot(
@@ -335,7 +370,8 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
                     marker="s",
                     linewidth=2.0,
                     color="tab:red",
-                    label=self.LABELS.get(q2, str(q2)),
+                    # label=self.LABELS.get(q2, str(q2)),
+                    label=legend_label(q2, y2, self.chkNorm2.isChecked()),
                 )
             self.add_labels(ax2, bounces, y2, "red")
 
