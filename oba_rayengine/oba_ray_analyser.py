@@ -13,7 +13,7 @@ Ray analysis built on OBARayManager singleton.
 import math
 import numpy as np
 
-from OPTIMIZER.optimize_scoring import roundness_score_from_cov
+
 from .oba_ray_core import OBARayManager
 from collections import defaultdict
 
@@ -29,6 +29,8 @@ from collections import defaultdict
 # Kluster = “alla ray‑träffar på detta objekt, vid detta bounce, som kommer från samma tidigare yta”
 
 
+# "Var träffar strålarna och hur ser träffbilden ut?"
+# objekt + bounce + varifrån strålen kom
 def aggregate_interaction_clusters(
     *,
     mode="final",
@@ -272,139 +274,6 @@ def aggregate_interaction_clusters(
     return clusters
 
 
-def aggregate_interaction_clusters_old(
-    *,
-    mode="final",
-    min_hits=2,
-):
-    """
-    Aggregate spatial clusters per optisk interaktion.
-
-    ✅ Alla plan räknas ut (XY, XZ, YZ)
-    ✅ Backward compatible (delvis)
-    """
-
-    rm = OBARayManager()
-    rays = [r for r in rm.get_all_rays() if r.mode == mode]
-
-    buckets = defaultdict(list)
-
-    # ---------------------------------------------------
-    # 1) BUCKET
-    # ---------------------------------------------------
-    for ray in rays:
-        for h in ray.history:
-            if not isinstance(h, dict):
-                continue
-            if "hit_point" not in h:
-                continue
-
-            obj = h.get("object_name")
-            bounce = h.get("bounce_index")
-            prev = h.get("prev_hit_label")
-            last = h.get("last_hit_label")
-
-            if obj is None or bounce is None:
-                continue
-            # buckets[(obj, bounce, prev)].append((last, h["hit_point"]))
-            extra = h.get("extra", {})
-            buckets[(obj, bounce, prev)].append(
-                (
-                    last,
-                    h["hit_point"],
-                    extra.get("power_in", 0.0),
-                    extra.get("power_out", 0.0),
-                    extra.get("absorbed_power", 0.0),
-                )
-            )
-
-    # ---------------------------------------------------
-    # 2) BUILD CLUSTERS
-    # ---------------------------------------------------
-    clusters = {}
-    idx = 0
-
-    for (obj, bounce, prev_hit_label), items in buckets.items():
-        if len(items) < min_hits:
-            continue
-
-        # pts = np.array([p for _, p in items], dtype=float)
-        pts = np.array([p for _, p, *_ in items], dtype=float)
-        power_in = sum(pin for _, _, pin, _, _ in items)
-        power_out = sum(pout for _, _, _, pout, _ in items)
-        power_abs = sum(pabs for _, _, _, _, pabs in items)
-
-        last_hit_labels = sorted({l for l, *_ in items})
-
-        centroid_3d = pts.mean(axis=0)
-
-        # ---------- ALL PLANES ----------
-        proj = {
-            "XY": pts[:, [0, 1]],
-            "XZ": pts[:, [0, 2]],
-            "YZ": pts[:, [1, 2]],
-        }
-
-        centroid_plane = {k: proj[k].mean(axis=0) for k in proj}
-
-        cov_plane = {k: np.cov(proj[k].T).tolist() if len(proj[k]) >= 3 else None for k in proj}
-
-        # ---------- RADIER ----------
-        radius_3d_max = float(np.max(np.linalg.norm(pts - centroid_3d, axis=1)))
-        radius_3d_rms = float(np.sqrt(np.mean(np.sum((pts - centroid_3d) ** 2, axis=1))))
-
-        cov_3d = np.cov(pts.T) if len(pts) >= 3 else None
-
-        cluster_id = f"{idx}:{obj}:B{bounce}:P{prev_hit_label}"
-        idx += 1
-
-        clusters[cluster_id] = {
-            # --------------------------------------------------
-            # GAMLA
-            # --------------------------------------------------
-            "object": obj,
-            "bounce": bounce,
-            "prev_hit_label": prev_hit_label,
-            "last_hit_labels": last_hit_labels,
-            "hit_count": len(pts),
-            "points": pts,
-            "power": {
-                "in": float(power_in),
-                "out": float(power_out),
-                "absorbed": float(power_abs),
-            },
-            # --------------------------------------------------
-            # SCORING STRUCTURE
-            # --------------------------------------------------
-            # ✅ POSITION
-            "centroid": {
-                "3D": tuple(map(float, centroid_3d)),
-                "XY": tuple(map(float, centroid_plane["XY"])),
-                "XZ": tuple(map(float, centroid_plane["XZ"])),
-                "YZ": tuple(map(float, centroid_plane["YZ"])),
-            },
-            # ✅ SPRIDNING  cov = covariance matrix (kovariansmatris)
-            "spread": {
-                "3D": {
-                    "radius": float(radius_3d_rms),
-                    "radius_max": float(radius_3d_max),
-                    "cov": cov_3d.tolist() if cov_3d is not None else None,
-                },
-                "XY": {
-                    "cov": cov_plane["XY"],
-                },
-                "XZ": {
-                    "cov": cov_plane["XZ"],
-                },
-                "YZ": {
-                    "cov": cov_plane["YZ"],
-                },
-            },
-        }
-
-    return clusters
-
-
 def debug_print_surface_clusters(
     *,
     plane="XY",
@@ -641,6 +510,8 @@ def aggregate_path_statistics(
 # ============================================================
 
 
+# "Hur rör sig strålar genom hela systemet?"
+# emitter + exakt sekvens av träffar
 def collect_ray_hits_and_stats(
     mode="final",
     *,

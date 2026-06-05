@@ -31,6 +31,11 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         "ray_length_seg_std": "Segment Length (std dev)",
         "ray_length_total": "Total Path Length (mean)",
         "loss_per_meter": "Loss per meter",
+        "linearity": "Linearity",
+        "density_3d": "Density (3D)",
+        "roundness_3d": "Roundness (3D)",
+        "radius_rms": "Radius RMS",
+        "focus_quality": "Focus Quality",
     }
 
     def __init__(self):
@@ -138,6 +143,12 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         cmb.addItem("Ray Length (cumulative)", "ray_length_total")
 
         cmb.addItem("Loss per meter", "loss_per_meter")
+        cmb.addItem("Linearity", "linearity")
+
+        cmb.addItem("Density (3D)", "density_3d")
+        cmb.addItem("Roundness (3D)", "roundness_3d")
+        cmb.addItem("Radius RMS", "radius_rms")
+        cmb.addItem("Focus Quality", "focus_quality")
 
     # -------------------------------------------------
     def add_labels(self, ax, x, y, color):
@@ -158,11 +169,13 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
     def on_rays_updated(self):
         QtCore.QTimer.singleShot(0, self.reload_plot)
 
-    # -------------------------------------------------
+        # -------------------------------------------------
+
     def reload_plot(self):
         import numpy as np
 
         length_samples = defaultdict(list)
+        points_per_bounce = defaultdict(list)
 
         hits, _ = collect_ray_hits_and_stats(mode="final")
 
@@ -192,6 +205,7 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
 
             seg = h.get("segment_distance", 0.0)
             length_samples[b].append(seg)
+            points_per_bounce[b].append(h["point"])
 
             count_per_bounce[b] += 1
 
@@ -228,9 +242,56 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
 
             for b in data:
                 samples = length_samples[b]
+                pts = points_per_bounce[b]
                 n = count_per_bounce[b]
 
-                if q == "ray_length_seg_mean":
+                if not pts:
+                    result[b] = 0.0
+                    continue
+
+                import numpy as np
+
+                pts_arr = np.array(pts, dtype=float)
+                centroid = pts_arr.mean(axis=0)
+
+                diff = pts_arr - centroid
+                radius_rms = float(np.sqrt(np.mean(np.sum(diff**2, axis=1))))
+
+                cov = np.cov(pts_arr.T) if len(pts_arr) >= 3 else None
+
+                def roundness(cov):
+                    if cov is None:
+                        return 0.0
+                    vals = np.linalg.eigvals(cov)
+                    lam_max = float(np.max(vals).real)
+                    lam_min = float(np.min(vals).real)
+                    return lam_min / lam_max if lam_max > 0 else 0.0
+
+                if q == "density_3d":
+                    # result[b] = len(pts) / (radius_rms**3 + 1e-9)
+                    raw = len(pts) / (radius_rms**2 + 1e-9)
+                    result[b] = 1.0 - np.exp(-0.01 * raw)
+
+                elif q == "roundness_3d":
+                    # result[b] = roundness(cov)
+                    scale = min(1.0, n / 20.0)
+                    result[b] = roundness(cov) * scale
+
+                elif q == "radius_rms":
+                    result[b] = radius_rms
+
+                elif q == "linearity":
+                    if cov is None:
+                        result[b] = 0.0
+                    else:
+                        vals = np.sort(np.linalg.eigvals(cov).real)
+                        result[b] = vals[-1] / (vals[0] + 1e-9)
+                elif q == "focus_quality":
+                    dens = len(pts) / (radius_rms**2 + 1e-9)
+                    rnd = roundness(cov)
+                    result[b] = dens * rnd
+
+                elif q == "ray_length_seg_mean":
                     result[b] = np.mean(samples) if samples else 0.0
 
                 elif q == "ray_length_seg_std":
