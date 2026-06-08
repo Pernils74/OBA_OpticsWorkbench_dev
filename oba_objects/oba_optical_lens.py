@@ -212,6 +212,48 @@ def update_calculated_properties(obj):
 
 
 def build_dialog(dlg, obj, layout):
+    from .oba_optical_dialog_builder import create_widget
+
+    from PySide import QtWidgets
+
+    box = QtWidgets.QGroupBox("Lens")
+    lay = QtWidgets.QVBoxLayout(box)
+
+    # -------------------------
+    # Material (special-case)
+    # -------------------------
+    if hasattr(obj, "Material"):
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel("Material"))
+
+        cmb = QtWidgets.QComboBox()
+        mats = [m for m in get_material_list() if m != "Air"]
+        cmb.addItems(mats)
+
+        if obj.Material in mats:
+            cmb.setCurrentText(obj.Material)
+
+        def changed(v, p="Material"):
+            obj.Material = mats
+            if v in mats:
+                obj.Material = v
+
+        cmb.currentTextChanged.connect(changed)
+        row.addWidget(cmb)
+        lay.addLayout(row)
+
+    # -------------------------
+    # Standard properties
+    # -------------------------
+    for prop in ["Focal", "Wavelength", "UseFresnel"]:
+        w = create_widget(dlg, obj, prop)
+        if w:
+            lay.addLayout(w)
+
+    layout.addWidget(box)
+
+
+def build_dialog_old(dlg, obj, layout):
 
     # ✅ Material
     if hasattr(obj, "Material"):

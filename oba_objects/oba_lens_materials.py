@@ -59,6 +59,27 @@ MATERIAL_DATA = {
         "n_d": 1.7847,
         "Vd": 25.76,
     },
+    "N-BK10": {
+        "type": "sellmeier",
+        "B": [1.2492666, 0.34465909, 1.6596812],
+        "C": [0.008573, 0.032937, 109.959],  # µm²
+        "n_d": 1.4978,
+        "Vd": 66.9,
+    },
+    "N-K5": {
+        "type": "sellmeier",
+        "B": [1.085137, 0.199562, 1.0121],
+        "C": [0.006610995, 0.020017914, 103.560653],
+        "n_d": 1.5225,
+        "Vd": 59.5,
+    },
+    "N-K7": {
+        "type": "sellmeier",
+        "B": [1.1273555, 0.12441230, 0.82710053],
+        "C": [0.00720341707, 0.0269835916, 100.384588],
+        "n_d": 1.5111,
+        "Vd": 60.4,
+    },
     # --------------------------------------------------
     # Optical glass (Abbe fallback)
     # --------------------------------------------------
@@ -71,21 +92,6 @@ MATERIAL_DATA = {
         "type": "abbe",
         "n_d": 1.6477,
         "Vd": 33.85,
-    },
-    "N-BK10": {
-        "type": "sellmeier",
-        "n_d": 1.4978,
-        "Vd": 66.9,
-    },
-    "N-K5": {
-        "type": "sellmeier",
-        "n_d": 1.5225,
-        "Vd": 59.5,
-    },
-    "N-K7": {
-        "type": "sellmeier",
-        "n_d": 1.5111,
-        "Vd": 60.4,
     },
     # --------------------------------------------------
     # Kristaller
@@ -181,8 +187,17 @@ def get_refractive_index(name, wavelength_nm=550.0, override_n=None):
     # -----------------------------
     # SELLMEIER
     # -----------------------------
+    # if mat_type == "sellmeier":
+    #     return sellmeier_n(wavelength_nm, data["B"], data["C"])
+
     if mat_type == "sellmeier":
-        return sellmeier_n(wavelength_nm, data["B"], data["C"])
+        B = data.get("B")
+        C = data.get("C")
+
+        if B and C:
+            return sellmeier_n(wavelength_nm, B, C)
+        else:
+            mat_type = "abbe"
 
     # -----------------------------
     # ABBE (fallback)

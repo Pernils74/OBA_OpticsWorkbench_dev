@@ -10,8 +10,6 @@ SUPPORTED_SHAPES = [
     "PlanoConcave",
     "BiConvex",
     "BiConcave",
-    "Concave",
-    "Convex",
 ]
 
 # ============================================================
@@ -55,19 +53,19 @@ def calculate_focal(obj):
 # ============================================================
 
 
-def build_shape_dialog(dlg, obj, layout):
+# def build_shape_dialog(dlg, obj, layout):
 
-    props = oba_optical_shapes.SHAPE_PROPERTIES.get(
-        obj.ShapeType,
-        [],
-    )
+#     props = oba_optical_shapes.SHAPE_PROPERTIES.get(
+#         obj.ShapeType,
+#         [],
+#     )
 
-    for p in props:
-        dlg._spin(
-            layout,
-            p["name"],
-            p["name"],
-        )
+#     for p in props:
+#         dlg._spin(
+#             layout,
+#             p["name"],
+#             p["name"],
+#         )
 
 
 # ============================================================

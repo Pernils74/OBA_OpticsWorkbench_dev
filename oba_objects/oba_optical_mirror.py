@@ -8,36 +8,28 @@ from .oba_mirror import OPTICAL_PROPERTIES
 # OPTICAL PROPERTIES (✅ endast optik)
 # ============================================================
 
-# OPTICAL_PROPERTIES = [
-#     {
-#         "type": "App::PropertyFloat",
-#         "name": "Focal",
-#         "group": "Optical",
-#         "default": 100.0,
-#     }
-# ]
 
 SUPPORTED_SHAPES = [
     "Plane",
-    "Concave",
-    "Convex",
+    "PlanoConvex",
+    "PlanoConcave",
 ]
 
 
-# OPTICAL_PROPERTIES = [
-#     {
-#         "type": "App::PropertyFloat",
-#         "name": "Reflectivity",
-#         "group": "Optical",
-#         "default": 0.95,
-#     },
-#     {
-#         "type": "App::PropertyFloat",
-#         "name": "Transmissivity",
-#         "group": "Optical",
-#         "default": 0.0,
-#     },
-# ]
+OPTICAL_PROPERTIES = [
+    {
+        "type": "App::PropertyFloat",
+        "name": "Reflectivity",
+        "group": "Optical",
+        "default": 0.95,
+    },
+    {
+        "type": "App::PropertyFloat",
+        "name": "Transmissivity",
+        "group": "Optical",
+        "default": 0.0,
+    },
+]
 
 AFFECTS_GEOMETRY = False
 
@@ -51,11 +43,7 @@ def update_calculated_properties(obj):
 
 
 def calculate_focal(obj):
-
-    if hasattr(obj, "Radius1"):
-        return obj.Radius1 / 2.0
-
-    return 0.0
+    return
 
 
 # ============================================================
@@ -64,27 +52,7 @@ def calculate_focal(obj):
 
 
 def update_calculated_properties(obj):
-
-    if not hasattr(obj, "Focal"):
-        return
-
-    f = obj.Focal
-    if f == 0:
-        return
-    # --------------------------------------------------------
-    # SPHERICAL MIRROR RELATION
-    # R = 2f
-    # --------------------------------------------------------
-    R = 2.0 * f
-    if obj.ShapeType in ("Concave", "Convex"):
-        if hasattr(obj, "Radius1"):
-            # ✅ Concave → positiv radie
-            if obj.ShapeType == "Concave":
-                obj.Radius1 = abs(R)
-
-            # ✅ Convex → negativ radie
-            elif obj.ShapeType == "Convex":
-                obj.Radius1 = -abs(R)
+    return
 
 
 # ============================================================
@@ -94,8 +62,3 @@ def update_calculated_properties(obj):
 
 def build_dialog(dlg, obj, layout):
     return
-    for p in OPTICAL_PROPERTIES:
-        dlg._spin(layout, p["name"], p["name"])
-
-    # dlg._spin(layout, "Reflectivity", "Reflectivity")
-    # dlg._spin(layout, "Transmissivity", "Transmissivity")

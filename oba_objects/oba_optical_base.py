@@ -2,7 +2,7 @@ import FreeCAD as App
 import Part
 
 from PySide import QtCore, QtWidgets
-
+from oba_objects.oba_optical_dialog_builder import OBADialogBuilder
 
 from .oba_base import OBABaseDialog, OBAElementProxy, OBAViewProviderBase, _trigger_ray_engine
 
@@ -492,23 +492,6 @@ class OBAOpticalObject(OBAElementProxy):
                 else:
                     dlg.update_ui_from_object()
 
-    def execute_test(self, obj):
-        return  # seems the only way is to build in onchange
-        if getattr(self, "_updating", False):
-            return
-
-        self._updating = True
-        try:
-            self.build_shape()
-
-            # ✅ SYNKA UI HÄR (KRITISK)
-            dlg = getattr(obj.Proxy, "dialog", None)
-            if dlg:
-                dlg.update_ui_from_object()
-
-        finally:
-            self._updating = False
-
     def execute(self, obj):
         if getattr(self, "_updating", False):
             return
@@ -550,58 +533,49 @@ class OpticalObjectDialog(OBABaseDialog):
     # ========================================================
 
     def build_ui(self):
+        from .oba_optical_dialog_builder import OBADialogBuilder
+
+        # 🔁 reset cache
         self._spinboxes = {}
 
+        # 🔁 ta bort gammal widget
         if self.dynamic_widget:
             self.custom_layout.removeWidget(self.dynamic_widget)
             self.dynamic_widget.deleteLater()
 
+        # -------------------------
+        # skapa ny container
+        # -------------------------
         self.dynamic_widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(self.dynamic_widget)
 
-        # ✅ combos
+        # -------------------------
+        # ✅ combos (du saknade dessa!)
+        # -------------------------
         self._combo_optical(layout)
         self._combo_shape(layout)
 
-        # ✅ modules
+        # -------------------------
+        # modules
+        # -------------------------
         mod = OPTICAL_MODULES.get(self.obj.OpticalModel)
         beh = OPTICAL_BEHAVIOUR.get(self.obj.OpticalModel)
 
-        # ===============================================
-        # 1. SHAPE UI
-        # ===============================================
-        if mod and hasattr(mod, "build_shape_dialog"):
-            mod.build_shape_dialog(self, self.obj, layout)
-        else:
-            oba_optical_shapes.build_dialog(self, self.obj, layout)
+        # -------------------------
+        # ✅ builder
+        # -------------------------
+        builder = OBADialogBuilder(self, self.obj, layout)
 
-        # ===============================================
-        # 2. OPTICAL ADAPTER UI (optional in oba_optical_lens etc ...)
-        # ===============================================
-        if mod and hasattr(mod, "EXTRA_PROPERTIES"):
-            box = QtWidgets.QGroupBox("Optical")
-            box_layout = QtWidgets.QVBoxLayout(box)
+        builder.build_shape()
+        builder.build_module(mod)
+        builder.build_behaviour(beh)
 
-            for p in mod.EXTRA_PROPERTIES:
-                self._create_widget(box_layout, p["name"])
+        # ✅ stretch i botten → trycker upp allt snyggt
+        layout.addStretch()
 
-            layout.addWidget(box)
-
-        # ===============================================
-        # 3. OPTICAL CORE UI (oba_mirror etc)
-        # ===============================================
-
-        if beh and hasattr(beh, "OPTICAL_PROPERTIES"):
-
-            box = QtWidgets.QGroupBox(self.obj.OpticalModel)
-            box_layout = QtWidgets.QVBoxLayout(box)
-
-            for p in beh.OPTICAL_PROPERTIES:
-                # self._spin(box_layout, p["name"], p["name"])
-                self._create_widget(box_layout, p["name"])
-
-            layout.addWidget(box)
-
+        # -------------------------
+        # ✅ ADD BACK TO UI (du saknade detta!)
+        # -------------------------
         self.custom_layout.addWidget(self.dynamic_widget)
 
     # ========================================================
@@ -662,83 +636,34 @@ class OpticalObjectDialog(OBABaseDialog):
     # ========================================================
 
     def _on_change(self, prop, value):
-        setattr(self.obj, prop, value)
-
-        if self.obj.Document:
-            self.obj.Document.recompute()
-
-    # ========================================================
-
-    def _create_widget(self, layout, prop):
 
         if prop not in self.obj.PropertiesList:
             return
 
         ptype = self.obj.getTypeIdOfProperty(prop)
-        val = getattr(self.obj, prop)
 
-        row = QtWidgets.QHBoxLayout()
-        row.addWidget(QtWidgets.QLabel(prop))
+        try:
+            # ------------------------
+            # FIX TYPE
+            # ------------------------
+            if "Bool" in ptype:
+                value = bool(value)
 
-        # ------------------------
-        # FLOAT
-        # ------------------------
-        if "Float" in ptype:
-            w = QtWidgets.QDoubleSpinBox()
-            w.setRange(-1e9, 1e9)
-            w.setValue(float(val))
-            w.valueChanged.connect(lambda v: self._on_change(prop, v))
+            elif "Float" in ptype:
+                value = float(value)
 
-        # ------------------------
-        # BOOL
-        # ------------------------
-        elif "Bool" in ptype:
-            w = QtWidgets.QCheckBox()
-            w.setChecked(bool(val))
-            w.toggled.connect(lambda v: self._on_change(prop, v))
+            elif "Integer" in ptype:
+                value = int(value)
 
-        # ------------------------
-        # STRING (tex Material)
-        # ------------------------
-        elif "String" in ptype:
-            w = QtWidgets.QLineEdit()
-            w.setText(str(val))
-            w.textChanged.connect(lambda v: self._on_change(prop, v))
+            # ------------------------
+            setattr(self.obj, prop, value)
 
-        # ------------------------
-        # ENUM
-        # ------------------------
-        elif "Enumeration" in ptype:
-            w = QtWidgets.QComboBox()
-            enum = self.obj.getEnumerationsOfProperty(prop)
-            w.addItems(enum)
-            w.setCurrentText(val)
-            w.currentTextChanged.connect(lambda v: self._on_change(prop, v))
-
-        else:
-            print("Unknown property type:", prop, ptype)
+        except Exception as e:
+            print("❌ Property set failed:", prop, value, ptype, e)
             return
 
-        row.addWidget(w)
-        layout.addLayout(row)
-
-    def _spin(self, layout, label, prop):
-        if not hasattr(self.obj, prop):
-            return
-
-        row = QtWidgets.QHBoxLayout()
-        row.addWidget(QtWidgets.QLabel(label))
-
-        w = QtWidgets.QDoubleSpinBox()
-        w.setRange(-1e9, 1e9)
-        w.setValue(getattr(self.obj, prop))
-
-        w.valueChanged.connect(lambda v: self._on_change(prop, v))
-
-        row.addWidget(w)
-        layout.addLayout(row)
-
-        self._spinboxes[prop] = w
+        if self.obj.Document:
+            self.obj.Document.recompute()
 
     # ========================================================
 
