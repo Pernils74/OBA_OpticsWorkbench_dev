@@ -1,104 +1,37 @@
-# target_weights_widget.py
-
-
-# Ger payload :
-
-# {
-#   "entries": [
-#     {
-#       "metric": "density",
-#       "active": true,
-#       ...
-#     },
-#     {
-#       "metric": "roundness",
-#       "active": false,
-#       ...
-#     }
-#   ]
-# }
-
-
 from PySide import QtCore, QtWidgets
 import FreeCAD as App
 
+# ==========================================================
+# METRICS CONFIG
+# ==========================================================
 
-class MetricEntry:
-    def __init__(self, metric, plane="XY", raw=50, targets=None):
-        self.metric = metric
-        self.plane = plane
-        self.raw = raw
-        self.targets = targets or []
-
-    def to_dict(self, total):
-        return {
-            "metric": self.metric,
-            "raw": self.raw,
-            "normalized": self.raw / total if total > 0 else 0.0,
-            "targets": self.targets,
-            "plane": self.plane,
-        }
-
-
-class MetricConfigModel:
-
-    def __init__(self):
-        self.entries = []
-
-    def clear(self):
-        self.entries = []
-
-    def add(self, entry):
-        self.entries.append(entry)
-
-    def remove(self, entry):
-        self.entries.remove(entry)
-
-    def normalize(self):
-        total = sum(e.raw for e in self.entries)
-        if total <= 0:
-            total = 1e-6
-
-        return [e.to_dict(total) for e in self.entries]
-
-    def to_payload(self):
-        return {"entries": self.normalize()}
-
+METRICS = {
+    "threshold_power": {
+        "type": "threshold",
+        "priority": 1,
+        "widget": ["percent"],
+    },
+    "threshold_cluster_count": {
+        "type": "threshold",
+        "priority": 2,
+        "widget": ["value", "percent"],  # ["range"]
+    },
+    "cluster_axis_alignment": {
+        "type": "score",
+        "priority": 30,
+        "widget": ["axis"],
+    },
+    "cluster_count": {"type": "score", "priority": 15},
+    "power": {"type": "score", "priority": 10},
+    "density": {"type": "score", "priority": 20},
+    "roundness": {"type": "score", "priority": 20},
+    "equal_distance": {"type": "score", "priority": 30},
+    "equal_ray_hits_count": {"type": "score", "priority": 30},
+}
 
 # ==========================================================
 # ROW
 # ==========================================================
-
-AXIS_METRICS = {"axis_alignment"}
-
-# Lågt nummer = Körs först. Högt nummer = Körs sist.
-# METRIC_PRIORITY = {"density": 10, "roundness": 20, "equal_distance": 30, "equal_ray_hits_count": 40, "axis_alignment": 50}  # Dörrvakten (körs alltid först)  # Tunga beräkningar/scanners körs sist
-# Definiera dina tröskelvärden (thresholds) här, t.ex. baserat på din baseline-skala (1.0)
-
-METRICS = {
-    "power_threshold": {
-        "priority": 1,
-        "threshold": 0.3,  # prunar om 30% är förlorad
-    },
-    "power": {
-        "priority": 10,
-    },
-    "density": {
-        "priority": 20,
-    },
-    "roundness": {
-        "priority": 20,
-    },
-    "equal_distance": {
-        "priority": 30,
-    },
-    "equal_ray_hits_count": {
-        "priority": 30,
-    },
-    "axis_alignment": {
-        "priority": 30,
-    },
-}
 
 
 class MetricRowWidget(QtWidgets.QWidget):
@@ -109,10 +42,12 @@ class MetricRowWidget(QtWidgets.QWidget):
     def __init__(self, metrics, metric="density", parent=None):
         super().__init__(parent)
 
-        # ---------------- state ----------------
         self.targets = self._get_default_target()
+        self.dynamic_widgets = []
 
         layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(6)
 
         self.cmb = QtWidgets.QComboBox()
         self.cmb.addItems(metrics)
@@ -123,115 +58,161 @@ class MetricRowWidget(QtWidgets.QWidget):
         self.cmbPlane = QtWidgets.QComboBox()
         self.cmbPlane.addItems(["XY", "XZ", "YZ", "3D"])
 
-        self.cmbAxis = QtWidgets.QComboBox()
-        self.cmbAxis.addItems(["X", "Y", "Z"])
-
-        self.sld = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.sld.setRange(0, 100)
-        self.sld.setValue(50)
+        self.chkActive = QtWidgets.QCheckBox()
+        self.chkActive.setChecked(True)
 
         self.lbl = QtWidgets.QLabel()
 
-        self.chkActive = QtWidgets.QCheckBox()
-        self.chkActive.setChecked(True)
-        self.chkActive.setToolTip("Enable / disable metric")
+        # delete button
+        self.btnDelete = QtWidgets.QPushButton("✕")
+        self.btnDelete.setCursor(QtCore.Qt.PointingHandCursor)
+        self.btnDelete.setStyleSheet("""
+            QPushButton {
+                border: none;
+                padding: 2px;
+                color: #c0392b;
+                font-weight: bold;
+                min-width: 0px;
+                min-height: 0px;
+            }
+            QPushButton:hover {
+                background-color: #f8d7da;
+                border-radius: 3px;
+            }
+        """)
+        self.btnDelete.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.btnDelete.adjustSize()
 
+        # layout
         layout.addWidget(self.chkActive)
         layout.addWidget(self.cmb)
         layout.addWidget(self.btnTargets)
         layout.addWidget(self.cmbPlane)
 
-        layout.addWidget(self.cmbAxis)
+        # anchor for dynamic widgets
+        self.dynamic_anchor_index = layout.count()
 
-        layout.addWidget(self.sld, 1)
-        layout.addWidget(self.lbl)
+        layout.addWidget(self.lbl, 1)
+        layout.addWidget(self.btnDelete, 0)
 
         self._update_targets_button()
-        self._update_label()
+        self._rebuild_dynamic_ui()
 
-        # ---------------- signals ----------------
-        # self.cmb.currentIndexChanged.connect(self.changed)
-        self.cmb.currentIndexChanged.connect(self._update_axis_visibility)
-
+        # signals
+        self.cmb.currentIndexChanged.connect(self._rebuild_dynamic_ui)
         self.cmbPlane.currentIndexChanged.connect(self.changed)
-        self.sld.valueChanged.connect(self._on_slider)
-
         self.btnTargets.clicked.connect(self._edit_targets)
+        self.btnDelete.clicked.connect(lambda: self.removed.emit(self))
 
-        self.setFocusPolicy(QtCore.Qt.StrongFocus)
-        self.setAutoFillBackground(True)
-        self._selected = False
+    # --------------------------------------------------
+    # DYNAMIC UI
+    # --------------------------------------------------
 
-        self._update_axis_visibility()
+    def _rebuild_dynamic_ui(self):
+        layout = self.layout()
 
-    # -------------------------------------------------
+        # ✅ reset dynamic data (KRITISK)
+        for attr in ["percentWidget", "valueWidget", "rangeWidget", "axisWidget"]:
+            if hasattr(self, attr):
+                delattr(self, attr)
 
-    def clear_selection(self):
-        for r in self.rows:
-            r._selected = False
-            r.setStyleSheet("")
+        for w in self.dynamic_widgets:
+            layout.removeWidget(w)
+            w.deleteLater()
+        self.dynamic_widgets = []
 
-    def mousePressEvent(self, event):
-        parent = self.parent()
-        if hasattr(parent, "clear_selection"):
-            parent.clear_selection()
+        metric = self.cmb.currentText()
+        cfg = METRICS.get(metric, {})
+        widgets = cfg.get("widget", [])
 
-        self._selected = True
-        self.setStyleSheet("background-color:#dfe6e9;")
-        self.setFocus()
+        insert_index = self.dynamic_anchor_index
 
-        super().mousePressEvent(event)
+        if "value" in widgets:
+            w = ValueWidget()
+            layout.insertWidget(insert_index, w)
+            self.dynamic_widgets.append(w)
+            self.valueWidget = w
+            insert_index += 1
 
-    def keyPressEvent(self, event):
-        if event.key() in (QtCore.Qt.Key_Delete, QtCore.Qt.Key_Backspace):
-            self.removed.emit(self)
-        else:
-            super().keyPressEvent(event)
+        if "percent" in widgets:
+            w = PercentWidget()
+            layout.insertWidget(insert_index, w)
+            self.dynamic_widgets.append(w)
+            self.percentWidget = w
+            insert_index += 1
 
-    def enterEvent(self, event):
-        if not self._selected:
-            self.setStyleSheet("background-color:#f5f6fa;")
+        if "range" in widgets:
+            w = RangeWidget()
+            layout.insertWidget(insert_index, w)
+            self.dynamic_widgets.append(w)
+            self.rangeWidget = w
+            insert_index += 1
 
-    def leaveEvent(self, event):
-        if not self._selected:
-            self.setStyleSheet("")
+        if "axis" in widgets:
+            w = AxisWidget()
+            layout.insertWidget(insert_index, w)
+            self.dynamic_widgets.append(w)
+            self.axisWidget = w
+            insert_index += 1
 
-    def _on_slider(self):
-        self._update_label()
-        self.changed.emit()
+    # --------------------------------------------------
+    # PAYLOAD
+    # --------------------------------------------------
 
-    def _update_label(self):
-        self.lbl.setText(f"{self.sld.value()/100:.2f}")
+    def get_payload_part(self):
+        metric = self.cmb.currentText()
+        cfg = METRICS.get(metric, {})
 
-    def set_values(self, raw, normalized):
-        self.lbl.setText(f"{raw:.2f} → {normalized:.2f}")
+        data = {
+            "base_metric": metric,
+            "type": cfg.get("type"),
+            "active": self.chkActive.isChecked(),
+            "targets": self.get_targets(),
+            "plane": self.cmbPlane.currentText(),
+        }
 
-    # -------------------------------------------------
+        # ✅ ONLY include valid fields
+        widgets = cfg.get("widget", [])
+
+        if "value" in widgets and hasattr(self, "valueWidget"):
+            data["value"] = self.valueWidget.get_value()
+
+        if "percent" in widgets and hasattr(self, "percentWidget"):
+            data["percent"] = self.percentWidget.get_value()
+
+        if "range" in widgets and hasattr(self, "rangeWidget"):
+            min_v, max_v = self.rangeWidget.get_values()
+            if min_v > max_v:
+                min_v, max_v = max_v, min_v
+            data["min"] = min_v
+            data["max"] = max_v
+
+        if "axis" in widgets and hasattr(self, "axisWidget"):
+            data["axis"] = self.axisWidget.currentText()
+
+        return data
+
+    # --------------------------------------------------
     # TARGETS
-    # -------------------------------------------------
+    # --------------------------------------------------
+
     def _get_default_target(self):
         doc = App.ActiveDocument
         if not doc:
             return []
 
-        mirrors = [obj.Label for obj in doc.Objects if getattr(obj, "OpticalType", None) == "Mirror"]
-
+        mirrors = [o.Label for o in doc.Objects if getattr(o, "OpticalType", None) == "Mirror"]
         if mirrors:
             return [mirrors[0]]
 
-        # fallback
-        optical = [obj.Label for obj in doc.Objects if hasattr(obj, "OpticalType")]
+        optical = [o.Label for o in doc.Objects if hasattr(o, "OpticalType")]
         return optical[:1]
 
     def _update_targets_button(self):
-        if not self.targets:
-            text = "—"
-        else:
-            text = "; ".join(self.targets)
-            if len(text) > 25:
-                text = text[:25] + "..."
-
-        self.btnTargets.setText(text)
+        txt = "—" if not self.targets else "; ".join(self.targets)
+        if len(txt) > 25:
+            txt = txt[:25] + "..."
+        self.btnTargets.setText(txt)
         self.btnTargets.setToolTip("; ".join(self.targets))
 
     def _edit_targets(self):
@@ -239,62 +220,28 @@ class MetricRowWidget(QtWidgets.QWidget):
         if not doc:
             return
 
-        available = [obj.Label for obj in doc.Objects if hasattr(obj, "OpticalType")]
+        available = [o.Label for o in doc.Objects if hasattr(o, "OpticalType")]
 
-        dlg = EditTargetsDialog(
-            self,
-            self.cmb.currentText(),
-            available,
-            self.targets,
-        )
+        dlg = EditTargetsDialog(self, self.cmb.currentText(), available, self.targets)
 
         if dlg.exec_():
-            selected = dlg.selected_targets()
-
-            if not selected:
-                selected = self._get_default_target()
-
+            selected = dlg.selected_targets() or self._get_default_target()
             self.targets = selected
             self._update_targets_button()
-
             self.changed.emit()
 
     def get_targets(self):
-        if not self.targets:
-            return self._get_default_target()
-        return self.targets
-
-    # -------------------------------------------------
-    def get_payload_part(self, total):
-        axis = self.cmbAxis.currentText()
-        return {
-            "metric": self.cmb.currentText(),
-            "active": self.chkActive.isChecked(),
-            "raw": self.sld.value(),
-            "normalized": self.sld.value() / total,
-            "targets": self.get_targets(),
-            "plane": self.cmbPlane.currentText(),
-            "axis": axis if axis else None,
-        }
-
-    def _update_axis_visibility(self):
-        metric = self.cmb.currentText()
-        self.cmbAxis.setVisible(metric in AXIS_METRICS)
-
-        # if metric == "keep_position_in":
-        #     self.cmbAxis.show()
-        # else:
-        #     self.cmbAxis.hide()
+        return self.targets or self._get_default_target()
 
 
 # ==========================================================
-# MAIN WIDGET
+# MAIN
 # ==========================================================
 
 
 class TargetWeightsWidget(QtWidgets.QGroupBox):
 
-    weightsChanged = QtCore.Signal(object)
+    configChanged = QtCore.Signal(object)
 
     def __init__(self, parent=None):
         super().__init__("Målvikter", parent)
@@ -302,7 +249,6 @@ class TargetWeightsWidget(QtWidgets.QGroupBox):
         self.rows = []
 
         layout = QtWidgets.QVBoxLayout(self)
-
         self.container = QtWidgets.QVBoxLayout()
         layout.addLayout(self.container)
 
@@ -311,29 +257,16 @@ class TargetWeightsWidget(QtWidgets.QGroupBox):
 
         self.btnAdd = QtWidgets.QPushButton("+ Add metric")
         layout.addWidget(self.btnAdd)
-
         self.btnAdd.clicked.connect(lambda: self.add_row())
 
-        # defaults
-        # for m in ["density", "roundness", "equal_distance"]:
-        # self.add_row(m)
         for m in self.available_metrics():
             self.add_row(m)
 
-    # -----------------------------
     def available_metrics(self):
         return sorted(METRICS.keys(), key=lambda k: METRICS[k]["priority"])
-        # return [
-        #     "density",
-        #     "roundness",
-        #     "equal_distance",
-        #     "equal_ray_hits_count",
-        #     "axis_alignment",
-        # ]
 
     def add_row(self, metric="density"):
         row = MetricRowWidget(self.available_metrics(), metric)
-
         row.changed.connect(self._update)
         row.removed.connect(self.remove_row)
 
@@ -341,50 +274,95 @@ class TargetWeightsWidget(QtWidgets.QGroupBox):
         self.container.addWidget(row)
 
         self._update()
+        return row
 
     def remove_row(self, row):
+        # if row not in self.rows:
+        #     return  # ✅ skydd mot dubbel-removal
         self.rows.remove(row)
         row.setParent(None)
         row.deleteLater()
         self._update()
 
-    # -----------------------------
-
     def _update(self):
         payload = self.get_payload()
-
-        # ✅ uppdatera varje rad
-        for entry, row in zip(payload["entries"], self.rows):
-            row.set_values(
-                entry["raw"] / 100.0,
-                entry["normalized"],
-            )
-        # summary
-        txt = [f"{e['metric']}[{e['plane']}]:{e['normalized']:.2f}" for e in payload["entries"]]
-
+        txt = [f"{e['base_metric']}[{e['plane']}]" for e in payload["entries"]]
         self.lblSummary.setText(" | ".join(txt))
-
-        self.weightsChanged.emit(payload)
-
-    def get_payload_old(self):
-        total = sum(r.sld.value() for r in self.rows)
-        if total <= 0:
-            total = 1e-6
-
-        return {"entries": [r.get_payload_part(total) for r in self.rows]}
+        self.configChanged.emit(payload)
 
     def get_payload(self):
-        active_entries = []
+        entries = []
+
         for r in self.rows:
             if r.chkActive.isChecked():
-                active_entries.append(r.get_payload_part(total=1))  # behåll din befintliga get_payload_part
+                entries.append(r.get_payload_part())
 
-        # 💡 AUTOMATISK HÅRDKODAD SORTERING:
-        # Vi tittar på "metric"-strängen (t.ex. "density") och hämtar dess prioritet ur vår ordbok.
-        # Om en metric saknas i ordboken får den prioritet 999 (körs sist).
-        sorted_entries = sorted(active_entries, key=lambda e: METRICS.get(e["metric"], {}).get("priority", 999))
+        entries = sorted(entries, key=lambda e: METRICS.get(e["base_metric"], {}).get("priority", 999))
 
-        return {"entries": sorted_entries}
+        return {"entries": entries}
+
+
+# ==========================================================
+# DYNAMIC WIDGETS
+# ==========================================================
+
+
+class ValueWidget(QtWidgets.QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.spin = QtWidgets.QSpinBox()
+        self.spin.setRange(0, 999)
+        self.spin.setValue(5)
+
+        layout.addWidget(QtWidgets.QLabel("≈"))
+        layout.addWidget(self.spin)
+
+    def get_value(self):
+        return self.spin.value()
+
+
+class PercentWidget(QtWidgets.QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.spin_percent = QtWidgets.QSpinBox()
+        self.spin_percent.setRange(0, 100)
+        self.spin_percent.setValue(70)
+
+        layout.addWidget(QtWidgets.QLabel("≥"))
+        layout.addWidget(self.spin_percent)
+        layout.addWidget(QtWidgets.QLabel("%"))
+
+    def get_value(self):
+        return self.spin_percent.value() / 100.0  # ✅ normalisera
+
+
+class RangeWidget(QtWidgets.QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.min = QtWidgets.QSpinBox()
+        self.max = QtWidgets.QSpinBox()
+
+        layout.addWidget(self.min)
+        layout.addWidget(QtWidgets.QLabel("–"))
+        layout.addWidget(self.max)
+
+    def get_values(self):
+        return self.min.value(), self.max.value()
+
+
+class AxisWidget(QtWidgets.QComboBox):
+    def __init__(self):
+        super().__init__()
+        self.addItems(["X", "Y", "Z"])
 
 
 # ==========================================================
@@ -399,10 +377,8 @@ class EditTargetsDialog(QtWidgets.QDialog):
 
         self.setWindowTitle(f"Select targets for {metric_key}")
         self.setModal(True)
-        self.resize(260, 300)
 
         self._checkboxes = {}
-
         layout = QtWidgets.QVBoxLayout(self)
 
         for tgt in available_targets:
@@ -418,7 +394,6 @@ class EditTargetsDialog(QtWidgets.QDialog):
         row.addStretch()
         row.addWidget(btnApply)
         row.addWidget(btnCancel)
-
         layout.addLayout(row)
 
         btnApply.clicked.connect(self.accept)

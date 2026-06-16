@@ -8,6 +8,8 @@ import FreeCAD as App
 import FreeCADGui as Gui
 from PySide import QtCore, QtWidgets, QtGui
 
+import json
+
 import numpy as np
 
 from .optimize_worker import OptimizationWorker
@@ -48,6 +50,8 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self._running = False
         self._paused = False
 
+        self._dirty = False
+
         self._current_study_name = None
         self._cached_study = None
         self._last_study_name = None
@@ -63,6 +67,12 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self._optuna_plot_window = None
 
         self._build_ui(params_info)
+
+        self._refresh_config_list()
+
+        config = self._load_config()
+        if config:
+            self._apply_config(config)
 
     def _setup_worker(self):
         print("SETUP WORKER")
@@ -96,6 +106,8 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self._build_param_list(layout, params_info)
 
         self.lblActiveStudy = QtWidgets.QLabel("Active study: —")
+        self.lblActiveStudy.setWordWrap(True)
+        self.lblActiveStudy.setMaximumWidth(300)
         layout.addWidget(self.lblActiveStudy)
 
         # --- sampler / parallel options ---
@@ -133,16 +145,36 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
         # ✅ tillbaka med widget
         self.targetWeights = TargetWeightsWidget(self)
-        self.targetWeights.weightsChanged.connect(self._on_weights_changed)
+        self.targetWeights.configChanged.connect(self._on_metric_config_changed)
         layout.addWidget(self.targetWeights)
 
         self.btnOptunaPlot = self._make_button("Optuna-plot", "optuna_plot.svg")
+
+        self.lblStatus = QtWidgets.QLabel("Status: idle")
+        self.lblStatus.setStyleSheet("color: gray;")
+
+        self.cmbConfig = QtWidgets.QComboBox()
+        self.btnDeleteConfig = QtWidgets.QPushButton("🗑️")
+        self.btnSaveConfig = QtWidgets.QPushButton("💾")
+        self.btnNewConfig = QtWidgets.QPushButton("+")
+
+        configRow = QtWidgets.QHBoxLayout()
+        configRow.addWidget(QtWidgets.QLabel("Preset:"))
+        configRow.addWidget(self.cmbConfig)
+        configRow.addWidget(self.btnNewConfig)
+        configRow.addWidget(self.btnDeleteConfig)
+        configRow.addWidget(self.btnSaveConfig)
+        configRow.addStretch()
+
+        layout.insertLayout(0, configRow)
+
         self.btnStart = QtWidgets.QPushButton("Start")
         self.btnStart_new = QtWidgets.QPushButton("Start new")
 
         row = QtWidgets.QHBoxLayout()
 
         row.addWidget(self.btnOptunaPlot)
+        row.addWidget(self.lblStatus)
         row.addStretch()
         row.addWidget(self.btnStart)
         row.addWidget(self.btnStart_new)
@@ -152,6 +184,11 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self.btnStart.clicked.connect(self._on_start_stop)
         self.btnStart_new.clicked.connect(self._on_start_new)
         self.btnOptunaPlot.clicked.connect(self._open_optuna_plot_window)
+
+        self.cmbConfig.currentTextChanged.connect(self._on_config_changed)
+        self.btnNewConfig.clicked.connect(self._create_new_config)
+        self.btnSaveConfig.clicked.connect(self._on_save_clicked)
+        self.btnDeleteConfig.clicked.connect(self._delete_current_config)
 
     def _make_button(self, text, icon):
         btn = QtWidgets.QPushButton(text)
@@ -166,14 +203,33 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
         self.listParams.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.listParams.customContextMenuRequested.connect(self._on_param_context_menu)
-        # QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+D"), self.listParams, activated=self.listParams.clearSelection)
+
         layout.addWidget(self.listParams)
 
         if params_info:
-            for name, *_ in params_info:
-                self.listParams.addItem(name)
-        # ✅ efter att items finns
+            for item in params_info:
+                # ✅ stöd för nya dict-formatet
+                if isinstance(item, dict):
+                    name = item["name"]
+                    row_type = item.get("type", "param")
 
+                    if row_type == "header":
+                        list_item = QtWidgets.QListWidgetItem(name)
+                        list_item.setFlags(QtCore.Qt.NoItemFlags)  # ❌ ej valbar
+                        list_item.setForeground(QtGui.QBrush(QtGui.QColor("gray")))
+                        font = list_item.font()
+                        font.setBold(True)
+                        list_item.setFont(font)
+                        self.listParams.addItem(list_item)
+                    else:
+                        self.listParams.addItem(name)
+
+                else:
+                    # fallback (gammalt tuple-format)
+                    name = item[0]
+                    self.listParams.addItem(name)
+
+        # ✅ sizing
         row_height = self.listParams.sizeHintForRow(0)
         row_height = row_height if row_height > 0 else 20
         self.listParams.setMinimumHeight(row_height * 10)
@@ -219,7 +275,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         metrics = []
 
         for e in payload["entries"]:
-            name = e["metric"]
+            name = e["base_metric"]
             plane = e["plane"]
 
             # ✅ unikt metric-id (väldigt viktigt senare)
@@ -230,17 +286,24 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
                 {
                     "name": metric_name,
                     "base_metric": name,
+                    "type": e.get("type"),
                     "plane": plane,
                     "targets": e["targets"],
                     "direction": "maximize",  # default
-                    "axis": e["axis"],
                     "active": e.get("active", True),  # ✅ default active
+                    "value": e.get("value", None),
+                    "percent": e.get("percent", None),
+                    "axis": e.get("axis", None),
+                    "min": e.get("min", None),
+                    "max": e.get("max", None),
                 }
             )
         return metrics
 
     def _on_params_changed(self):
-        params = [i.text() for i in self.listParams.selectedItems()]
+
+        params = [i.text() for i in self.listParams.selectedItems() if i.flags() & QtCore.Qt.ItemIsSelectable]
+        # params = [i.text() for i in self.listParams.selectedItems()]
 
         if not params:
             self._current_study_name = None
@@ -297,8 +360,12 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
         self.listParams.setEnabled(True)
         self.targetWeights.setEnabled(True)
-        # ev.
-        # open_optuna_plot_window(...)
+
+        self.lblStatus.setText("Finished")
+        self.lblStatus.setStyleSheet("color: green;")
+
+    # ev.
+    # open_optuna_plot_window(...)
 
     def _evaluated_debug(self, clusters, label_map):
         print("\n================ EVAL DEBUG ================")
@@ -349,87 +416,179 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             print("Computed value:", val)
         print("============================================\n")
 
+    def _is_model_valid(self, doc):
+        for obj in doc.Objects:
+
+            # 1. Kontrollera skisser
+            if obj.TypeId == "Sketcher::SketchObject":
+                # obj.solve()
+
+                # Hämtar DoF (standard 0 om det mot förmodan saknas)
+                dof = getattr(obj, "DoF", 0)
+                if dof < 0:
+                    print("[FAIL] negative DOF (over-constrained):", obj.Name)
+                    return False
+
+                # Hämtar externa referenser säkert
+                ext_geo = getattr(obj, "ExternalGeometry", [])
+                for ext in ext_geo:
+                    if ext is None:
+                        print("[FAIL] missing external ref:", obj.Name)
+                        return False
+
+            # 2. Kontrollera geometri (endast objekt som faktiskt har en Shape)
+            # if hasattr(obj, "Shape"):
+            if obj.TypeId.startswith("PartDesign::"):
+                shape = obj.Shape
+                if not shape or shape.isNull():
+                    print("[FAIL] null shape:", obj.Name)
+                    return False
+
+                if shape.ShapeType == "Solid" and len(shape.Faces) == 0:
+                    print("[FAIL] no faces:", obj.Name)
+                    return False
+
+            # 3. Kontrollera FreeCADs inbyggda felsignaler
+            if "Invalid" in obj.State:
+                print("[FAIL] state:", obj.Name, obj.State)
+                return False
+
+            # Hämtar ErrorStatus säkert (returnerar tom sträng om attributet saknas)
+
+            if hasattr(obj, "ErrorStatus"):
+                try:
+                    error_status = obj.ErrorStatus
+                except Exception as e:
+                    print("[API WARN] ErrorStatus access failed:", obj.Name, e)
+                    error_status = None
+
+                if error_status and error_status != "OK":
+                    print("[FAIL] error status:", obj.Name, error_status)
+                    return False
+
+        return True
+
     def _evaluate_main(self, params):
         from .target_weights_widget import METRICS
 
-        worker = self._worker  # snapshot av worker för trådsäkerhet
-        if self._worker is None:
-            return
-        if self._worker is None or not hasattr(self._worker, "metrics"):
-            return
+        worker = self._worker
+        if not worker:
+            raise RuntimeError("No worker instance")
+
         if self._evaluation_active:
             return
-        self._evaluation_active = True
 
+        self._evaluation_active = True
+        doc = App.ActiveDocument
+
+        doc.openTransaction("optuna")
         label_map = self._build_label_to_name_map()
+
         try:
-            doc = App.ActiveDocument
             apply_cad_params(params)
             doc.recompute()
-            _trigger_ray_engine(
-                reason="optuna",
-                source=None,
-                force=True,
-            )
-            clusters = aggregate_interaction_clusters(
-                mode="final",
-                min_hits=1,
-            )
-            # self._evaluated_debug(clusters, label_map)
+
+            if not self._is_model_valid(doc):
+                raise RuntimeError("Invalid geometry")
+
+            _trigger_ray_engine(reason="optuna", source=None, force=True)
+            clusters = aggregate_interaction_clusters(mode="final", min_hits=1)
 
             results = {}
-            pruned = False
+            baseline = getattr(worker, "_baseline", None)
 
-            for index, metric in enumerate(worker.metrics):
-                # for metric in worker.metrics:
+            for metric in worker.metrics:
                 base = metric["base_metric"]
                 plane = metric["plane"]
                 targets = metric["targets"]
 
-                # ✅ convert labels → names
                 target_names = [label_map.get(t, t) for t in targets]
+
                 filtered = {k: c for k, c in clusters.items() if c.get("object") in target_names}
 
-                baseline = getattr(worker, "_baseline", None)
+                # self.lblStatus.setText(f"Processar...: {base}")
+                # self.lblStatus.setStyleSheet("color: orange;")
 
-                if base == "power_threshold":
-                    value = compute_power_threshold(filtered, target_names, baseline)
+                # ✅ clean dispatch
+                if base == "threshold_power":
+                    value = compute_power(filtered, target_names, None)
+
                 elif base == "power":
                     value = compute_power(filtered, target_names, baseline)
+
+                elif base == "threshold_cluster_count":
+                    value = compute_cluster_count(filtered, target_names, None)
+                    # value = float(len(filtered))
+
+                elif base == "cluster_count":
+                    value = compute_cluster_count(filtered, target_names, baseline)
+
                 elif base == "density":
                     value = compute_density(filtered, plane, baseline)
-                    # value = compute_density(filtered, plane)
+
                 elif base == "roundness":
                     value = compute_roundness(filtered, plane, baseline)
+
                 elif base == "equal_distance":
                     value = compute_distance(filtered, plane, baseline)
+
                 elif base == "equal_ray_hits_count":
                     value = compute_equal_ray_hits_count(filtered, plane, baseline)
-                elif base == "axis_alignment":
-                    axis = metric.get("axis")
-                    value = compute_axis_alignment(filtered, axis, plane, baseline)
+
+                elif base == "cluster_axis_alignment":
+                    value = compute_cluster_axis_alignment(filtered, metric.get("axis"), plane, baseline)
 
                 else:
-                    print(f"[WARN] Unknown metric base: {base}")
                     value = 0.0
 
                 results[metric["name"]] = value
 
-                # --- HÅRDKODAD DÖRRVAKT (PRUNING) ---
-                # Vi kollar om den aktuella metricen har ett definierat tröskelvärde
-                threshold = METRICS.get(base, {}).get("threshold")
+                # ✅ pruning
+                # threshold = METRICS.get(base, {}).get("threshold")
+                metric_type = METRICS.get(base, {}).get("type")
+                if metric_type == "threshold":
 
-                if threshold is not None and value < threshold:
-                    print(f"[PRUNE] {metric['name']} value={value:.4f} < {threshold}")
-                    pruned = True
-                    results["_pruned"] = True
-                    break
+                    print("Threasholdd uppnått på :", base, " för ", value, "  metric ", metric_type)
+                    # ✅ percent threshold
+                    target = metric.get("percent")
+                    if target is not None:
+                        if value < target:
+                            self.lblStatus.setText(f"Threshold: {base} {value:.3f} < {target}")
+                            QtWidgets.QApplication.processEvents()
+                            results["_pruned"] = True
+                            break
 
-            # ✅ Om ingen tidig pruning har gjorts
+                    # ✅ exact value threshold
+                    target = metric.get("value")
+                    if target is not None:
+                        if abs(value - target) > 1e-6:
+                            self.lblStatus.setText(f"Threshold: {base} {value:.3f} != {target}")
+                            QtWidgets.QApplication.processEvents()
+                            results["_pruned"] = True
+                            break
+
+                # threshold = metric.get("threshold")
+                # if threshold is not None and value < threshold:
+                #     self.lblStatus.setText(f"Threashold uppnått på : {base}")
+                #     results["_pruned"] = True
+                #     break
+
             worker.on_evaluated(results)
+            doc.commitTransaction()
+
+            # self.lblStatus.setText("Finished")
+            # self.lblStatus.setStyleSheet("color: green;")
 
         except Exception as e:
-            print("[evaluate_main error]", e)
+            print("[EVAL FAIL]", e)
+
+            try:
+                doc.abortTransaction()
+            except Exception as rollback_error:
+                print("[ROLLBACK FAIL]", rollback_error)
+
+            worker.on_evaluated({"_pruned": True})
+
         finally:
             self._evaluation_active = False
 
@@ -486,6 +645,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self.targetWeights.setEnabled(False)
 
     def _on_start_stop(self):
+
         print(
             "running:",
             self._running,
@@ -527,7 +687,9 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
     def _read_bounds(self, doc, param_names):
         ss = doc.getObject(SPREADSHEET_NAME)
         info = read_param_bounds(ss) if ss else []
-        m = {name: lohi for name, _, lohi, *_ in info}
+
+        m = {item["name"]: item["bounds"] for item in info if item["type"] == "param"}
+
         return {p: m.get(p, (0.0, 1.0)) for p in param_names}
 
     def _open_optuna_plot_window(self):
@@ -542,8 +704,12 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             App.Console.PrintError(f"[UI] Plot error: {e}\n")
             # self.lblStatus.setText(f"Kunde inte öppna plot: {e}")
 
-    def _on_weights_changed(self, payload):
+    def _on_metric_config_changed(self, payload):
         self._pending_payload = payload
+
+        self._dirty = True
+        self.lblStatus.setText("Unsaved changes")
+        self.lblStatus.setStyleSheet("color: orange;")
 
         # ✅ restart timer (cancel previous)
         self._debounce_timer.start(120)  # justera delay
@@ -556,47 +722,29 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
     def _select_best_trial(self, payload):
         study_name = getattr(self, "_current_study_name", None)
         if not study_name:
-            print("No study selected")
             return
-        # ✅ caching
-        if self._last_study_name == study_name and self._cached_study:
-            current_study = self._cached_study
-        else:
-            try:
-                current_study = optuna.load_study(
-                    study_name=study_name,
-                    storage=DB_PATH,
-                )
 
-                self._cached_study = current_study
-                self._last_study_name = study_name
-
-            except Exception:
-                print("Study not found:", study_name)
-                return
-
-        weights = {f"{e['metric']}_{e['plane']}": e["normalized"] for e in payload["entries"] if e.get("active", True)}
-        best_trial = None
-        best_score = -1e9
-        for t in current_study.trials:
-            if t.state.name != "COMPLETE":
-                continue
-            metrics = t.user_attrs.get("metrics", {})
-            score = sum(weights.get(k, 0.0) * metrics.get(k, 0.0) for k in weights)
-            if score > best_score:
-                best_score = score
-                best_trial = t
-
-        # ✅ skip om samma trial (VIKTIGT!)
-        if best_trial is None:
+        try:
+            study = optuna.load_study(
+                study_name=study_name,
+                storage=DB_PATH,
+            )
+        except Exception:
             return
-        self._last_applied_trial = best_trial
-        # ✅ apply
+
+        trials = study.best_trials
+        if not trials:
+            return
+
+        # ✅ välj balanserad lösning
+        def score(t):
+            vals = list(t.user_attrs.get("metrics", {}).values())
+            return np.std(vals) if vals else 999
+
+        best_trial = min(trials, key=score)
+
         apply_cad_params(best_trial.params)
         App.ActiveDocument.recompute()
-        if self._optuna_plot_window:
-            self._optuna_plot_window.apply_trial(best_trial)
-        self.lblActiveStudy.setText(f"{study_name} | trial: {best_trial.number} | score: {best_score:.3f}")
 
     def _make_study_name(self, params, metrics):
         # ✅ metrics
@@ -610,80 +758,331 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         param_part = "__".join(sorted(params))
         return f"{param_part}"  # eller inkludera metric_part senare
 
+    # --- config sparandet
 
-def compute_baseline_old():
-    print("[dialog] computing baseline")
-    clusters = aggregate_interaction_clusters(
-        mode="final",
-        min_hits=1,
-    )
-    baseline = {}
-    baseline["cluster_count"] = len(clusters)
-    baseline["total_hits"] = sum(c.get("hit_count", 0) for c in clusters.values())
-    # density per plane
-    for plane in ("3D", "XY", "XZ", "YZ"):
-        vals = [c.get("density", {}).get(plane) for c in clusters.values() if c.get("density", {}).get(plane) is not None]
-        baseline[f"density_{plane}"] = sum(vals) / len(vals) if vals else 0.0
-    print("[dialog] baseline:", baseline)
-    return baseline
+    def _get_or_create_config_object(self):
+        doc = App.ActiveDocument
+        obj = doc.getObject("OptimizeConfig")
+
+        if obj:
+            return obj
+
+        obj = doc.addObject("App::FeaturePython", "OptimizeConfig")
+        obj.addProperty("App::PropertyString", "json", "Config")
+
+        return obj
+
+    def _on_config_changed(self):
+
+        if getattr(self, "_dirty", False):
+            reply = QtWidgets.QMessageBox.question(self, "Unsaved changes", "You have unsaved changes. Continue without saving?", QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+            if reply == QtWidgets.QMessageBox.No:
+                return
+
+        name = self.cmbConfig.currentText()
+
+        print("[_on_config_chnaged] Switching to config:", name)
+
+        obj = App.ActiveDocument.getObject("OptimizeConfig")
+        if not obj:
+            return
+
+        data = json.loads(obj.json)
+
+        data["active"] = name
+        obj.json = json.dumps(data)
+
+        config = data.get("configs", {}).get(name)
+        if config:
+            self._apply_config(config)
+
+        self._dirty = False
+
+    def _refresh_config_list(self):
+        obj = App.ActiveDocument.getObject("OptimizeConfig")
+        self.cmbConfig.blockSignals(True)
+        self.cmbConfig.clear()
+
+        if not obj or not obj.json:
+            obj = self._get_or_create_config_object()
+            data = {
+                "active": "default",
+                "configs": {
+                    "default": {
+                        "entries": [],
+                        "selected_params": [],
+                        "sampler": "TPESampler",
+                        "trials": 500,
+                        "constant_liar": True,
+                    }
+                },
+            }
+            obj.json = json.dumps(data)
+
+        data = json.loads(obj.json)
+        for name in data.get("configs", {}).keys():
+            self.cmbConfig.addItem(name)
+
+        active = data.get("active", "default")
+        idx = self.cmbConfig.findText(active)
+        if idx >= 0:
+            self.cmbConfig.setCurrentIndex(idx)
+        self.cmbConfig.blockSignals(False)
+
+    def _create_new_config(self):
+        name, ok = QtWidgets.QInputDialog.getText(self, "New preset", "Name:")
+        if not ok or not name:
+            return
+
+        obj = self._get_or_create_config_object()
+
+        try:
+            data = json.loads(obj.json) if obj.json else {}
+        except:
+            data = {}
+
+        configs = data.get("configs", {})
+        configs[name] = {
+            "entries": [],
+            "selected_params": [],
+            "sampler": "TPESampler",
+            "trials": 500,
+            "constant_liar": True,
+        }
+        data["configs"] = configs
+        data["active"] = name
+
+        obj.json = json.dumps(data)
+
+        self._refresh_config_list()
+        self.cmbConfig.setCurrentText(name)
+
+    def _save_config(self, payload):
+        obj = self._get_or_create_config_object()
+
+        selected_params = [i.text() for i in self.listParams.selectedItems() if i.flags() & QtCore.Qt.ItemIsSelectable]
+
+        try:
+            data = json.loads(obj.json) if obj.json else {}
+        except:
+            data = {}
+
+        configs = data.get("configs", {})
+
+        active_name = data.get("active", "default")
+
+        configs[active_name] = {
+            "entries": payload.get("entries", []),
+            "selected_params": selected_params,
+            "sampler": self.cmbSampler.currentText(),
+            "trials": self.spinTrials.value(),
+            "constant_liar": self.chkConstantLiar.isChecked(),
+        }
+
+        data["configs"] = configs
+        data["active"] = active_name
+
+        obj.json = json.dumps(data)
+        self._refresh_config_list()
+
+    def _on_save_clicked(self):
+        payload = self.targetWeights.get_payload()
+        self._save_config(payload)
+
+        self._dirty = False
+        self.lblStatus.setText("Saved ✅")
+        self.lblStatus.setStyleSheet("color: green;")
+
+    def _delete_current_config(self):
+        name = self.cmbConfig.currentText()
+
+        if not name:
+            return
+
+        # ❗ skydda default
+        if name == "default":
+            QtWidgets.QMessageBox.warning(self, "Delete", "Cannot delete default preset")
+            return
+
+        # confirm
+        reply = QtWidgets.QMessageBox.question(self, "Delete preset", f"Delete preset '{name}'?", QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+
+        obj = App.ActiveDocument.getObject("OptimizeConfig")
+        if not obj:
+            return
+
+        data = json.loads(obj.json)
+
+        configs = data.get("configs", {})
+        if name in configs:
+            del configs[name]
+
+        # ✅ välj fallback config
+        remaining = list(configs.keys())
+        if not remaining:
+            remaining = ["default"]
+            configs["default"] = {
+                "entries": [],
+                "selected_params": [],
+                "sampler": "TPESampler",
+                "trials": 500,
+                "constant_liar": True,
+            }
+
+        data["active"] = remaining[0]
+        data["configs"] = configs
+
+        obj.json = json.dumps(data)
+
+        # ✅ refresh UI
+        self._refresh_config_list()
+
+        # ✅ ladda ny config
+        new_config = data["configs"].get(data["active"])
+        if new_config:
+            self._apply_config(new_config)
+        self._dirty = False
+
+    def _load_config(self):
+        obj = App.ActiveDocument.getObject("OptimizeConfig")
+        if not obj or not obj.json:
+            return None
+
+        try:
+            data = json.loads(obj.json)
+            active = data.get("active", "default")
+            return data.get("configs", {}).get(active)
+        except Exception as e:
+            print("[CONFIG LOAD ERROR]", e)
+            return None
+
+    def _apply_config(self, payload):
+
+        # ✅ restore selected params
+        selected = payload.get("selected_params", [])
+
+        self.listParams.blockSignals(True)
+        for i in range(self.listParams.count()):
+            item = self.listParams.item(i)
+            if item.flags() & QtCore.Qt.ItemIsSelectable:
+                item.setSelected(item.text() in selected)
+        self.listParams.blockSignals(False)
+        # ✅ uppdatera study-name etc
+        self._on_params_changed()
+
+        if "sampler" in payload:
+            self.cmbSampler.setCurrentText(payload["sampler"])
+        if "trials" in payload:
+            self.spinTrials.setValue(payload["trials"])
+
+        if "constant_liar" in payload:
+            self.chkConstantLiar.setChecked(payload["constant_liar"])
+
+        entries = payload.get("entries", [])
+
+        self.targetWeights.blockSignals(True)
+        # clear rows
+        for r in self.targetWeights.rows[:]:
+            r.setParent(None)
+            r.deleteLater()
+        self.targetWeights.rows.clear()
+
+        # lägg tillbaka metrics
+        for e in entries:
+            row = self.targetWeights.add_row(e["base_metric"])
+            row = self.targetWeights.rows[-1]
+
+            row.cmb.setCurrentText(e["base_metric"])
+            row.cmbPlane.setCurrentText(e["plane"])
+            row.chkActive.setChecked(e.get("active", True))
+
+            row.targets = e.get("targets", [])
+            row._update_targets_button()
+
+            if "threshold" in e and hasattr(row, "percentWidget"):
+                row.percentWidget.spin.setValue(int(e["threshold"] * 100))
+
+            if "value" in e and hasattr(row, "valueWidget"):
+                row.valueWidget.spin.setValue(e["value"])
+
+            if "min" in e and hasattr(row, "rangeWidget"):
+                row.rangeWidget.min.setValue(e["min"])
+                row.rangeWidget.max.setValue(e.get("max", e["min"]))
+
+            if "axis" in e and hasattr(row, "axisWidget"):
+                row.axisWidget.setCurrentText(e["axis"])
+
+        self.targetWeights.blockSignals(False)
+        self.targetWeights._update()
 
 
 def compute_baseline():
-    print("[dialog] computing baseline")
-    clusters = aggregate_interaction_clusters(
-        mode="final",
-        min_hits=1,
-    )
+    clusters = aggregate_interaction_clusters(mode="final", min_hits=1)
+
     baseline = {}
-    # global
+
     baseline["cluster_count"] = len(clusters)
     baseline["total_hits"] = sum(c.get("hit_count", 0) for c in clusters.values())
 
-    # ✅ NYTT: power per object
+    # ✅ power per object
     object_power = {}
-    for c in clusters.values():
-        obj = c.get("object")
-        pin = c.get("power", {}).get("in", 0.0)
-        object_power[obj] = object_power.get(obj, 0.0) + pin
-    baseline["object_hits"] = object_power
-
-    # ✅ NYTT: power per object
     object_hits = {}
+
     for c in clusters.values():
         obj = c.get("object")
-        hits = c.get("hit_count", 0)
-        object_hits[obj] = object_hits.get(obj, 0) + hits
 
+        object_power[obj] = object_power.get(obj, 0.0) + c.get("power", {}).get("in", 0.0)
+        object_hits[obj] = object_hits.get(obj, 0) + c.get("hit_count", 0)
+
+    baseline["object_power"] = object_power
     baseline["object_hits"] = object_hits
+
     # density
     for plane in ("3D", "XY", "XZ", "YZ"):
         vals = [c.get("density", {}).get(plane) for c in clusters.values() if c.get("density", {}).get(plane) is not None]
         baseline[f"density_{plane}"] = sum(vals) / len(vals) if vals else 0.0
-    print("[dialog] baseline:", baseline)
+
+    cluster_count_per_object = {}
+    for c in clusters.values():
+        obj = c.get("object")
+        cluster_count_per_object[obj] = cluster_count_per_object.get(obj, 0) + 1
+
+    baseline["cluster_count_per_object"] = cluster_count_per_object
+
     return baseline
 
 
-def compute_power(clusters, targets, baseline):
+def compute_power(clusters, targets, baseline=None):
     if not clusters:
         return 0.0
-    current = 0.0
-    for c in clusters.values():
-        if c.get("object") in targets:
-            current += c.get("power", {}).get("in", 0.0)  # ✅ power_in
+
+    current = sum(c.get("power", {}).get("in", 0.0) for c in clusters.values() if c.get("object") in targets)
+
     if baseline:
-        base_hits = baseline.get("object_hits", {})
-        base = 0.0
-        for obj in targets:
-            base += base_hits.get(obj, 0.0)
-        if base > 1e-6:
-            return current / base
-        else:
-            return 0.0
+        base = sum(baseline.get("object_power", {}).get(obj, 0.0) for obj in targets)
+        return current / base if base > 1e-6 else 0.0
+
     return current
 
 
-def compute_power_threshold(clusters, targets, baseline):
-    return compute_power(clusters, targets, baseline)
+def compute_cluster_count(clusters, targets, baseline=None):
+    if not clusters:
+        return 0.0
+
+    count = sum(1 for c in clusters.values() if c.get("object") in targets)
+
+    if baseline:
+        base = 0
+        base_clusters = baseline.get("cluster_count_per_object", {})
+
+        for t in targets:
+            base += base_clusters.get(t, 0)
+
+        return count / base if base > 1e-6 else 0.0
+
+    return float(count)
 
 
 def compute_maximize_power(clusters, targets, baseline):
@@ -705,7 +1104,7 @@ def compute_maximize_power(clusters, targets, baseline):
     return current  # fallback
 
 
-def compute_axis_alignment(clusters, axis, plane=None, baseline=None):
+def compute_cluster_axis_alignment(clusters, axis, plane=None, baseline=None):
     if not clusters or not axis:
         return 0.0
 
@@ -880,8 +1279,4 @@ def ShowOptimizeDialog():
     _optimize_dock_instance = dock
 
 
-# -------------------------------------------------------
-# -------------------------------------------------------
-# -------------------------------------------------------
-# -------------------------------------------------------
 # -------------------------------------------------------

@@ -353,7 +353,7 @@ if IS_ACTIVE:
             file_path = r"C:\temp\S12_orginal.FCStd"
             file_path = r"C:\temp\test_med_scan.FCStd"
             file_path = r"C:\temp\test2.FCStd"
-            file_path = r"C:\temp\__OBA_optiskt_modell_för_AI.FCStd"
+            file_path = r"C:\temp\__OBA_optiskt_modell_för_AI_med_kupor____.FCStd"
 
             if os.path.exists(file_path):
                 doc = next(

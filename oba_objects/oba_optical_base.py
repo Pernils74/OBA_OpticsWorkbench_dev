@@ -47,6 +47,7 @@ class OBAOpticalObject(OBAElementProxy):
 
     def __init__(self, obj):
         super().__init__(obj, use_binders=False)
+        obj.Proxy = self
 
         self._updating = False
         self._init_done = False
@@ -60,7 +61,7 @@ class OBAOpticalObject(OBAElementProxy):
 
         if not hasattr(obj, "OpticalType"):
             obj.addProperty("App::PropertyString", "OpticalType", "Base", "Type of optical element")
-        obj.OpticalType = "None"  # eller vad din sub‑klass ska sätta
+            obj.OpticalType = "None"  # eller vad din sub‑klass ska sätta
 
         if not hasattr(obj, "Binders"):
             obj.addProperty("App::PropertyLinkList", "Binders", "Optics")
@@ -243,7 +244,7 @@ class OBAOpticalObject(OBAElementProxy):
 
         mod = OPTICAL_MODULES.get(obj.OpticalModel)
 
-        print("build:", obj.Name, obj.OpticalModel, obj.ShapeType)
+        # print("[oba_optical_base] build:", obj.Name, obj.OpticalModel, obj.ShapeType)
 
         if mod and getattr(mod, "AFFECTS_GEOMETRY", False):
             if hasattr(mod, "update_calculated_properties"):
@@ -438,7 +439,7 @@ class OBAOpticalObject(OBAElementProxy):
             if prop in ("OpticalModel", "ShapeType"):
                 self._ensure_dynamic_properties()
 
-                print("[AFTER___]:", obj.PropertiesList)
+                # print("[AFTER___]:", obj.PropertiesList)
                 dlg = getattr(obj.Proxy, "dialog", None)
 
                 if dlg:
@@ -493,6 +494,9 @@ class OBAOpticalObject(OBAElementProxy):
                     dlg.update_ui_from_object()
 
     def execute(self, obj):
+        if not getattr(self, "_init_done", False):
+            self.onDocumentRestored(obj)
+
         if getattr(self, "_updating", False):
             return
 
@@ -503,9 +507,31 @@ class OBAOpticalObject(OBAElementProxy):
         finally:
             self._updating = False
 
-    def onDocumentRestored(self, obj):
+    def onDocumentRestored_old(self, obj):
         self._init_done = True
         self._updating = False
+
+    def onDocumentRestored(self, obj):
+        print("[OBA] restore:", obj.Name)
+        print("ShapeObj =", getattr(obj, "ShapeObj", None))
+
+        self.Object = obj
+        obj.Proxy = self
+
+        self._init_done = True
+        self._updating = False
+
+        try:
+            if not getattr(obj, "ShapeObj", None):
+                App.Console.PrintError(f"[OBA] {obj.Name} saknar ShapeObj\n")
+                return
+
+            self._ensure_dynamic_properties()
+            self.build_shape()
+            self._rebuild_binders()
+
+        except Exception as e:
+            App.Console.PrintError(f"[OBA] restore failed: {e}\n")
 
 
 # ============================================================
@@ -691,6 +717,9 @@ class OpticalObjectDialog(OBABaseDialog):
 
 
 class OpticalObjectViewProvider(OBAViewProviderBase):
+
+    dialog_class = OpticalObjectDialog
+
     def __init__(self, vobj):
         super().__init__(vobj)
         self.dialog_class = OpticalObjectDialog
@@ -703,6 +732,11 @@ class OpticalObjectViewProvider(OBAViewProviderBase):
                     shape_obj.ViewObject.Transparency = 90
                 else:
                     shape_obj.ViewObject.Transparency = 10
+
+    def onDocumentRestored(self, vobj):
+        print("VP RESTORE")
+        super().onDocumentRestored(vobj)
+        self.dialog_class = OpticalObjectDialog
 
 
 # ============================================================

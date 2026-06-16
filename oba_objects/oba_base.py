@@ -629,6 +629,22 @@ class OBAViewProviderBase:
         return ""
 
     def doubleClicked(self, vobj):
+        try:
+            print("[OBA] doubleClicked:", vobj.Object.Name)
+
+            if hasattr(self, "dialog_class") and self.dialog_class:
+                dlg = self.dialog_class(vobj.Object)
+                dlg.show()
+            else:
+                print("[OBA] missing dialog_class")
+
+            return True  # ✅ ALLTID TRUE
+
+        except Exception as e:
+            App.Console.PrintError(f"[OBA] doubleClick error: {e}\n")
+            return True  # ✅ stoppa fallback
+
+    def doubleClicked_old(self, vobj):
         if hasattr(self, "dialog_class"):
             dlg = self.dialog_class(vobj.Object)
             dlg.show()

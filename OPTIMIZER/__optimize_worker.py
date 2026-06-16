@@ -22,15 +22,8 @@ import FreeCAD as App
 
 from PySide import QtCore
 
-from .optimize_metrics import (
-    aggregate_from_metrics_dict,
-    equal_distance_score_2d,
-    equal_distance_score_3d,
-    roundness_score_from_cov,
-    density_score,
-)
 
-from .optimize_scoring import score_clusters
+from ._dddd_optimize_scoring import score_clusters
 from .evaluation_service import EvaluationService
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -213,58 +206,6 @@ class OptimizationWorker(QtCore.QObject):
             self.state.cad_params = params.copy()
 
         self.requestEvaluate.emit({"params": params, "plane": self._plane})
-
-    @QtCore.Slot(dict)
-    def on_evaluated______old(self, payload):
-        print("🔥 [worker] on_evaluated CALLED")
-
-        if self._stop:
-            return
-
-        clusters = payload.get("clusters", {})
-
-        if self.state.target_cluster_count is None:
-
-            valid = [c for c in clusters.values() if c.get("hit_count", 0) > 1]
-
-            if not valid:
-                self.progress.emit({"type": "error", "reason": "Baseline misslyckades"})
-                self._stop = True
-                self.finished.emit()
-                return
-
-            self.state.target_cluster_count = len(valid)
-            self._waiting = False
-
-            self.progress.emit({"type": "baseline", "cluster_count": len(valid)})
-            return
-
-        if not clusters:
-            self._prune_current_trial()
-            self._waiting = False
-            return
-
-        result = score_clusters(
-            metrics=clusters,
-            plane=self._plane,
-            equal_distance_mode=self.equal_distance_mode,
-            target_cluster_count=self.state.target_cluster_count,
-            weights={
-                "cluster_count": self.state.weight_cluster_count,
-                "density": self.state.weight_density,
-                "roundness": self.state.weight_roundness,
-                "equal_distance": self.state.weight_equal_distance,
-            },
-        )
-
-        score = result["score"]
-
-        self.study.tell(self.current_trial, score)
-
-        self.progress.emit({"type": "step", "score": score})
-
-        self.current_trial = None
-        self._waiting = False
 
     # --------------------------------------------------
     @QtCore.Slot(float, float, float, float)

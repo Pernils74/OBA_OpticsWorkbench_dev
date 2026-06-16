@@ -11,6 +11,7 @@ from .oba_mirror import OPTICAL_PROPERTIES
 
 SUPPORTED_SHAPES = [
     "Plane",
+    "Box",
     "PlanoConvex",
     "PlanoConcave",
 ]

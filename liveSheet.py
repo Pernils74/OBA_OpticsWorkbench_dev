@@ -16,7 +16,6 @@ import FreeCAD as App
 import FreeCADGui as Gui
 from PySide import QtCore, QtGui, QtWidgets
 
-
 DOCK_OBJECT_NAME = "OBA_LiveSheetsDock"
 DEFAULT_SHEET = "Spreadsheet"
 MAX_SCAN_ROWS = 600
@@ -201,29 +200,6 @@ class OBA_LiveSheetsDock(QtWidgets.QDockWidget):
     def _current_sheet(self):
         return self.cmbSheets.currentData()
 
-    def _used_rows_old(self, sheet):
-        last = 0
-
-        for r in range(1, MAX_SCAN_ROWS + 1):
-            row_has_data = False
-
-            for c in range(self.tbl.columnCount()):
-                col = COLUMN_NAMES[c]
-                addr = f"{col}{r}"
-
-                try:
-                    v = sheet.get(addr)
-                except Exception:
-                    return max(last, 10)
-
-                if v not in ("", None, ""):
-                    row_has_data = True
-
-            if row_has_data:
-                last = r + 5
-
-        return max(last, 10)
-
     def _used_rows(self, sheet):
         last = 0
 
@@ -281,7 +257,98 @@ class OBA_LiveSheetsDock(QtWidgets.QDockWidget):
         self.tbl.blockSignals(False)
         self._loading = False
 
+    def _refresh_visible_cells(self, sheet):
+        self._loading = True
+        try:
+            # Bara synliga celler (inkl. lite buffer)
+            viewport = self.tbl.viewport()
+            rect = viewport.rect()
+
+            top_left = self.tbl.indexAt(rect.topLeft())
+            bottom_right = self.tbl.indexAt(rect.bottomRight())
+
+            if not top_left.isValid() or not bottom_right.isValid():
+                return
+
+            r0 = top_left.row()
+            r1 = bottom_right.row()
+            c0 = top_left.column()
+            c1 = bottom_right.column()
+
+            # liten “preload-buffer” så scroll känns mjuk
+            r0 = max(0, r0 - 2)
+            c0 = max(0, c0 - 1)
+            r1 = min(self.tbl.rowCount() - 1, r1 + 2)
+            c1 = min(self.tbl.columnCount() - 1, c1 + 1)
+
+            for r in range(r0, r1 + 1):
+                for c in range(c0, c1 + 1):
+                    col = COLUMN_NAMES[c]
+                    addr = f"{col}{r+1}"
+
+                    try:
+                        val = sheet.getDisplayString(addr)
+                    except Exception:
+                        val = ""
+
+                    item = self.tbl.item(r, c)
+                    if item is None:
+                        item = QtWidgets.QTableWidgetItem()
+                        self.tbl.setItem(r, c, item)
+
+                    txt = "" if val is None else str(val)
+                    if item.text() != txt:
+                        item.setText(txt)
+
+        finally:
+            self._loading = False
+
     def _on_cell_edited(self, item):
+        if self._loading:
+            return
+
+        sheet = self._current_sheet()
+        if not sheet:
+            return
+
+        r = item.row()
+        c = item.column()
+        col = COLUMN_NAMES[c]
+        val = item.text()
+        addr = f"{col}{r+1}"
+
+        try:
+            # txt = val.strip()
+            # 🔥 FIX: svenska decimaler -> FreeCAD-kompatibelt format
+            txt = val.strip().replace(",", ".")
+            # Om användaren skrev "=" i början, ta bort det (FreeCAD vill bara ha uttrycket)
+            if txt.startswith("="):
+                # expression
+                sheet.setExpression(addr, txt[1:])
+            else:
+                # vanligt cellinnehåll
+                sheet.set(addr, txt)
+
+            if self.chkAutoRecompute.isChecked():
+                # ✅ Tvinga kalkylbladet att räkna om sina interna formler
+                try:
+                    sheet.touch()
+                    App.ActiveDocument.recompute()
+                    sheet.recompute()
+                except Exception:
+                    pass
+
+                # ✅ Räkna om hela dokumentet så att alla länkar (VarSet -> Sheet etc.) hänger med
+                recompute_doc(App.ActiveDocument, note="OBA_LiveSheets cell edit")
+
+                # ✅ Uppdatera din QTableWidget med de nya uträknade värdena
+                # self._refresh_visible_cells(sheet)
+                self._reload_sheet()
+
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Spreadsheet", f"Could not write:\n{e}")
+
+    def _on_cell_edited_old(self, item):
         if self._loading:
             return
 

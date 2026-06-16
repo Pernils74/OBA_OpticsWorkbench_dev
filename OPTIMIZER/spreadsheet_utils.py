@@ -86,6 +86,34 @@ def set_quantity(ss, addr, value, unit):
 
 
 def set_params_by_name(ss, param_map):
+    info = read_param_bounds(ss)
+
+    # ✅ endast parametrar
+    lookup = {item["name"]: item for item in info if item["type"] == "param"}
+
+    for name, new_value in param_map.items():
+        if name not in lookup:
+            App.Console.PrintError(f"[set_params_by_name] Okänt namn: {name}\n")
+            continue
+
+        item = lookup[name]
+
+        row = item["row"]
+        unit = item["unit"]
+        lo, hi = item["bounds"]
+
+        # Clamp
+        v = new_value
+        if lo is not None:
+            v = max(v, lo)
+        if hi is not None:
+            v = min(v, hi)
+
+        addr = cell("B", row)
+        set_quantity(ss, addr, v, unit)
+
+
+def set_params_by_name_old(ss, param_map):
     """
     Sätter värden i kolumn B baserat på variabelnamn.
     param_map: dict { "Comp M Radius": 22.19, "Length": 25.0, ... }
@@ -153,43 +181,37 @@ def set_param_B(ss, row, new_value):
     set_quantity(ss, cell("B", row), v, unit)
 
 
-def read_param_bounds(ss):
-    """
-    Read parameter bounds from spreadsheet.
-
-    Expected layout:
-      A: name
-      B: current value
-      C: min (optional)
-      D: max (optional)
-
-    Returns:
-      list of (name, row, (lo, hi), unit, current_value)
-
-
-    Typ exempel på returvärde:
-        [
-            ("Width", 2, (10.0, 40.0), "mm", 25.0),
-            ("Height", 3, (None, 20.0), "mm", 12.0),
-            ("Depth", 4, (18.0, None), "mm", 15.0),
-            ("Radius", 5, (None, None), "mm", 8.0),
-        ]
-
-    """
-
+def read_param_bounds(ss, max_rows=500):
     out = []
     row = 2
 
     while True:
+        # ✅ HARD BREAK
+        if row > max_rows:
+            App.Console.PrintError(f"[read_param_bounds] STOP: nådde {max_rows} rader utan 'END'\n")
+            break
+
         name = safe_get(ss, cell("A", row))
         b_raw = safe_get(ss, cell("B", row))
 
-        if not (name or b_raw):
+        if str(name).strip().upper() == "END":
             break
 
-        pname = str(name).strip() if name else f"Row{row}"
+        # ✅ SKIP helt tomma rader
+        if (name is None or str(name).strip() == "") and (b_raw is None or str(b_raw).strip() == ""):
+            row += 1
+            continue
+
+        pname = str(name).strip() if name else ""
         b_val, unit = parse_quantity(b_raw)
 
+        # ✅ HEADER
+        if (b_raw is None or str(b_raw).strip() == "") and pname != "":
+            out.append({"name": pname, "row": row, "type": "header", "bounds": None, "unit": None, "value": None})
+            row += 1
+            continue
+
+        # ✅ PARAMETER
         c_val = get_quantity(ss, cell("C", row))
         d_val = get_quantity(ss, cell("D", row))
 
@@ -200,7 +222,8 @@ def read_param_bounds(ss):
             lo = min(values)
             hi = max(values)
 
-        out.append((pname, row, (lo, hi), unit, b_val))
+        out.append({"name": pname, "row": row, "type": "param", "bounds": (lo, hi), "unit": unit, "value": b_val})
+
         row += 1
 
     return out

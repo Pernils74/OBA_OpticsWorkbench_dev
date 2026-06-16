@@ -6,6 +6,8 @@ from . import oba_optical_shapes
 
 SUPPORTED_SHAPES = [
     "Plane",
+    "Box",
+    "Prism",
     "PlanoConvex",
     "PlanoConcave",
     "BiConvex",
