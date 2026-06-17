@@ -36,6 +36,8 @@ from .optimize_worker import DB_PATH  # ✅ också
 DOCK_OBJECT_NAME = "OptimizeDialogDock"
 _optimize_dock_instance = None
 
+from .evaluation_service import EvaluationService, compute_baseline
+
 
 class OptimizeDialogDock(QtWidgets.QDockWidget):
 
@@ -67,7 +69,6 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self._optuna_plot_window = None
 
         self._build_ui(params_info)
-
         self._refresh_config_list()
 
         config = self._load_config()
@@ -217,8 +218,10 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
                         list_item = QtWidgets.QListWidgetItem(name)
                         list_item.setFlags(QtCore.Qt.NoItemFlags)  # ❌ ej valbar
                         list_item.setForeground(QtGui.QBrush(QtGui.QColor("gray")))
+                        list_item.setForeground(QtGui.QBrush(QtGui.QColor("blue")))
                         font = list_item.font()
                         font.setBold(True)
+                        font.setPointSize(12)
                         list_item.setFont(font)
                         self.listParams.addItem(list_item)
                     else:
@@ -361,114 +364,53 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self.listParams.setEnabled(True)
         self.targetWeights.setEnabled(True)
 
+        # ✅ cleanup eval service
+        if self._eval_service:
+            try:
+                self._eval_service.evaluationReady.disconnect(self._on_evaluation_ready)
+            except Exception:
+                pass
+
+            self._eval_service.deleteLater()
+            self._eval_service = None
+
         self.lblStatus.setText("Finished")
         self.lblStatus.setStyleSheet("color: green;")
 
     # ev.
     # open_optuna_plot_window(...)
 
-    def _evaluated_debug(self, clusters, label_map):
-        print("\n================ EVAL DEBUG ================")
-        print("Total clusters:", len(clusters))
-        # ✅ vilka objekt finns i clusters
-        cluster_objects = list({c.get("object") for c in clusters.values()})
-        print("Cluster objects (unique):", cluster_objects)
+    def _on_evaluation_ready(self, result):
 
-        print("\n--- Per Metric ---")
+        worker = self._worker
+        if not worker:
+            return
 
-        for metric in self._worker.metrics:
-            name = metric["name"]
-            plane = metric["plane"]
-            targets = metric["targets"]
+        worker.on_evaluated(result)
 
-            print("\n-------------------------------------------")
-            print("Metric:", name)
-            print("Plane:", plane)
-
-            print("Targets (UI labels):", targets)
-            # ✅ mapping
-            target_names = []
-            for t in targets:
-                mapped = label_map.get(t)
-                if mapped is None:
-                    print("[WARN] No mapping for:", t)
-                else:
-                    target_names.append(mapped)
-            print("Mapped target names:", target_names)
-            # ✅ filtering
-            filtered = {k: c for k, c in clusters.items() if c.get("object") in target_names}
-            print("Filtered cluster count:", len(filtered))
-            # ✅ show some clusters
-            for cid, c in list(filtered.items())[:3]:
-                print("  cluster:", cid)
-                print("    object:", c.get("object"))
-                print("    hits:", c.get("hit_count"))
-
-            # ✅ compute preview values
-            if metric["base_metric"] == "density":
-                val = compute_density(filtered, plane, self._baseline)
-            elif metric["base_metric"] == "roundness":
-                val = compute_roundness(filtered, plane, self._baseline)
-            elif metric["base_metric"] == "equal_distance":
-                val = compute_distance(filtered, plane, self._baseline)
-            else:
-                val = None
-            print("Computed value:", val)
-        print("============================================\n")
-
-    def _is_model_valid(self, doc):
-        for obj in doc.Objects:
-
-            # 1. Kontrollera skisser
-            if obj.TypeId == "Sketcher::SketchObject":
-                # obj.solve()
-
-                # Hämtar DoF (standard 0 om det mot förmodan saknas)
-                dof = getattr(obj, "DoF", 0)
-                if dof < 0:
-                    print("[FAIL] negative DOF (over-constrained):", obj.Name)
-                    return False
-
-                # Hämtar externa referenser säkert
-                ext_geo = getattr(obj, "ExternalGeometry", [])
-                for ext in ext_geo:
-                    if ext is None:
-                        print("[FAIL] missing external ref:", obj.Name)
-                        return False
-
-            # 2. Kontrollera geometri (endast objekt som faktiskt har en Shape)
-            # if hasattr(obj, "Shape"):
-            if obj.TypeId.startswith("PartDesign::"):
-                shape = obj.Shape
-                if not shape or shape.isNull():
-                    print("[FAIL] null shape:", obj.Name)
-                    return False
-
-                if shape.ShapeType == "Solid" and len(shape.Faces) == 0:
-                    print("[FAIL] no faces:", obj.Name)
-                    return False
-
-            # 3. Kontrollera FreeCADs inbyggda felsignaler
-            if "Invalid" in obj.State:
-                print("[FAIL] state:", obj.Name, obj.State)
-                return False
-
-            # Hämtar ErrorStatus säkert (returnerar tom sträng om attributet saknas)
-
-            if hasattr(obj, "ErrorStatus"):
-                try:
-                    error_status = obj.ErrorStatus
-                except Exception as e:
-                    print("[API WARN] ErrorStatus access failed:", obj.Name, e)
-                    error_status = None
-
-                if error_status and error_status != "OK":
-                    print("[FAIL] error status:", obj.Name, error_status)
-                    return False
-
-        return True
+        self._evaluation_active = False
 
     def _evaluate_main(self, params):
+
+        if self._evaluation_active:
+            return
+
+        worker = self._worker
+        if not worker:
+            return
+
+        self._evaluation_active = True
+
+        payload = {
+            "params": params,
+            "metrics": worker.metrics,
+            "baseline": getattr(self, "_baseline", None),
+        }
+
+        # ✅ skicka till EvaluationService
+        self._eval_service.evaluate(payload)
+
+    def _evaluate_main_old(self, params):
         from .target_weights_widget import METRICS
 
         worker = self._worker
@@ -508,20 +450,32 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
                 # self.lblStatus.setText(f"Processar...: {base}")
                 # self.lblStatus.setStyleSheet("color: orange;")
-
+                valid = True
                 # ✅ clean dispatch
-                if base == "threshold_power":
-                    value = compute_power(filtered, target_names, None)
+                if base == "power":
+                    value, valid = compute_power(filtered, target_names, baseline)
+                    if metric.get("use_threshold"):
+                        margin = metric.get("percent", 0.0)
+                        valid = value >= (1.0 + margin)
+                    else:
+                        valid = True
 
-                elif base == "power":
-                    value = compute_power(filtered, target_names, baseline)
+                elif base == "preserve_cluster_count":
+                    value = compute_preserve_cluster_count(filtered, target_names, baseline, metric.get("percent", 0.01))
+                    if metric.get("use_threshold"):
+                        tol = metric.get("percent_tolerance", 0.1)  # t.ex ±10%
+                        valid = abs(value - 1.0) <= tol
+                    else:
+                        valid = True
 
-                elif base == "threshold_cluster_count":
-                    value = compute_cluster_count(filtered, target_names, None)
-                    # value = float(len(filtered))
+                elif base == "target_cluster_count":
+                    value, diff = compute_target_cluster_count(filtered, target_names, baseline, metric.get("percent", 0.01), metric.get("value", 1))
 
-                elif base == "cluster_count":
-                    value = compute_cluster_count(filtered, target_names, baseline)
+                    if metric.get("use_threshold"):
+                        tol = metric.get("percent_tol", 0.2)  # ✅ tolerans i "cluster units"
+                        valid = diff <= tol
+                    else:
+                        valid = True
 
                 elif base == "density":
                     value = compute_density(filtered, plane, baseline)
@@ -538,40 +492,22 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
                 elif base == "cluster_axis_alignment":
                     value = compute_cluster_axis_alignment(filtered, metric.get("axis"), plane, baseline)
 
+                elif base == "scanner":
+                    value = compute_scanner_result(metric, filtered, plane, baseline, {"doc": doc})
+
                 else:
                     value = 0.0
 
                 results[metric["name"]] = value
 
-                # ✅ pruning
-                # threshold = METRICS.get(base, {}).get("threshold")
-                metric_type = METRICS.get(base, {}).get("type")
-                if metric_type == "threshold":
+                # -------------------------
+                # ✅ NEW: threshold via checkbox
+                # -------------------------
 
-                    print("Threasholdd uppnått på :", base, " för ", value, "  metric ", metric_type)
-                    # ✅ percent threshold
-                    target = metric.get("percent")
-                    if target is not None:
-                        if value < target:
-                            self.lblStatus.setText(f"Threshold: {base} {value:.3f} < {target}")
-                            QtWidgets.QApplication.processEvents()
-                            results["_pruned"] = True
-                            break
-
-                    # ✅ exact value threshold
-                    target = metric.get("value")
-                    if target is not None:
-                        if abs(value - target) > 1e-6:
-                            self.lblStatus.setText(f"Threshold: {base} {value:.3f} != {target}")
-                            QtWidgets.QApplication.processEvents()
-                            results["_pruned"] = True
-                            break
-
-                # threshold = metric.get("threshold")
-                # if threshold is not None and value < threshold:
-                #     self.lblStatus.setText(f"Threashold uppnått på : {base}")
-                #     results["_pruned"] = True
-                #     break
+                if not valid:
+                    self.lblStatus.setText(f"Threshold fail: {base} {value:.3f} ")
+                    results["_pruned"] = True
+                    break
 
             worker.on_evaluated(results)
             doc.commitTransaction()
@@ -593,6 +529,10 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             self._evaluation_active = False
 
     def _start_optimization(self, new_study=False):
+
+        self._eval_service = EvaluationService()
+        self._eval_service.evaluationReady.connect(self._on_evaluation_ready)
+
         params = [i.text() for i in self.listParams.selectedItems()]
         if not params:
             QtWidgets.QMessageBox.warning(self, "Optimize", "Select params")
@@ -758,7 +698,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         param_part = "__".join(sorted(params))
         return f"{param_part}"  # eller inkludera metric_part senare
 
-    # --- config sparandet
+    # --- config sparandet ----------
 
     def _get_or_create_config_object(self):
         doc = App.ActiveDocument
@@ -1018,232 +958,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self.targetWeights._update()
 
 
-def compute_baseline():
-    clusters = aggregate_interaction_clusters(mode="final", min_hits=1)
-
-    baseline = {}
-
-    baseline["cluster_count"] = len(clusters)
-    baseline["total_hits"] = sum(c.get("hit_count", 0) for c in clusters.values())
-
-    # ✅ power per object
-    object_power = {}
-    object_hits = {}
-
-    for c in clusters.values():
-        obj = c.get("object")
-
-        object_power[obj] = object_power.get(obj, 0.0) + c.get("power", {}).get("in", 0.0)
-        object_hits[obj] = object_hits.get(obj, 0) + c.get("hit_count", 0)
-
-    baseline["object_power"] = object_power
-    baseline["object_hits"] = object_hits
-
-    # density
-    for plane in ("3D", "XY", "XZ", "YZ"):
-        vals = [c.get("density", {}).get(plane) for c in clusters.values() if c.get("density", {}).get(plane) is not None]
-        baseline[f"density_{plane}"] = sum(vals) / len(vals) if vals else 0.0
-
-    cluster_count_per_object = {}
-    for c in clusters.values():
-        obj = c.get("object")
-        cluster_count_per_object[obj] = cluster_count_per_object.get(obj, 0) + 1
-
-    baseline["cluster_count_per_object"] = cluster_count_per_object
-
-    return baseline
-
-
-def compute_power(clusters, targets, baseline=None):
-    if not clusters:
-        return 0.0
-
-    current = sum(c.get("power", {}).get("in", 0.0) for c in clusters.values() if c.get("object") in targets)
-
-    if baseline:
-        base = sum(baseline.get("object_power", {}).get(obj, 0.0) for obj in targets)
-        return current / base if base > 1e-6 else 0.0
-
-    return current
-
-
-def compute_cluster_count(clusters, targets, baseline=None):
-    if not clusters:
-        return 0.0
-
-    count = sum(1 for c in clusters.values() if c.get("object") in targets)
-
-    if baseline:
-        base = 0
-        base_clusters = baseline.get("cluster_count_per_object", {})
-
-        for t in targets:
-            base += base_clusters.get(t, 0)
-
-        return count / base if base > 1e-6 else 0.0
-
-    return float(count)
-
-
-def compute_maximize_power(clusters, targets, baseline):
-    if not clusters:
-        return 0.0
-    current = 0.0
-    for c in clusters.values():
-        if c.get("object") in targets:
-            current += c.get("hit_count", 0)
-
-    # ✅ använd baseline som referens (viktigt!)
-    if baseline:
-        base_hits = baseline.get("object_hits", {})
-        base = sum(base_hits.get(obj, 0.0) for obj in targets)
-        if base > 1e-6:
-            return current / base  # ✅ ratio → maximize
-        else:
-            return 0.0
-    return current  # fallback
-
-
-def compute_cluster_axis_alignment(clusters, axis, plane=None, baseline=None):
-    if not clusters or not axis:
-        return 0.0
-
-    vals = []
-
-    for c in clusters.values():
-
-        centroid = c.get("centroid", {}).get("3D")
-
-        if centroid is None:
-            continue
-
-        if axis == "X":
-            vals.append(centroid[0])
-        elif axis == "Y":
-            vals.append(centroid[1])
-        elif axis == "Z":
-            vals.append(centroid[2])
-
-    if len(vals) < 2:
-        return 0.0
-
-    std = np.std(vals)
-
-    # ✅ låg spridning = bra
-    score = 1.0 / (1.0 + std)
-
-    return score
-
-
-def compute_equal_ray_hits_count(clusters, plane, baseline=None):
-    # ✅ behålla rays
-    # ✅ fördela dem jämnt
-    # ✅ inte skapa döda kluster
-
-    import numpy as np
-
-    hits = np.array([c.get("hit_count", 0) for c in clusters.values()])
-
-    if len(hits) == 0:
-        return 0.0
-
-    total = hits.sum()
-    mean = hits.mean()
-    std = hits.std()
-
-    if total == 0:
-        return 0.0
-
-    # ✅ jämnhet
-    uniformity = 1.0 / (1.0 + std / (mean + 1e-6))
-
-    # ✅ total effekt
-    if baseline:
-        base_total = baseline.get("total_hits", 1e-6)
-        efficiency = total / (base_total + 1e-6)
-    else:
-        efficiency = total
-
-    return uniformity * efficiency
-
-
-def compute_density(clusters, plane, baseline=None):
-    if not clusters:
-        return 0.0
-
-    vals = []
-    weights = []
-
-    for c in clusters.values():
-        raw = c.get("density", {}).get(plane)
-        w = c.get("hit_count", 1)
-
-        if raw is not None:
-            vals.append(raw * w)
-            weights.append(w)
-
-    if not vals:
-        return 0.0
-
-    # ✅ INGEN normalisering
-    return sum(vals) / sum(weights)
-
-
-def compute_roundness(clusters, plane, baseline=None):
-    if not clusters:
-        return 0.0
-
-    vals = []
-    for c in clusters.values():
-        r = c.get("roundness", {}).get(plane)
-        if r is not None:
-            vals.append(r)
-
-    if not vals:
-        return 0.0
-
-    return sum(vals) / len(vals)
-
-
 import math
-
-
-def compute_distance(clusters, plane, baseline=None):
-
-    if not clusters:
-        return 0.0
-
-    vals = []
-
-    for c in clusters.values():
-
-        if plane == "3D":
-            r = c.get("spread", {}).get("3D", {}).get("radius")
-        else:
-            cov = c.get("spread", {}).get(plane, {}).get("cov")
-            if cov is None:
-                continue
-
-            try:
-                import numpy as np
-
-                eig = np.linalg.eigvals(cov)
-                r = float(max(eig)) ** 0.5
-            except:
-                continue
-
-        if r is None:
-            continue
-
-        # ✅ bättre scaling
-        score = 1.0 / (1.0 + r * 10.0)
-        vals.append(score)
-
-    if not vals:
-        return 0.0
-
-    return sum(vals) / len(vals)
-
 
 # -------------------------------------------------------
 

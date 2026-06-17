@@ -44,6 +44,7 @@ class OptimizationWorker(QtCore.QObject):
     def __init__(self):
         super().__init__()
         self._stop = False
+
         self._waiting = False
         self._last_results = None
 
@@ -172,17 +173,21 @@ class OptimizationWorker(QtCore.QObject):
                 if self._last_results is None:
                     raise RuntimeError("No evaluation result received")
 
-                results = self._last_results
+                # results = self._last_results
 
-                # ✅ debug storage
-                trial.set_user_attr("params", params)
-                trial.set_user_attr("metrics", results)
+                payload = self._last_results
+                # print("hhhhhhhhhh   ", payload)
 
                 # ✅ pruning
-                if results.get("_pruned"):
+                if payload.get("_pruned"):
                     print(f"[PRUNE] trial={trial.number} params={params}")
                     self.study.tell(trial, state=optuna.trial.TrialState.PRUNED)
                     continue
+
+                results = payload.get("results", {})
+                # ✅ debug storage
+                trial.set_user_attr("params", params)
+                trial.set_user_attr("metrics", results)
 
                 # ✅ values (robust + direction handling)
                 values = []

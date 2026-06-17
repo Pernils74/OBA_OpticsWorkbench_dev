@@ -6,28 +6,55 @@ import FreeCAD as App
 # ==========================================================
 
 METRICS = {
-    "threshold_power": {
-        "type": "threshold",
-        "priority": 1,
+    "power": {
+        "label": "⚡ power",
+        "threshold": True,
         "widget": ["percent"],
+        "tooltip": ("Maximerar inkommande effekt.\n" "Med threshold: kräver förbättring relativt baseline.\n" "Percent = min förbättringsgrad."),
     },
-    "threshold_cluster_count": {
-        "type": "threshold",
-        "priority": 2,
-        "widget": ["value", "percent"],  # ["range"]
+    "preserve_cluster_count": {
+        "label": "⚡ preserve_cluster_count",
+        "threshold": True,
+        "widget": ["percent"],
+        "tooltip": "Bibehåller antal kluster jämfört med baseline.\nStraffar för stora avvikelser.",
     },
-    "cluster_axis_alignment": {
-        "type": "score",
-        "priority": 30,
-        "widget": ["axis"],
+    "target_cluster_count": {
+        "label": "⚡ target_cluster_count",
+        "threshold": True,
+        "widget": ["percent", "value"],
+        "tooltip": "Försöker nå ett specifikt antal kluster.\nPercent avgör vilka kluster som räknas.",
     },
-    "cluster_count": {"type": "score", "priority": 15},
-    "power": {"type": "score", "priority": 10},
-    "density": {"type": "score", "priority": 20},
-    "roundness": {"type": "score", "priority": 20},
-    "equal_distance": {"type": "score", "priority": 30},
-    "equal_ray_hits_count": {"type": "score", "priority": 30},
+    "density": {
+        "label": "density",
+        "threshold": False,
+        "tooltip": "Medeldensitet för kluster (viktad med antal träffar).\nHög densitet = kompakt träffbild.",
+    },
+    "roundness": {
+        "label": "roundness",
+        "threshold": False,
+        "tooltip": "Mäter hur cirkulära kluster är.\n1 = perfekt rund, 0 = utdragen.",
+    },
+    "equal_distance": {
+        "label": "equal_distance",
+        "threshold": False,
+        "tooltip": "Belönar små klusterradier.\nGer jämnt fördelade och kompakta träffzoner.",
+    },
+    "equal_ray_hits_count": {
+        "label": "equal_ray_hits_count",
+        "threshold": False,
+        "tooltip": ("Fördelar rays jämnt mellan kluster.\n" "Maximerar både total träffmängd och jämn fördelning."),
+    },
+    "scanner": {
+        "label": "🧪 Scanner",
+        "threshold": False,
+        "widget": ["step", "percent"],
+        "tooltip": "Kör valfri scanner-step och returnerar score.",
+    },
 }
+
+
+LABEL_TO_KEY = {cfg.get("label", k): k for k, cfg in METRICS.items()}
+
 
 # ==========================================================
 # ROW
@@ -62,6 +89,7 @@ class MetricRowWidget(QtWidgets.QWidget):
         self.chkActive.setChecked(True)
 
         self.lbl = QtWidgets.QLabel()
+        self.lbl.setText("ℹ️")
 
         # delete button
         self.btnDelete = QtWidgets.QPushButton("✕")
@@ -103,16 +131,28 @@ class MetricRowWidget(QtWidgets.QWidget):
         self.cmbPlane.currentIndexChanged.connect(self.changed)
         self.btnTargets.clicked.connect(self._edit_targets)
         self.btnDelete.clicked.connect(lambda: self.removed.emit(self))
+        self.chkActive.toggled.connect(self._update_row_style)
+
+        # self._label_to_key = {cfg.get("label", k): k for k, cfg in METRICS.items()}
 
     # --------------------------------------------------
     # DYNAMIC UI
     # --------------------------------------------------
 
+    def _update_row_style(self):
+        self.setStyleSheet("")
+        # ❌ inaktiv → gråa ut
+        if not self.chkActive.isChecked():
+            self.setStyleSheet("color: #999; background-color: #f5f5f5;")
+            return
+        if hasattr(self, "thresholdWidget") and self.thresholdWidget.isChecked():
+            self.setStyleSheet("background-color: #fff4e6;")
+
     def _rebuild_dynamic_ui(self):
         layout = self.layout()
 
         # ✅ reset dynamic data (KRITISK)
-        for attr in ["percentWidget", "valueWidget", "rangeWidget", "axisWidget"]:
+        for attr in ["percentWidget", "valueWidget", "rangeWidget", "axisWidget", "thresholdWidget"]:
             if hasattr(self, attr):
                 delattr(self, attr)
 
@@ -121,8 +161,22 @@ class MetricRowWidget(QtWidgets.QWidget):
             w.deleteLater()
         self.dynamic_widgets = []
 
-        metric = self.cmb.currentText()
-        cfg = METRICS.get(metric, {})
+        label = self.cmb.currentText()
+        metric_key = LABEL_TO_KEY.get(label, label)
+        cfg = METRICS.get(metric_key, {})
+
+        # metric = self.cmb.currentText()
+        # cfg = METRICS.get(metric, {})
+
+        tooltip = cfg.get("tooltip", "")
+        self.setToolTip(tooltip)
+        self.cmb.setToolTip(tooltip)
+        self.lbl.setToolTip(tooltip)
+
+        # is_scanner = metric == "scanner"
+        # self.cmbPlane.setVisible(not is_scanner)
+        # self.btnTargets.setVisible(not is_scanner)
+
         widgets = cfg.get("widget", [])
 
         insert_index = self.dynamic_anchor_index
@@ -155,16 +209,39 @@ class MetricRowWidget(QtWidgets.QWidget):
             self.axisWidget = w
             insert_index += 1
 
+        if "step" in widgets:
+            w = StepSelectWidget()
+            layout.insertWidget(insert_index, w)
+            self.dynamic_widgets.append(w)
+            self.stepWidget = w
+            insert_index += 1
+
+        if cfg.get("threshold", False):
+            w = ThresholdWidget()
+            w.toggled.connect(self._update_row_style)
+            layout.insertWidget(insert_index, w)
+            self.dynamic_widgets.append(w)
+            self.thresholdWidget = w
+            insert_index += 1
+
+        self._update_row_style()
+
     # --------------------------------------------------
     # PAYLOAD
     # --------------------------------------------------
 
     def get_payload_part(self):
-        metric = self.cmb.currentText()
-        cfg = METRICS.get(metric, {})
+        # metric = self.cmb.currentText()
+        # # ✅ översätt tillbaka
+        # metric_key = self.parent()._metric_display_map.get(metric, metric)
+
+        label = self.cmb.currentText()
+        metric_key = LABEL_TO_KEY.get(label, label)
+
+        cfg = METRICS.get(metric_key, {})
 
         data = {
-            "base_metric": metric,
+            "base_metric": metric_key,  # metric
             "type": cfg.get("type"),
             "active": self.chkActive.isChecked(),
             "targets": self.get_targets(),
@@ -189,6 +266,14 @@ class MetricRowWidget(QtWidgets.QWidget):
 
         if "axis" in widgets and hasattr(self, "axisWidget"):
             data["axis"] = self.axisWidget.currentText()
+
+        if "step" in widgets and hasattr(self, "stepWidget"):
+            data["step_id"] = self.stepWidget.get_value()
+
+        if hasattr(self, "thresholdWidget"):
+            data["use_threshold"] = self.thresholdWidget.get_value()
+        else:
+            data["use_threshold"] = False
 
         return data
 
@@ -222,7 +307,10 @@ class MetricRowWidget(QtWidgets.QWidget):
 
         available = [o.Label for o in doc.Objects if hasattr(o, "OpticalType")]
 
-        dlg = EditTargetsDialog(self, self.cmb.currentText(), available, self.targets)
+        label = self.cmb.currentText()
+        metric_key = LABEL_TO_KEY.get(label, label)
+
+        dlg = EditTargetsDialog(self, metric_key, available, self.targets)
 
         if dlg.exec_():
             selected = dlg.selected_targets() or self._get_default_target()
@@ -259,11 +347,17 @@ class TargetWeightsWidget(QtWidgets.QGroupBox):
         layout.addWidget(self.btnAdd)
         self.btnAdd.clicked.connect(lambda: self.add_row())
 
+        self._label_to_key = {cfg.get("label", k): k for k, cfg in METRICS.items()}
+
         for m in self.available_metrics():
             self.add_row(m)
 
     def available_metrics(self):
-        return sorted(METRICS.keys(), key=lambda k: METRICS[k]["priority"])
+        keys = sorted(METRICS.keys(), key=self.metric_sort_key)
+        return [METRICS[k].get("label", k) for k in keys]
+
+    def available_metrics_old(self):
+        return sorted(METRICS.keys(), key=self.metric_sort_key)
 
     def add_row(self, metric="density"):
         row = MetricRowWidget(self.available_metrics(), metric)
@@ -290,14 +384,33 @@ class TargetWeightsWidget(QtWidgets.QGroupBox):
         self.lblSummary.setText(" | ".join(txt))
         self.configChanged.emit(payload)
 
-    def get_payload(self):
-        entries = []
+    def metric_sort_key(self, metric):
 
+        if isinstance(metric, dict):
+            name = metric.get("base_metric")
+        else:
+            # ✅ FIX: konvertera label → key
+            name = self._label_to_key.get(metric, metric)
+
+        cfg = METRICS.get(name, {})
+
+        is_threshold = cfg.get("threshold", False)
+        is_scanner = name == "scanner"
+
+        return (
+            0 if is_threshold else 1,
+            2 if is_scanner else 1,
+            name,
+        )
+
+    def get_payload(self):
+
+        entries = []
         for r in self.rows:
             if r.chkActive.isChecked():
                 entries.append(r.get_payload_part())
 
-        entries = sorted(entries, key=lambda e: METRICS.get(e["base_metric"], {}).get("priority", 999))
+        entries.sort(key=self.metric_sort_key)
 
         return {"entries": entries}
 
@@ -333,8 +446,9 @@ class PercentWidget(QtWidgets.QWidget):
         self.spin_percent = QtWidgets.QSpinBox()
         self.spin_percent.setRange(0, 100)
         self.spin_percent.setValue(70)
+        self.spin_percent.setToolTip("Minsta clusterstorlek (% av största cluster i baseline).\n" "Mindre cluster ignoreras vid beräkning.")
 
-        layout.addWidget(QtWidgets.QLabel("≥"))
+        layout.addWidget(QtWidgets.QLabel("Filter ≥"))
         layout.addWidget(self.spin_percent)
         layout.addWidget(QtWidgets.QLabel("%"))
 
@@ -363,6 +477,57 @@ class AxisWidget(QtWidgets.QComboBox):
     def __init__(self):
         super().__init__()
         self.addItems(["X", "Y", "Z"])
+
+
+class ThresholdWidget(QtWidgets.QCheckBox):
+    def __init__(self):
+        super().__init__("Threshold")
+        self.setChecked(False)
+        self.setToolTip("Aktivera threshold (pruning).\n" "Om värdet inte uppfyller kravet avbryts evaluation tidigt.")
+        self.setStyleSheet("""
+            QCheckBox {
+                spacing: 4px;
+            }
+            QCheckBox:checked {
+                color: orange;
+                font-weight: bold;
+            }
+            """)
+
+    def get_value(self):
+        return self.isChecked()
+
+
+class StepSelectWidget(QtWidgets.QComboBox):
+    def __init__(self):
+        super().__init__()
+        self.refresh()
+
+    def refresh(self):
+        self.clear()
+
+        doc = App.ActiveDocument
+        if not doc:
+            return
+
+        # hitta BatchGroup
+        batch = None
+        for obj in doc.Objects:
+            if obj.TypeId == "App::DocumentObjectGroupPython" and hasattr(obj, "GroupId"):
+                batch = obj
+                break
+
+        if not batch:
+            return
+
+        for step in batch.Group:
+            if hasattr(step, "Id"):
+                # visa Titel + ID
+                label = f"{step.Title} ({step.Id})"
+                self.addItem(label, step.Id)
+
+    def get_value(self):
+        return self.currentData()
 
 
 # ==========================================================
