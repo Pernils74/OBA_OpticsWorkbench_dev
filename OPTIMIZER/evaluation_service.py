@@ -24,6 +24,7 @@ class EvaluationService(QtCore.QObject):
     """
 
     evaluationReady = QtCore.Signal(dict)
+    statusChanged = QtCore.Signal(str)  # lblStatus i optimzer_dialog.py
 
     def __init__(self):
         super().__init__()
@@ -89,7 +90,10 @@ class EvaluationService(QtCore.QObject):
         # -------------------------
         # FAST METRICS (NO SCANNER)
         # -------------------------
+        trial_id = payload.get("trial_id", "?")
         for m in metrics:
+            self.statusChanged.emit(f"Trial {trial_id} → {m['base_metric']} ({m['plane']})")  # set lblStaus in optimizer_dialog.py
+
             if m["base_metric"] == "scanner":
                 continue  # kör senare
 
@@ -116,10 +120,8 @@ class EvaluationService(QtCore.QObject):
         # SCANNER METRICS (EXPENSIVE)
         # -------------------------
         for m in metrics:
-
             if m["base_metric"] != "scanner":
                 continue
-
             targets = m.get("targets", [])
             # filtered = {k: c for k, c in clusters.items() if c.get("object") in targets}
 
@@ -127,10 +129,11 @@ class EvaluationService(QtCore.QObject):
             target_names = [label_map.get(t, t) for t in targets]
 
             filtered = {k: c for k, c in clusters.items() if c.get("object") in target_names}
-
             value = metric_scanner(m, filtered, m["plane"], {"doc": doc})
 
             results[m["name"]] = value
+
+            self.statusChanged.emit(f"Trial {trial_id} → SCANNER score: ({value})    Targets: ({targets})   Step_id: {m.get('step_id')}")  # set lblStaus in optimizer_dialog.py
 
         # -------------------------
         # FINAL RETURN
@@ -479,7 +482,11 @@ def metric_scanner(metric, filtered_clusters, plane, context):
     step_id = metric.get("step_id")
     min_percent = metric.get("percent", 0.8)
 
+    # print("[metric_scanner] SCANNER METRIC CALLED with step_id:", step_id)
+    # print(metric)
+
     if not step_id:
+        # print("EXIT: no step_id")
         return 0.0
 
     db = HitsDB()
@@ -487,14 +494,17 @@ def metric_scanner(metric, filtered_clusters, plane, context):
     # ✅ använd samma targets som resten av metrics
     targets = list({c.get("object") for c in filtered_clusters.values()})
     if not targets:
+        # print("EXIT: no targets")
         return 0.0
 
     batch = find_batch_object(doc)
     if not batch:
+        # print("EXIT: no batch")
         return 0.0
 
     step = find_step_by_id(doc, step_id)
     if not step:
+        # print("EXIT: no step")
         return 0.0
 
     # --------------------------------------------------
@@ -511,6 +521,13 @@ def metric_scanner(metric, filtered_clusters, plane, context):
         def setText(self, t):
             pass
 
+    # print("TARGETS =", targets)
+    # print("BATCH =", batch)
+    # print("STEP =", step)
+    # print("RUNNING BATCH NOW")
+
+    # ta bort gamla scannerdata för denna step
+    db.clear_step(step_id)
     run_steps_for_batch(
         batch=batch,
         prog_bar=Dummy(),
@@ -595,11 +612,11 @@ def metric_scanner(metric, filtered_clusters, plane, context):
     return np.mean(dist)
 
 
-def run_scanner_blocking(metric, filtered_clusters, plane, context):
-    QtCore.QCoreApplication.processEvents()
-    result = metric_scanner(metric, filtered_clusters, plane, context)
-    QtCore.QCoreApplication.processEvents()
-    return result
+# def run_scanner_blocking(metric, filtered_clusters, plane, context):
+#     QtCore.QCoreApplication.processEvents()
+#     result = metric_scanner(metric, filtered_clusters, plane, context)
+#     QtCore.QCoreApplication.processEvents()
+#     return result
 
 
 def compute_cluster_axis_alignment(clusters, axis, plane=None, baseline=None):

@@ -154,6 +154,7 @@ class OptimizationWorker(QtCore.QObject):
                 break
 
             trial = self.study.ask()
+            self.current_trial_id = trial.number
 
             try:
                 params = self._suggest(trial)

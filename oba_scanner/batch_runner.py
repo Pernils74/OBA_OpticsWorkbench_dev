@@ -11,6 +11,7 @@ import FreeCAD as App
 
 from oba_objects.oba_base import _trigger_ray_engine
 from oba_rayengine.oba_ray_analyser import collect_ray_hits_and_stats
+from oba_rayengine.oba_ray_engine import OBARayEngine
 
 from .scan_db import HitsDB
 
@@ -202,6 +203,9 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
 
     parsed_steps, total_iters = _parse_steps(batch)
 
+    # print("[runs_steps_for_batch] TOTAL_ITERS =", total_iters)
+    # print("[runs_steps_for_batch] PARSED_STEPS =", len(parsed_steps))
+
     prog_bar.setRange(0, total_iters)
     prog_bar.setValue(0)
 
@@ -213,6 +217,7 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
 
     done_iters = 0
 
+    trace_count = 0
     try:
         for step, data, A, rf, rt, R in parsed_steps:
             if stop_flag_func():
@@ -249,6 +254,7 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
 
                     # TRACE
                     hits = run_trace()
+                    trace_count += 1
 
                     # STORE
 
@@ -261,14 +267,23 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
                     done_iters += 1
                     prog_bar.setValue(done_iters)
 
+        # print(f"[run_steps_for_batch] DONE: {done_iters} iterations, {trace_count} traces")
+
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        print("BATCH CRASH:", e)
+        raise
+
     finally:
         db.commit()
         _restore_all(move_objects, placement_snaps)
         doc.recompute()
 
-        collector.RunMode = "AUTO"
         _trigger_ray_engine(reason="batch_finished", force=True)
 
+        collector.RunMode = "AUTO"
         status_lbl.setText("Stopped" if stop_flag_func() else "Done")
 
 
@@ -403,6 +418,19 @@ def run_trace():
     _trigger_ray_engine(reason="batch_trace", source=None, force=True)
     hits, _stats = collect_ray_hits_and_stats(mode="final")
     return hits
+
+
+# def run_trace():
+#     t0 = time.perf_counter()
+#     # OBARayEngine.instance()._dirty = False
+#     # OBARayEngine.instance()._in_compute = False
+#     _trigger_ray_engine(reason="batch_trace", source=None, force=True)
+#     t1 = time.perf_counter()
+#     hits, _stats = collect_ray_hits_and_stats(mode="final")
+#     t2 = time.perf_counter()
+#     print(f"[TRACE] trigger={t1-t0:.3f}s " f"collect={t2-t1:.3f}s " f"hits={len(hits)}")
+
+#     return hits
 
 
 def store_hits(db, step_id, hits, dx, dy, dz, moved_objects_str):

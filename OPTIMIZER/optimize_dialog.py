@@ -176,6 +176,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
         row.addWidget(self.btnOptunaPlot)
         row.addWidget(self.lblStatus)
+
         row.addStretch()
         row.addWidget(self.btnStart)
         row.addWidget(self.btnStart_new)
@@ -299,9 +300,14 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
                     "axis": e.get("axis", None),
                     "min": e.get("min", None),
                     "max": e.get("max", None),
+                    "step_id": e.get("step_id", None),  # ✅ för scanner-metrics
                 }
             )
         return metrics
+
+    def _on_eval_status(self, text):
+        self.lblStatus.setText(text)
+        self.lblStatus.setStyleSheet("color: blue;")
 
     def _on_params_changed(self):
 
@@ -402,6 +408,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self._evaluation_active = True
 
         payload = {
+            "trial_id": worker.current_trial_id,
             "params": params,
             "metrics": worker.metrics,
             "baseline": getattr(self, "_baseline", None),
@@ -532,6 +539,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
         self._eval_service = EvaluationService()
         self._eval_service.evaluationReady.connect(self._on_evaluation_ready)
+        self._eval_service.statusChanged.connect(self._on_eval_status)
 
         params = [i.text() for i in self.listParams.selectedItems()]
         if not params:
