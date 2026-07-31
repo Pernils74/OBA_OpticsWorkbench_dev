@@ -13,7 +13,7 @@ from .optimize_state import OptimizationState
 from .spreadsheet_utils import read_param_bounds
 
 from oba_plots.cluster_plot import ShowClusterPlotDialog
-from .__optimize_dialog_edit_targets import EditTargetsDialog
+from .__gammalt.__optimize_dialog_edit_targets import EditTargetsDialog
 
 from .optimize_config import SPREADSHEET_NAME
 
@@ -21,7 +21,7 @@ from .optuna_plotting import open_optuna_plot_window
 
 from .evaluation_service import EvaluationService
 
-from .__scoring_panel import ScoringPanel
+from .__gammalt.__scoring_panel import ScoringPanel
 
 icon_path = os.path.join(os.path.dirname(__file__), "..", "icons")
 

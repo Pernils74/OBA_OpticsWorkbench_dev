@@ -6,7 +6,7 @@ from logging import root
 import os
 import FreeCAD as App
 import FreeCADGui as Gui
-from OPTIMIZER.__slider_row import SliderRow
+from OPTIMIZER.__gammalt.__slider_row import SliderRow
 from PySide import QtCore, QtWidgets, QtGui
 
 from .optimize_worker import OptimizationWorker

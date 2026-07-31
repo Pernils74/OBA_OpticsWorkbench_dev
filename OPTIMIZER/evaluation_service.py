@@ -64,6 +64,8 @@ class EvaluationService(QtCore.QObject):
             return
 
         params = payload.get("params", {})
+        # ✅ Hämta unselected_params (detta är en dictionary med {namn: värde})
+        unselected_params = payload.get("unselected_params", [])
         metrics = payload.get("metrics", [])
         baseline = payload.get("baseline", None)
         if baseline is None:
@@ -113,7 +115,14 @@ class EvaluationService(QtCore.QObject):
         # -------------------------
         if pruned:
             # results["_prune_info"] = {"metric": m["name"], "base": m["base_metric"], "value": value}
-            self.evaluationReady.emit({"results": results, "_pruned": True})
+            self.evaluationReady.emit(
+                {
+                    "results": results,
+                    "_pruned": True,
+                    "unselected_params": unselected_params,
+                }
+            )
+            self._busy = False  # 🔥 VIKTIGT: Du missade att sätta self._busy = False vid tidig exit!
             return
 
         # -------------------------
@@ -138,67 +147,15 @@ class EvaluationService(QtCore.QObject):
         # -------------------------
         # FINAL RETURN
         # -------------------------
-        self.evaluationReady.emit({"results": results, "_pruned": False})
-
-        self._busy = False
-
-    def evaluate_old(self, payload):
-        # print("🔥[evaluation_service] evaluate received in EvalService")
-        # print(f"DEBUG: Payload: {payload}")
-
-        doc = App.ActiveDocument
-        if not doc:
-            print("[evaluation_service] DEBUG: No active document in evaluate")
-            self.evaluationReady.emit({"clusters": {}})
-            return
-
-        params = payload.get("params", {})
-        metrics = payload.get("metrics", [])
-
-        # 1. APPLY PARAMS
-        if params:
-            print(f"[evaluation_service] DEBUG: Applying params: {params}")
-            apply_cad_params(params)
-            # ✅ Tvinga modelluppdatering
-            doc.recompute()
-            _trigger_ray_engine(reason="optuna_optimization", source=None, force=True)
-            # print("[evaluation_service] DEBUG: Applied CAD parameters for evaluation.")
-
-        # 2. NOTE:
-        # Ray engine är reaktiv → ingen explicit recompute behövs
-        # recompute_doc(doc, restore_view=False)
-
-        # 3. COLLECT RAY CLUSTERS
-        # print("[evaluation_service] DEBUG: Collecting clusters")
-
-        # clusters = aggregate_interaction_clusters(plane=plane, mode="final", min_hits=1)
-        clusters = aggregate_interaction_clusters(mode="final", min_hits=1)
-        print(f"[evaluation_service] DEBUG: Collected {len(clusters)} clusters")
-
-        # 4. RETURN TO WORKER
-        self.evaluationReady.emit({"clusters": clusters})
-
-        scanner_results = {}
-
-        for m in metrics:
-            if m["base_metric"] == "scanner":
-                scanner_results[m["name"]] = metric_scanner(
-                    m,
-                    clusters,
-                    m["plane"],
-                    {"doc": doc},
-                )
-
         self.evaluationReady.emit(
             {
-                "clusters": clusters,
-                "scanner": scanner_results,
+                "results": results,
+                "_pruned": False,
+                "unselected_params": unselected_params,
             }
         )
 
-        # -------------------------------------------------------
-        # CLUSTER COLLECTION (CORE LOGIC)
-        # -------------------------------------------------------
+        self._busy = False
 
     # -------------------------------------------------------
     # PROJECTION HELPERS
@@ -280,6 +237,7 @@ class EvaluationService(QtCore.QObject):
             value = compute_cluster_axis_alignment(filtered, metric.get("axis"), plane, baseline)
 
         else:
+            App.Console.PrintError(f"[evaluation_service] Unknown base metric: {base}\n")
             value = 0.0
 
         return value, valid

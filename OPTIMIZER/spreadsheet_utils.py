@@ -1,3 +1,4 @@
+# spreadsheet_utils.py
 """
 Spreadsheet helper utilities for FreeCAD.
 
@@ -113,35 +114,6 @@ def set_params_by_name(ss, param_map):
         set_quantity(ss, addr, v, unit)
 
 
-def set_params_by_name_old(ss, param_map):
-    """
-    Sätter värden i kolumn B baserat på variabelnamn.
-    param_map: dict { "Comp M Radius": 22.19, "Length": 25.0, ... }
-    Respekterar bounds om de finns.
-    """
-    info = read_param_bounds(ss)
-    lookup = {name: (row, unit, lohi) for name, row, lohi, unit, _ in info}
-
-    for name, new_value in param_map.items():
-        if name not in lookup:
-            App.Console.PrintError(f"[set_params_by_name] Okänt namn: {name}\n")
-            continue
-
-        row, unit, (lo, hi) = lookup[name]
-
-        # Clamp värdet inom bounds
-        v = new_value
-        if lo is not None:
-            v = max(v, lo)
-        if hi is not None:
-            v = min(v, hi)
-
-        # Sätt värdet i kolumn B
-        addr = cell("B", row)
-        set_quantity(ss, addr, v, unit)
-        # App.Console.PrintMessage(f"[set_params_by_name] {name} → {v} {unit or ''}\n")
-
-
 def set_param_B(ss, row, new_value):
     """
     Set parameter value in column B while respecting bounds in C/D.
@@ -179,6 +151,72 @@ def set_param_B(ss, row, new_value):
         v = min(v, hi)
 
     set_quantity(ss, cell("B", row), v, unit)
+
+
+def get_param_info(ss, param_names=None, max_rows=500):
+    """
+    Läser in parametrar från kalkylbladet.
+    Om param_names skickas in returneras endast dessa,
+    annars returneras ALLA hittade parametrar (perfekt för unselected_params).
+    """
+    result = {}
+    row = 2
+
+    while True:
+        # ✅ HARD BREAK (Behåll säkerhetsbrytet!)
+        if row > max_rows:
+            App.Console.PrintError(f"[get_param_info] STOP: nådde {max_rows} rader utan 'END'\n")
+            break
+
+        name = safe_get(ss, cell("A", row))
+        b_raw = safe_get(ss, cell("B", row))
+
+        # ✅ Avbryt direkt vid END-tagg
+        if str(name).strip().upper() == "END":
+            break
+
+        # ✅ SKIP helt tomma rader
+        if (name is None or str(name).strip() == "") and (b_raw is None or str(b_raw).strip() == ""):
+            row += 1
+            continue
+
+        pname = str(name).strip() if name else ""
+
+        # ✅ SKIP rubriker (Headers har inget värde i kolumn B)
+        if b_raw is None or str(b_raw).strip() == "":
+            row += 1
+            continue
+
+        # ✅ FILTRERING: Om vi bara vill ha specifika parametrar
+        if param_names and pname not in param_names:
+            row += 1
+            continue
+
+        # ✅ PARSA värde och enhet (Måste behållas för fysiken)
+        b_val, unit = parse_quantity(b_raw)
+
+        # ✅ BERÄKNA BOUNDS (Kolumn C och D)
+        c_val = get_quantity(ss, cell("C", row))
+        d_val = get_quantity(ss, cell("D", row))
+
+        if c_val is None and d_val is None:
+            lo = hi = b_val
+        else:
+            values = [v for v in (c_val, d_val, b_val) if v is not None]
+            lo = min(values)
+            hi = max(values)
+
+        # ✅ SPARA COMPACT DATA
+        result[pname] = {
+            "value": b_val,
+            "bounds": (lo, hi),
+            "unit": unit,
+            "row": row,
+        }  # Nuvarande CAD-värde (Guld värt för unselected_params!)  # Sökrymden för Optuna  # Enhet (mm, deg osv.)  # Sparas om du behöver skriva tillbaka till ss senare
+
+        row += 1
+
+    return result
 
 
 def read_param_bounds(ss, max_rows=500):
@@ -222,7 +260,16 @@ def read_param_bounds(ss, max_rows=500):
             lo = min(values)
             hi = max(values)
 
-        out.append({"name": pname, "row": row, "type": "param", "bounds": (lo, hi), "unit": unit, "value": b_val})
+        out.append(
+            {
+                "name": pname,
+                "row": row,
+                "type": "param",
+                "bounds": (lo, hi),
+                "unit": unit,
+                "value": b_val,
+            }
+        )
 
         row += 1
 

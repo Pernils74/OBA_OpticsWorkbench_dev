@@ -24,7 +24,7 @@ from PySide import QtCore
 
 
 from ._dddd_optimize_scoring import score_clusters
-from .evaluation_service import EvaluationService
+from ..evaluation_service import EvaluationService
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 LIBDIR = os.path.join(BASE_DIR, "vendor_optuna")

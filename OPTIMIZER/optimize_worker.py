@@ -37,7 +37,7 @@ DB_PATH = get_db_path()
 
 
 class OptimizationWorker(QtCore.QObject):
-    requestEvaluate = QtCore.Signal(dict)
+    requestEvaluate = QtCore.Signal(dict, dict)
     progress = QtCore.Signal(dict)
     finished = QtCore.Signal(object)
 
@@ -62,6 +62,7 @@ class OptimizationWorker(QtCore.QObject):
 
         self.param_names = config["params"]
         self.bounds = config["bounds"]
+        self.unselected_params = config.get("unselected_params", [])
 
         # ✅ metadata
         self.all_metrics = config["metrics"]
@@ -157,12 +158,13 @@ class OptimizationWorker(QtCore.QObject):
             self.current_trial_id = trial.number
 
             try:
+                # Local step-limited parameter suggestion (damped search).
                 params = self._suggest(trial)
 
                 self._last_results = None
                 self._waiting = True
 
-                self.requestEvaluate.emit(params)
+                self.requestEvaluate.emit(params, self.unselected_params)
 
                 while self._waiting and not self._stop:
                     QtCore.QThread.msleep(10)
@@ -189,6 +191,7 @@ class OptimizationWorker(QtCore.QObject):
                 # ✅ debug storage
                 trial.set_user_attr("params", params)
                 trial.set_user_attr("metrics", results)
+                trial.set_user_attr("unselected_params", self.unselected_params)
 
                 # ✅ values (robust + direction handling)
                 values = []
@@ -240,15 +243,28 @@ class OptimizationWorker(QtCore.QObject):
 
         self.finished.emit(best_trials_data)
 
-    def _suggest(self, trial):
+    def _suggest_utan_dämpning(self, trial):
         params = {}
-
-        step_ratio = 0.15  # 🔧 15% av range
 
         for name in self.param_names:
             lo, hi = self.bounds[name]
 
+            params[name] = trial.suggest_float(
+                name,
+                lo,
+                hi,
+            )
+
+        return params
+
+    def _suggest_trust_regions(self, trial):
+        params = {}
+        step_ratio = 0.15  # 🔧 15% av range
+
+        for name in self.param_names:
+            lo, hi = self.bounds[name]
             prev = None
+
             if hasattr(self, "_last_params"):
                 prev = self._last_params.get(name)
 
@@ -259,11 +275,52 @@ class OptimizationWorker(QtCore.QObject):
             else:
                 lo2 = max(lo, prev - span)
                 hi2 = min(hi, prev + span)
-
             v = trial.suggest_float(name, lo2, hi2)
             params[name] = v
 
         self._last_params = params.copy()
+        return params
+
+    # Constrain Optuna's search to a trust region around the
+    # current best solution. This reduces large CAD geometry
+    # jumps while still allowing gradual exploration.
+    def _suggest(self, trial):
+        params = {}
+
+        step_ratio = 0.15  # ±15% av hela parameterns range
+
+        best_params = None
+
+        # Hämta bästa trial hittills
+        complete = [t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+
+        if complete:
+            if len(self.metrics) == 1:
+                best_trial = self.study.best_trial
+            else:
+                # Multi-objective: använd första Pareto-lösningen
+                best_trial = self.study.best_trials[0]
+
+            best_params = best_trial.params
+
+        for name in self.param_names:
+            lo, hi = self.bounds[name]
+
+            if best_params and name in best_params:
+                prev = best_params[name]
+            else:
+                prev = None
+
+            span = (hi - lo) * step_ratio
+
+            if prev is None:
+                lo2, hi2 = lo, hi
+            else:
+                lo2 = max(lo, prev - span)
+                hi2 = min(hi, prev + span)
+
+            params[name] = trial.suggest_float(name, lo2, hi2)
+
         return params
 
     def _create_sampler(self, config):

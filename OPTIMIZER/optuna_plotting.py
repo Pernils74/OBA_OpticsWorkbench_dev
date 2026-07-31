@@ -69,6 +69,11 @@ class OptunaPlotWindow(QtWidgets.QDialog):
 
         controls.addWidget(self.chkPareto)
         controls.addWidget(self.chkHide)
+
+        self.chkRestoreCustom = QtWidgets.QCheckBox("Restore unselect params")
+        self.chkRestoreCustom.setChecked(False)
+        controls.addWidget(self.chkRestoreCustom)
+
         controls.addStretch()
 
         layout.addLayout(controls)
@@ -351,6 +356,27 @@ class OptunaPlotWindow(QtWidgets.QDialog):
     # ==========================================================
 
     def apply_trial(self, trial):
+        self.selected_trial = trial
+
+        print(f"[plot] Apply trial {trial.number}")
+
+        try:
+            params = dict(trial.params)
+
+            if self.chkRestoreCustom.isChecked():
+                params.update(trial.user_attrs.get("unselected_params", {}))
+
+            print("Apply params:", params)
+            apply_cad_params(params)
+            doc = App.ActiveDocument
+            if doc:
+                doc.recompute()
+
+            self.redraw()
+        except Exception as e:
+            print("CAD error:", e)
+
+    def apply_trial_old(self, trial):
         self.selected_trial = trial
 
         print(f"[plot] Apply trial {trial.number}")

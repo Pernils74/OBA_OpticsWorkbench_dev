@@ -4,6 +4,8 @@
 
 
 import os
+
+
 import FreeCAD as App
 import FreeCADGui as Gui
 from PySide import QtCore, QtWidgets, QtGui
@@ -13,7 +15,7 @@ import json
 import numpy as np
 
 from .optimize_worker import OptimizationWorker
-from .spreadsheet_utils import read_param_bounds
+from .spreadsheet_utils import read_param_bounds, get_param_info
 
 # from oba_plots.cluster_plot import ShowClusterPlotDialog
 # from .optimize_dialog_edit_targets import EditTargetsDialog
@@ -251,30 +253,6 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             for i in range(self.listParams.count()):
                 self.listParams.item(i).setSelected(True)
 
-    def _get_current_cad_params(self, param_names, bounds):
-        doc = App.ActiveDocument
-        ss = doc.getObject(SPREADSHEET_NAME)
-        result = {}
-        for name in param_names:
-            lo, hi = bounds.get(name, (None, None))
-            try:
-                v = float(ss.get(name))  # ✅ exakt värde från CAD
-            except Exception:
-                print(f"[WARN] missing param {name}, fallback to midpoint")
-                if lo is not None and hi is not None:
-                    v = 0.5 * (lo + hi)  # fallback om saknas
-                else:
-                    v = 0.0
-            # ✅ safety ONLY (ska normalt inte triggas)
-            if lo is not None and v < lo:
-                print(f"[CLAMP] {name}: {v} -> {lo}")
-                v = lo
-            if hi is not None and v > hi:
-                print(f"[CLAMP] {name}: {v} -> {hi}")
-                v = hi
-            result[name] = v
-        return result
-
     def _build_metrics_config(self, payload):
         metrics = []
 
@@ -396,7 +374,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
         self._evaluation_active = False
 
-    def _evaluate_main(self, params):
+    def _evaluate_main(self, params, unselected_params):  # , unselected_params=None ):
 
         if self._evaluation_active:
             return
@@ -407,9 +385,14 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
         self._evaluation_active = True
 
+        # # 🔥 NYTT: Hämta ut de låsta parametrarna som sparades i din workers konfiguration
+        # unselected_params = getattr(worker, "unselected_params", {})
+
         payload = {
             "trial_id": worker.current_trial_id,
             "params": params,
+            # 🔥 NYTT: Skicka med till EvaluationService.evaluate()
+            "unselected_params": unselected_params,
             "metrics": worker.metrics,
             "baseline": getattr(self, "_baseline", None),
         }
@@ -417,136 +400,33 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         # ✅ skicka till EvaluationService
         self._eval_service.evaluate(payload)
 
-    def _evaluate_main_old(self, params):
-        from .target_weights_widget import METRICS
-
-        worker = self._worker
-        if not worker:
-            raise RuntimeError("No worker instance")
-
-        if self._evaluation_active:
-            return
-
-        self._evaluation_active = True
-        doc = App.ActiveDocument
-
-        doc.openTransaction("optuna")
-        label_map = self._build_label_to_name_map()
-
-        try:
-            apply_cad_params(params)
-            doc.recompute()
-
-            if not self._is_model_valid(doc):
-                raise RuntimeError("Invalid geometry")
-
-            _trigger_ray_engine(reason="optuna", source=None, force=True)
-            clusters = aggregate_interaction_clusters(mode="final", min_hits=1)
-
-            results = {}
-            baseline = getattr(worker, "_baseline", None)
-
-            for metric in worker.metrics:
-                base = metric["base_metric"]
-                plane = metric["plane"]
-                targets = metric["targets"]
-
-                target_names = [label_map.get(t, t) for t in targets]
-
-                filtered = {k: c for k, c in clusters.items() if c.get("object") in target_names}
-
-                # self.lblStatus.setText(f"Processar...: {base}")
-                # self.lblStatus.setStyleSheet("color: orange;")
-                valid = True
-                # ✅ clean dispatch
-                if base == "power":
-                    value, valid = compute_power(filtered, target_names, baseline)
-                    if metric.get("use_threshold"):
-                        margin = metric.get("percent", 0.0)
-                        valid = value >= (1.0 + margin)
-                    else:
-                        valid = True
-
-                elif base == "preserve_cluster_count":
-                    value = compute_preserve_cluster_count(filtered, target_names, baseline, metric.get("percent", 0.01))
-                    if metric.get("use_threshold"):
-                        tol = metric.get("percent_tolerance", 0.1)  # t.ex ±10%
-                        valid = abs(value - 1.0) <= tol
-                    else:
-                        valid = True
-
-                elif base == "target_cluster_count":
-                    value, diff = compute_target_cluster_count(filtered, target_names, baseline, metric.get("percent", 0.01), metric.get("value", 1))
-
-                    if metric.get("use_threshold"):
-                        tol = metric.get("percent_tol", 0.2)  # ✅ tolerans i "cluster units"
-                        valid = diff <= tol
-                    else:
-                        valid = True
-
-                elif base == "density":
-                    value = compute_density(filtered, plane, baseline)
-
-                elif base == "roundness":
-                    value = compute_roundness(filtered, plane, baseline)
-
-                elif base == "equal_distance":
-                    value = compute_distance(filtered, plane, baseline)
-
-                elif base == "equal_ray_hits_count":
-                    value = compute_equal_ray_hits_count(filtered, plane, baseline)
-
-                elif base == "cluster_axis_alignment":
-                    value = compute_cluster_axis_alignment(filtered, metric.get("axis"), plane, baseline)
-
-                elif base == "scanner":
-                    value = compute_scanner_result(metric, filtered, plane, baseline, {"doc": doc})
-
-                else:
-                    value = 0.0
-
-                results[metric["name"]] = value
-
-                # -------------------------
-                # ✅ NEW: threshold via checkbox
-                # -------------------------
-
-                if not valid:
-                    self.lblStatus.setText(f"Threshold fail: {base} {value:.3f} ")
-                    results["_pruned"] = True
-                    break
-
-            worker.on_evaluated(results)
-            doc.commitTransaction()
-
-            # self.lblStatus.setText("Finished")
-            # self.lblStatus.setStyleSheet("color: green;")
-
-        except Exception as e:
-            print("[EVAL FAIL]", e)
-
-            try:
-                doc.abortTransaction()
-            except Exception as rollback_error:
-                print("[ROLLBACK FAIL]", rollback_error)
-
-            worker.on_evaluated({"_pruned": True})
-
-        finally:
-            self._evaluation_active = False
-
     def _start_optimization(self, new_study=False):
 
         self._eval_service = EvaluationService()
         self._eval_service.evaluationReady.connect(self._on_evaluation_ready)
         self._eval_service.statusChanged.connect(self._on_eval_status)
 
-        params = [i.text() for i in self.listParams.selectedItems()]
-        if not params:
+        # 1. Hämta de parametrar som faktiskt ska optimeras (valda i listan)
+        selected_params = [i.text() for i in self.listParams.selectedItems()]
+        if not selected_params:
             QtWidgets.QMessageBox.warning(self, "Optimize", "Select params")
             return
-        doc = App.ActiveDocument
-        bounds = self._read_bounds(doc, params)
+
+        # doc = App.ActiveDocument
+
+        # 2. 🔥 NYTT: Identifiera alla parametrar som INTE är valda
+        all_items = [self.listParams.item(i).text() for i in range(self.listParams.count())]
+        unselected_params = [p for p in all_items if p not in selected_params]
+
+        selected_info = self._read_params_info(selected_params)
+        unselected_info = self._read_params_info(unselected_params)
+
+        current_params = {n: d["value"] for n, d in selected_info.items()}
+        bounds = {n: d["bounds"] for n, d in selected_info.items()}
+
+        unselected_params = {n: d["value"] for n, d in unselected_info.items()}
+
+        # bounds = self._read_bounds(doc, selected_params)
         payload = self.targetWeights.get_payload()
         metrics = self._build_metrics_config(payload)
 
@@ -564,13 +444,13 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         if new_study or not hasattr(self, "_baseline"):
             self._baseline = compute_baseline()
 
-        study_name = self._make_study_name(params, metrics)
-        current_params = self._get_current_cad_params(params, bounds)
+        study_name = self._make_study_name(selected_params, metrics)
 
         config = {
             "metrics": metrics,
-            "params": params,
+            "params": selected_params,
             "bounds": bounds,
+            "unselected_params": unselected_params,
             "n_trials": n_trials,
             "study_name": study_name,
             "new_study": new_study,
@@ -591,6 +471,16 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
         self.listParams.setEnabled(False)
         self.targetWeights.setEnabled(False)
+
+    def _read_params_info(self, param_names):
+        doc = App.ActiveDocument
+
+        ss = doc.getObject(SPREADSHEET_NAME)
+
+        if not ss:
+            return {}
+
+        return get_param_info(ss, param_names)
 
     def _on_start_stop(self):
 
@@ -631,14 +521,6 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             if hasattr(obj, "OpticalType"):
                 mapping[obj.Label] = obj.Name
         return mapping
-
-    def _read_bounds(self, doc, param_names):
-        ss = doc.getObject(SPREADSHEET_NAME)
-        info = read_param_bounds(ss) if ss else []
-
-        m = {item["name"]: item["bounds"] for item in info if item["type"] == "param"}
-
-        return {p: m.get(p, (0.0, 1.0)) for p in param_names}
 
     def _open_optuna_plot_window(self):
         try:

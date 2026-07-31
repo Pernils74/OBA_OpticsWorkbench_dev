@@ -1,3 +1,4 @@
+# target_weights_widget.py
 from PySide import QtCore, QtWidgets
 import FreeCAD as App
 
@@ -22,7 +23,7 @@ METRICS = {
         "label": "⚡ target_cluster_count",
         "threshold": True,
         "widget": ["percent", "value"],
-        "tooltip": "Försöker nå ett specifikt antal kluster.\nPercent avgör vilka kluster som räknas.",
+        "tooltip": ("Försöker uppnå ett visst antal betydande kluster.\n" "Filter (%) anger hur stor andel av baseline-maxträffar ett kluster " "måste ha för att räknas.\n" "Målvärde (≈) är önskat antal kluster."),
     },
     "density": {
         "label": "density",
@@ -42,7 +43,19 @@ METRICS = {
     "equal_ray_hits_count": {
         "label": "equal_ray_hits_count",
         "threshold": False,
-        "tooltip": ("Fördelar rays jämnt mellan kluster.\n" "Maximerar både total träffmängd och jämn fördelning."),
+        "tooltip": "Fördelar rays jämnt mellan kluster.\n" "Maximerar både total träffmängd och jämn fördelning.",
+    },
+    "cluster_distribution": {
+        "label": "📏 cluster_distribution",
+        "widget": ["axis"],
+        "threshold": False,
+        "tooltip": ("Mäter hur jämnt klustercentra är fördelade längs vald axel.\n" "Hög score ges när klustren sprids ut på ett balanserat sätt."),
+    },
+    "cluster_axis_alignment": {
+        "label": "📐 cluster_axis_alignment",
+        "widget": ["axis"],
+        "threshold": False,
+        "tooltip": ("Belönar kluster som ligger på samma position " "längs vald axel."),
     },
     "scanner": {
         "label": "🧪 Scanner",
@@ -152,7 +165,14 @@ class MetricRowWidget(QtWidgets.QWidget):
         layout = self.layout()
 
         # ✅ reset dynamic data (KRITISK)
-        for attr in ["percentWidget", "valueWidget", "rangeWidget", "axisWidget", "thresholdWidget"]:
+        for attr in [
+            "percentWidget",
+            "valueWidget",
+            "rangeWidget",
+            "axisWidget",
+            "thresholdWidget",
+            "stepWidget",
+        ]:
             if hasattr(self, attr):
                 delattr(self, attr)
 
