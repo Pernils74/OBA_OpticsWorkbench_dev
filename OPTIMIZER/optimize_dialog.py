@@ -14,6 +14,7 @@ import json
 
 import numpy as np
 
+
 from .optimize_worker import OptimizationWorker
 from .spreadsheet_utils import read_param_bounds, get_param_info
 
@@ -278,6 +279,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
                     "axis": e.get("axis", None),
                     "min": e.get("min", None),
                     "max": e.get("max", None),
+                    "bounce": e.get("bounce"),  # för cluster_origin_centering
                     "step_id": e.get("step_id", None),  # ✅ för scanner-metrics
                 }
             )
@@ -690,6 +692,10 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
     def _save_config(self, payload):
         obj = self._get_or_create_config_object()
 
+        print("[SAVE_CONFIG]:")
+        for e in payload.get("entries", []):
+            print(e)
+
         selected_params = [i.text() for i in self.listParams.selectedItems() if i.flags() & QtCore.Qt.ItemIsSelectable]
 
         try:
@@ -788,7 +794,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             print("[CONFIG LOAD ERROR]", e)
             return None
 
-    def _apply_config(self, payload):
+    def _apply_config_old(self, payload):
 
         # ✅ restore selected params
         selected = payload.get("selected_params", [])
@@ -811,6 +817,10 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             self.chkConstantLiar.setChecked(payload["constant_liar"])
 
         entries = payload.get("entries", [])
+
+        print("[LOAD_CONFIG]:")
+        for e in entries:
+            print(e)
 
         self.targetWeights.blockSignals(True)
         # clear rows
@@ -843,6 +853,110 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
             if "axis" in e and hasattr(row, "axisWidget"):
                 row.axisWidget.setCurrentText(e["axis"])
+
+        self.targetWeights.blockSignals(False)
+        self.targetWeights._update()
+
+    def _apply_config(self, payload):
+        from .target_weights_widget import METRICS
+
+        # ✅ restore selected params
+        selected = payload.get("selected_params", [])
+
+        self.listParams.blockSignals(True)
+        for i in range(self.listParams.count()):
+            item = self.listParams.item(i)
+            if item.flags() & QtCore.Qt.ItemIsSelectable:
+                item.setSelected(item.text() in selected)
+        self.listParams.blockSignals(False)
+
+        self._on_params_changed()
+
+        if "sampler" in payload:
+            self.cmbSampler.setCurrentText(payload["sampler"])
+
+        if "trials" in payload:
+            self.spinTrials.setValue(payload["trials"])
+
+        if "constant_liar" in payload:
+            self.chkConstantLiar.setChecked(payload["constant_liar"])
+
+        entries = payload.get("entries", [])
+
+        print("")
+        for e in entries:
+            print(e)
+
+        self.targetWeights.blockSignals(True)
+
+        # --------------------------------------------------
+        # clear rows
+        # --------------------------------------------------
+        for r in self.targetWeights.rows[:]:
+            r.setParent(None)
+            r.deleteLater()
+
+        self.targetWeights.rows.clear()
+
+        # --------------------------------------------------
+        # restore metrics
+        # --------------------------------------------------
+        for e in entries:
+
+            metric_key = e["base_metric"]
+
+            # ✅ key -> label
+            metric_label = METRICS.get(metric_key, {}).get(
+                "label",
+                metric_key,
+            )
+
+            print(f"[RESTORE] key={metric_key} " f"label={metric_label}")
+
+            row = self.targetWeights.add_row(metric_label)
+            row = self.targetWeights.rows[-1]
+
+            row.cmb.setCurrentText(metric_label)
+
+            print("cmb after restore =", row.cmb.currentText())
+
+            row.cmbPlane.setCurrentText(e.get("plane", "XY"))
+
+            row.chkActive.setChecked(e.get("active", True))
+
+            row.targets = e.get("targets", [])
+            row._update_targets_button()
+
+            # threshold-percent
+            if "percent" in e and hasattr(row, "percentWidget"):
+                row.percentWidget.spin_percent.setValue(int(e["percent"] * 100))
+
+            # threshold checkbox
+            if hasattr(row, "thresholdWidget"):
+                row.thresholdWidget.setChecked(e.get("use_threshold", False))
+
+            # value
+            if "value" in e and hasattr(row, "valueWidget"):
+                row.valueWidget.spin.setValue(e["value"])
+
+            # range
+            if "min" in e and hasattr(row, "rangeWidget"):
+                row.rangeWidget.min.setValue(e["min"])
+                row.rangeWidget.max.setValue(e.get("max", e["min"]))
+
+            # axis
+            if "axis" in e and hasattr(row, "axisWidget"):
+                row.axisWidget.setCurrentText(e["axis"])
+
+            # bounce
+            if "bounce" in e and hasattr(row, "bounceWidget"):
+                row.bounceWidget.spin.setValue(e["bounce"])
+
+            # scanner step
+            if "step_id" in e and hasattr(row, "stepWidget"):
+                idx = row.stepWidget.findData(e["step_id"])
+                if idx >= 0:
+                    row.stepWidget.setCurrentIndex(idx)
 
         self.targetWeights.blockSignals(False)
         self.targetWeights._update()

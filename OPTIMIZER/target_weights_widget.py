@@ -13,6 +13,12 @@ METRICS = {
         "widget": ["percent"],
         "tooltip": ("Maximerar inkommande effekt.\n" "Med threshold: kräver förbättring relativt baseline.\n" "Percent = min förbättringsgrad."),
     },
+    "hit_count": {
+        "label": "🎯 hit_count",
+        "threshold": False,
+        # "widget": ["percent"],
+        "tooltip": "Antal rayträffar på valt objekt. " "Kan användas som grundconstraint för att säkerställa att målet träffas.",
+    },
     "preserve_cluster_count": {
         "label": "⚡ preserve_cluster_count",
         "threshold": True,
@@ -56,6 +62,12 @@ METRICS = {
         "widget": ["axis"],
         "threshold": False,
         "tooltip": ("Belönar kluster som ligger på samma position " "längs vald axel."),
+    },
+    "cluster_origin_centering": {
+        "label": "🎯 cluster_origin_centering",
+        "widget": ["origin_axis", "bounce"],
+        "threshold": False,
+        "tooltip": ("Belönar kluster som ligger nära origo " "för valda koordinataxlar.\n" "X  → X=0\n" "XY → sqrt(X²+Y²)\n" "XYZ → sqrt(X²+Y²+Z²)\n"),
     },
     "scanner": {
         "label": "🧪 Scanner",
@@ -172,6 +184,7 @@ class MetricRowWidget(QtWidgets.QWidget):
             "axisWidget",
             "thresholdWidget",
             "stepWidget",
+            "bounceWidget",
         ]:
             if hasattr(self, attr):
                 delattr(self, attr)
@@ -192,6 +205,11 @@ class MetricRowWidget(QtWidgets.QWidget):
         self.setToolTip(tooltip)
         self.cmb.setToolTip(tooltip)
         self.lbl.setToolTip(tooltip)
+
+        self.cmbPlane.setVisible(True)
+
+        if metric_key == "cluster_origin_centering" or metric_key == "scanner":
+            self.cmbPlane.setVisible(False)
 
         # is_scanner = metric == "scanner"
         # self.cmbPlane.setVisible(not is_scanner)
@@ -227,6 +245,24 @@ class MetricRowWidget(QtWidgets.QWidget):
             layout.insertWidget(insert_index, w)
             self.dynamic_widgets.append(w)
             self.axisWidget = w
+            insert_index += 1
+
+        if "origin_axis" in widgets:
+            w = OriginAxisWidget()
+            layout.insertWidget(insert_index, w)
+
+            self.dynamic_widgets.append(w)
+            self.axisWidget = w
+
+            insert_index += 1
+
+        if "bounce" in widgets:
+            w = BounceWidget()
+            layout.insertWidget(insert_index, w)
+
+            self.dynamic_widgets.append(w)
+            self.bounceWidget = w
+
             insert_index += 1
 
         if "step" in widgets:
@@ -284,8 +320,15 @@ class MetricRowWidget(QtWidgets.QWidget):
             data["min"] = min_v
             data["max"] = max_v
 
-        if "axis" in widgets and hasattr(self, "axisWidget"):
+        if (("axis" in widgets) or ("origin_axis" in widgets)) and hasattr(self, "axisWidget"):
             data["axis"] = self.axisWidget.currentText()
+
+        if "bounce" in widgets and hasattr(self, "bounceWidget"):
+            data["bounce"] = self.bounceWidget.get_value()
+            # print("[PAYLOAD]", metric_key, "bounce=", data["bounce"])
+
+        # if "axis" in widgets and hasattr(self, "axisWidget"):
+        #     data["axis"] = self.axisWidget.currentText()
 
         if "step" in widgets and hasattr(self, "stepWidget"):
             data["step_id"] = self.stepWidget.get_value()
@@ -376,8 +419,8 @@ class TargetWeightsWidget(QtWidgets.QGroupBox):
         keys = sorted(METRICS.keys(), key=self.metric_sort_key)
         return [METRICS[k].get("label", k) for k in keys]
 
-    def available_metrics_old(self):
-        return sorted(METRICS.keys(), key=self.metric_sort_key)
+    # def available_metrics_old(self):
+    #     return sorted(METRICS.keys(), key=self.metric_sort_key)
 
     def add_row(self, metric="density"):
         row = MetricRowWidget(self.available_metrics(), metric)
@@ -493,10 +536,47 @@ class RangeWidget(QtWidgets.QWidget):
         return self.min.value(), self.max.value()
 
 
+class BounceWidget(QtWidgets.QWidget):
+    def __init__(self):
+        super().__init__()
+
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.spin = QtWidgets.QSpinBox()
+        self.spin.setRange(0, 999)
+        self.spin.setValue(1)
+
+        self.spin.setToolTip("Endast kluster från detta bounce-index används.\n" "0 = första träffen\n" "1 = andra träffen\n" "2 = tredje träffen\n" "osv.")
+
+        layout.addWidget(QtWidgets.QLabel("Bounce"))
+        layout.addWidget(self.spin)
+
+    def get_value(self):
+        return self.spin.value()
+
+
 class AxisWidget(QtWidgets.QComboBox):
     def __init__(self):
         super().__init__()
         self.addItems(["X", "Y", "Z"])
+
+
+class OriginAxisWidget(QtWidgets.QComboBox):
+    def __init__(self):
+        super().__init__()
+
+        self.addItems(
+            [
+                "X",
+                "Y",
+                "Z",
+                "XY",
+                "XZ",
+                "YZ",
+                "XYZ",
+            ]
+        )
 
 
 class ThresholdWidget(QtWidgets.QCheckBox):

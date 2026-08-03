@@ -90,6 +90,28 @@ def aggregate_interaction_clusters(
 
     buckets = defaultdict(list)
 
+    # debugg kod
+    # for ray in rays:
+    #     for h in ray.history:
+
+    #         if not isinstance(h, dict):
+    #             continue
+
+    #         if "hit_point" not in h:
+    #             continue
+
+    #         if h.get("object_name") == "Mirror":
+    #             print(
+    #                 "[RAW]",
+    #                 h.get("object_name"),
+    #                 "bounce=",
+    #                 h.get("bounce_index"),
+    #                 "prev=",
+    #                 h.get("prev_hit_label"),
+    #                 "last=",
+    #                 h.get("last_hit_label"),
+    #             )
+
     # ---------------------------------------------------
     # 1) BUCKET
     # ---------------------------------------------------
@@ -258,11 +280,17 @@ def aggregate_interaction_clusters(
             #     "YZ": norm(raw_yz),
             # },
             "density": {
-                "3D": raw_3d,
-                "XY": raw_xy,
-                "XZ": raw_xz,
-                "YZ": raw_yz,
+                "3D": math.log1p(raw_3d),
+                "XY": math.log1p(raw_xy),
+                "XZ": math.log1p(raw_xz),
+                "YZ": math.log1p(raw_yz),
             },
+            # "density": {
+            #     "3D": raw_3d,
+            #     "XY": raw_xy,
+            #     "XZ": raw_xz,
+            #     "YZ": raw_yz,
+            # },
             "roundness": {
                 "3D": float(roundness_vals["3D"]),
                 "XY": float(roundness_vals["XY"]),

@@ -7,6 +7,8 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 import matplotlib.pyplot as plt
 
+from vendor_optuna.optuna.testing import trials
+
 from .spreadsheet_utils import apply_cad_params
 from .optimize_worker import DB_PATH
 
@@ -212,6 +214,34 @@ class OptunaPlotWindow(QtWidgets.QDialog):
         self.reload_studies()
         self.cmbStudy.setCurrentText(new_name)
 
+    def _find_best_compromise_trials(self, trials, pareto_numbers, top_n=5):
+        if not trials:
+            return []
+
+        n_metrics = len(trials[0].values)  # Notera: lade till [0] här som saknades i förra koden
+        mins = [min(t.values[i] for t in trials) for i in range(n_metrics)]
+        maxs = [max(t.values[i] for t in trials) for i in range(n_metrics)]
+
+        def score(trial):
+            vals = []
+            for i, v in enumerate(trial.values):
+                rng = maxs[i] - mins[i]
+                if rng < 1e-12:
+                    vals.append(1.0)
+                else:
+                    vals.append((v - mins[i]) / rng)
+            s = 1.0
+            for v in vals:
+                s *= v
+            return s
+
+        pareto_trials = [t for t in trials if t.number in pareto_numbers]
+        if not pareto_trials:
+            return []
+
+        # Sortera med högst score först och returnera de N bästa
+        return sorted(pareto_trials, key=score, reverse=True)[:top_n]
+
     # ==========================================================
     # DATA
     # ==========================================================
@@ -219,12 +249,7 @@ class OptunaPlotWindow(QtWidgets.QDialog):
     def _get_trials(self, study):
         ignored = self.ignored_trials if self.chkHide.isChecked() else set()
 
-        if self.chkPareto.isChecked():
-            trials = [t for t in study.best_trials if t.number not in ignored]
-        else:
-            trials = [t for t in study.trials if t.state.name == "COMPLETE" and t.number not in ignored]
-
-        return trials
+        return [t for t in study.trials if t.state.name == "COMPLETE" and t.number not in ignored]
 
     # ==========================================================
     # DRAW
@@ -255,9 +280,9 @@ class OptunaPlotWindow(QtWidgets.QDialog):
 
         trials = self._get_trials(study)
 
-        # ignored = self.ignored_trials if self.chkHide.isChecked() else set()
-        # all_trials = [t for t in study.trials if t.state.name == "COMPLETE" and t.number not in ignored]
-        # pareto_trials = [t for t in study.best_trials if t.number not in ignored]
+        ignored = self.ignored_trials if self.chkHide.isChecked() else set()
+
+        pareto_numbers = {t.number for t in study.best_trials if t.number not in ignored}
 
         if not trials:
             self.ax.clear()
@@ -265,9 +290,10 @@ class OptunaPlotWindow(QtWidgets.QDialog):
             self.canvas.draw()
             return
 
-        self.plot_trials = trials
-
+        # ------------------------------------------------------
         # build metric arrays
+        # ------------------------------------------------------
+
         n_metrics = len(trials[0].values)
         ys = [[] for _ in range(n_metrics)]
 
@@ -275,16 +301,18 @@ class OptunaPlotWindow(QtWidgets.QDialog):
             for i, v in enumerate(t.values):
                 ys[i].append(v)
 
-        # metric_names = study.user_attrs.get("metric_names", [f"Metric {i}" for i in range(n_metrics)])
         metric_names = study.user_attrs.get("metric_names")
+
         if not metric_names:
-            # ✅ fallback från trial-data
             sample = trials[0].user_attrs.get("metrics", {})
             metric_names = list(sample.keys())
 
         self.ax.clear()
 
+        # ------------------------------------------------------
         # init combos
+        # ------------------------------------------------------
+
         if self.cmbX.count() == 0:
             for name in metric_names:
                 self.cmbX.addItem(name)
@@ -293,17 +321,13 @@ class OptunaPlotWindow(QtWidgets.QDialog):
             if len(metric_names) >= 2:
                 self.cmbX.setCurrentIndex(0)
                 self.cmbY.setCurrentIndex(1)
-        # print(
-        #     "combo counts:",
-        #     self.cmbX.count(),
-        #     self.cmbY.count(),
-        # )
 
         ix = self.cmbX.currentIndex()
         iy = self.cmbY.currentIndex()
 
         if ix == iy and len(metric_names) > 1:
             iy = (ix + 1) % len(metric_names)
+
             self.cmbY.blockSignals(True)
             self.cmbY.setCurrentIndex(iy)
             self.cmbY.blockSignals(False)
@@ -311,42 +335,115 @@ class OptunaPlotWindow(QtWidgets.QDialog):
         xvals = ys[ix]
         yvals = ys[iy]
 
-        # scatter
+        # ------------------------------------------------------
+        # color pareto trials red
+        # ------------------------------------------------------
+
+        colors = ["red" if t.number in pareto_numbers else "tab:blue" for t in trials]
+
+        # ------------------------------------------------------
+        # pareto only filter
+        # ------------------------------------------------------
+
+        if self.chkPareto.isChecked():
+
+            mask = [t.number in pareto_numbers for t in trials]
+
+            trials = [t for t, m in zip(trials, mask) if m]
+
+            xvals = [x for x, m in zip(xvals, mask) if m]
+
+            yvals = [y for y, m in zip(yvals, mask) if m]
+
+            colors = ["red"] * len(trials)
+
+        self.plot_trials = trials
+
+        # ------------------------------------------------------
+        # draw points
+        # ------------------------------------------------------
+
         self.scatter = self.ax.scatter(
             xvals,
             yvals,
             s=35,
-            color="tab:blue",
+            c=colors,
             alpha=0.7,
             picker=6,
-            # picker=True,
-            # pickradius=6,
         )
 
         self.ax.set_xlabel(metric_names[ix])
         self.ax.set_ylabel(metric_names[iy])
         self.ax.set_title(self.current_study_name)
 
-        # highlight selected
+        # Ändra detta i din redraw-funktion:
+        best_trials = self._find_best_compromise_trials(trials, pareto_numbers, top_n=5)
+
+        if best_trials:
+            # En färgskala från näst bäst till sämst (orange -> röd -> mörkröd)
+            # Du kan ändra dessa färger efter smak
+            gradient_colors = ["darkorange", "crimson", "firebrick", "maroon"]
+
+            # Vi loopar bakifrån så att den BÄSTA (index 0) ritas SIST och hamnar överst
+            for index, t in reversed(list(enumerate(best_trials))):
+                if index == 0:
+                    # Den absolut bästa kompromissen (Guldstjärna)
+                    color = "gold"
+                    size = 450
+                    alpha = 1.0
+                    linewidth = 2.5  # Lite tjockare kantlinje för att poppa ut
+                else:
+                    # Välj färg baserat på placering (index 1 får gradient_colors[0], etc.)
+                    color_idx = min(index - 1, len(gradient_colors) - 1)
+                    color = gradient_colors[color_idx]
+
+                    # Snabbare krympning: 300, 220, 140, 60...
+                    size = max(60, 380 - (index * 80))
+
+                    # Progressiv transparens: 2:a plats har 0.6, 5:e plats har 0.3
+                    alpha = max(0.2, 0.7 - (index * 0.1))
+                    linewidth = 1.0
+
+                self.ax.scatter(
+                    t.values[ix],
+                    t.values[iy],
+                    marker="*",
+                    s=size,
+                    color=color,
+                    alpha=alpha,
+                    edgecolors="black",
+                    linewidths=linewidth,
+                    zorder=50 - index,  # Ser till att guld ligger överst
+                    label="Best compromise" if index == 0 else None,
+                )
+
+        if len(best_trials) >= 2:
+            # Sortera de bästa kompromisserna kronologiskt baserat på deras trial-nummer
+            chronological_bests = sorted(best_trials, key=lambda t: t.number)
+
+            line_x = [t.values[ix] for t in chronological_bests]
+            line_y = [t.values[iy] for t in chronological_bests]
+
+            # Rita en subtil streckad linje som visar utvecklingen
+            self.ax.plot(line_x, line_y, color="black", linestyle="--", linewidth=1.5, alpha=0.6, zorder=40, label="Compromise path")
+
+        # ------------------------------------------------------
+        # selected trial
+        # ------------------------------------------------------
+
         if self.selected_trial and self.selected_trial in self.plot_trials:
+
             t = self.selected_trial
+
             self.ax.scatter(
                 t.values[ix],
                 t.values[iy],
-                color="red",
-                s=100,
+                color="yellow",
+                s=120,
                 edgecolors="black",
-                linewidths=1.5,
-                zorder=10,
+                linewidths=2,
+                zorder=20,
             )
-
-        # Pareto line (visual)
-        if self.chkPareto.isChecked() and len(xvals) > 2:
-            pts = sorted(zip(xvals, yvals))
-            xs_sorted = [p[0] for p in pts]
-            ys_sorted = [p[1] for p in pts]
-
-            self.ax.plot(xs_sorted, ys_sorted, color="red", linewidth=2)
 
         self.ax.grid(True)
         self.canvas.draw()
@@ -373,24 +470,6 @@ class OptunaPlotWindow(QtWidgets.QDialog):
                 doc.recompute()
 
             self.redraw()
-        except Exception as e:
-            print("CAD error:", e)
-
-    def apply_trial_old(self, trial):
-        self.selected_trial = trial
-
-        print(f"[plot] Apply trial {trial.number}")
-        print("Params:", trial.params)
-
-        try:
-            apply_cad_params(trial.params)
-
-            doc = App.ActiveDocument
-            if doc:
-                doc.recompute()
-
-            self.redraw()
-
         except Exception as e:
             print("CAD error:", e)
 

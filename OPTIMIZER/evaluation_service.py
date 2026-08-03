@@ -5,6 +5,8 @@ from pydoc import doc
 
 import FreeCAD as App
 from PySide import QtCore
+
+
 from .spreadsheet_utils import apply_cad_params
 from oba_objects.oba_base import _trigger_ray_engine
 
@@ -137,7 +139,12 @@ class EvaluationService(QtCore.QObject):
             label_map = self._build_label_to_name_map()
             target_names = [label_map.get(t, t) for t in targets]
 
+            # print("[ALL BOUNCES FOR MIRROR]:", sorted({c["bounce"] for c in clusters.values() if c["object"] == "Mirror"}))
+
             filtered = {k: c for k, c in clusters.items() if c.get("object") in target_names}
+
+            # print("[SCANNER METRIC]", m["name"], m.get("step_id"))
+
             value = metric_scanner(m, filtered, m["plane"], {"doc": doc})
 
             results[m["name"]] = value
@@ -190,6 +197,7 @@ class EvaluationService(QtCore.QObject):
 
         label_map = self._build_label_to_name_map()
         target_names = [label_map.get(t, t) for t in targets]
+
         filtered = {k: c for k, c in clusters.items() if c.get("object") in target_names}
 
         # filtered = {k: c for k, c in clusters.items() if c.get("object") in targets}
@@ -221,6 +229,9 @@ class EvaluationService(QtCore.QObject):
                 tol = metric.get("percent_tol", 0.2)
                 valid = diff <= tol
 
+        elif base == "hit_count":
+            value, _ = compute_hit_count(filtered, target_names, baseline)
+
         elif base == "density":
             value = compute_density(filtered, plane, baseline)
 
@@ -235,6 +246,17 @@ class EvaluationService(QtCore.QObject):
 
         elif base == "cluster_axis_alignment":
             value = compute_cluster_axis_alignment(filtered, metric.get("axis"), plane, baseline)
+
+        elif base == "cluster_origin_centering":
+            # print("\n=== FILTERED CLUSTERS ===")
+            # for c in filtered.values():
+            #     print("obj=", c.get("object"), "bounce=", c.get("bounce"), "hits=", c.get("hit_count"))
+            value = compute_cluster_origin_centering(
+                filtered,
+                metric.get("axis"),
+                metric.get("bounce", 1),
+                baseline,
+            )
 
         else:
             App.Console.PrintError(f"[evaluation_service] Unknown base metric: {base}\n")
@@ -324,6 +346,20 @@ def compute_baseline():
 
 
 def compute_power(clusters, targets, baseline=None):
+
+    print("\n=== POWER ===")
+    print("targets =", targets)
+    print("cluster_count =", len(clusters))
+
+    for c in clusters.values():
+        print(
+            c.get("object"),
+            "bounce=",
+            c.get("bounce"),
+            "power_in=",
+            c.get("power", {}).get("in"),
+        )
+
     if not clusters:
         return 0.0, False
     current = sum(c.get("power", {}).get("in", 0.0) for c in clusters.values() if c.get("object") in targets)
@@ -336,6 +372,16 @@ def compute_power(clusters, targets, baseline=None):
         value = current / base
         return value, True  # ✅ INGEN constraint här
     return current, True
+
+
+def compute_hit_count(clusters, targets=None, baseline=None):
+
+    if not clusters:
+        return 0.0, False
+
+    current = sum(c.get("hit_count", 0) for c in clusters.values())
+
+    return float(current), True
 
 
 def compute_filtered_baseline_clusters(baseline, min_percent):
@@ -494,7 +540,7 @@ def metric_scanner(metric, filtered_clusters, plane, context):
         stop_flag_func=lambda: False,
         only_step_id=step_id,
     )
-
+    QtCore.QCoreApplication.processEvents()  # för att UI ska uppdateras samt ge tid att event queue ska tömmas
     # --------------------------------------------------
     # ✅ Läs resultat från DB
     # --------------------------------------------------
@@ -606,6 +652,78 @@ def compute_cluster_axis_alignment(clusters, axis, plane=None, baseline=None):
     score = 1.0 / (1.0 + std)
 
     return score
+
+
+def compute_cluster_origin_centering(
+    clusters,
+    axis,
+    bounce_index=1,
+    baseline=None,
+):
+
+    selected = [c for c in clusters.values() if c.get("bounce") == bounce_index]
+
+    # print("[CENTERING]", "axis=", axis, "bounce=", bounce_index, "clusters=", len(clusters), "[CENTERING] selected=", len(selected), "bounce_index : ", bounce_index)
+
+    # print("[CENTERING] cluster ", clusters)
+
+    # for c in clusters.values():
+    #     print("[CENTERING] cluster bounce=", c.get("bounce"))
+
+    # print("[CENTERING] scores=", scores, "weights=", weights)
+
+    if not clusters or not axis:
+        return 0.0
+
+    if not selected:
+        return 0.0
+
+    scores = []
+    weights = []
+
+    for c in selected:
+
+        centroid = c.get("centroid", {}).get("3D")
+        if centroid is None:
+            continue
+
+        x, y, z = centroid
+
+        if axis == "X":
+            d = abs(x)
+
+        elif axis == "Y":
+            d = abs(y)
+
+        elif axis == "Z":
+            d = abs(z)
+
+        elif axis == "XY":
+            d = np.sqrt(x * x + y * y)
+
+        elif axis == "XZ":
+            d = np.sqrt(x * x + z * z)
+
+        elif axis == "YZ":
+            d = np.sqrt(y * y + z * z)
+
+        elif axis == "XYZ":
+            d = np.sqrt(x * x + y * y + z * z)
+
+        else:
+            continue
+
+        hit_count = c.get("hit_count", 1)
+
+        score = 1.0 / (1.0 + d)
+
+        scores.append(score * hit_count)
+        weights.append(hit_count)
+
+    if not weights:
+        return 0.0
+
+    return sum(scores) / sum(weights)
 
 
 def compute_equal_ray_hits_count(clusters, plane, baseline=None):
