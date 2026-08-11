@@ -389,6 +389,7 @@ def OBA_CreateRayConfig(doc=None, show_dialog=True):
     # 0. Finns den redan? → använd den
     cfg = doc.getObject("OBARayConfig")
     if cfg:
+        print("[OBA_ray_config] kör en manuell trace")
         _trigger_ray_engine(reason="rayconfig_opened", source=cfg, force=True)
 
         # if show_dialog:

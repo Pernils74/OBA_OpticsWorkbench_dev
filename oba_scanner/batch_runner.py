@@ -13,6 +13,7 @@ from oba_objects.oba_base import _trigger_ray_engine
 from oba_rayengine.oba_ray_analyser import collect_ray_hits_and_stats
 from oba_rayengine.oba_ray_engine import OBARayEngine
 
+
 from .scan_db import HitsDB
 
 BATCH_OFFSET_OBJ = "__OBABatchOffset__"
@@ -194,10 +195,13 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
     db = HitsDB()
 
     collector = _find_ray_config(doc)
+
     if not collector:
         status_lbl.setText("No OBARayConfig – aborting")
         App.Console.PrintError("❌ OBARayConfig missing\n")
         return
+
+    old_run_mode = collector.RunMode
 
     collector.RunMode = "MANUAL"
 
@@ -283,7 +287,7 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
 
         _trigger_ray_engine(reason="batch_finished", force=True)
 
-        collector.RunMode = "AUTO"
+        collector.RunMode = old_run_mode
         status_lbl.setText("Stopped" if stop_flag_func() else "Done")
 
 

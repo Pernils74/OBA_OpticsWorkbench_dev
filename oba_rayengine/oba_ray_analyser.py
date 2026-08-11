@@ -384,6 +384,23 @@ def debug_print_surface_clusters(
     print("=" * 60 + "\n")
 
 
+def get_emitted_power(emitter_id=None, mode="final"):
+    rm = OBARayManager()
+    stats = rm.get_emitted_stats(mode)
+    if emitter_id:
+        s = stats.get(emitter_id, {})
+
+        return (
+            s.get("emitted_power", 0.0),
+            s.get("emitted_rays", 0),
+        )
+
+    emitted_power = sum(v["emitted_power"] for v in stats.values())
+    emitted_rays = sum(v["emitted_rays"] for v in stats.values())
+
+    return emitted_power, emitted_rays
+
+
 # ===============================================
 
 

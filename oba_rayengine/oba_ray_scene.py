@@ -1,5 +1,4 @@
 # oba_ray_scene.py
-# oba_ray_scene.py
 import FreeCAD as App
 import Part
 

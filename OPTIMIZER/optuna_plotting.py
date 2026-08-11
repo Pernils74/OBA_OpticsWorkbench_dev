@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 
 from vendor_optuna.optuna.testing import trials
 
+from oba_objects.oba_base import _trigger_ray_engine
 from .spreadsheet_utils import apply_cad_params
 from .optimize_worker import DB_PATH
 
@@ -27,6 +28,7 @@ class OptunaPlotWindow(QtWidgets.QDialog):
         self.ignored_trials = set()
         self.plot_trials = []
         self.scatter = None
+        self._saved_run_mode = None
 
         # ---------------- UI ----------------
         layout = QtWidgets.QVBoxLayout(self)
@@ -123,6 +125,33 @@ class OptunaPlotWindow(QtWidgets.QDialog):
             self.current_study_name = names[0]
             self.redraw()
 
+    def _enable_manual_raytrace_mode(self):
+        doc = App.ActiveDocument
+        if not doc:
+            return
+        cfg = doc.getObject("OBARayConfig")
+        if not cfg:
+            return
+        self._saved_run_mode = getattr(cfg, "RunMode", None)
+        cfg.RunMode = "MANUAL"
+
+    def _restore_manual_raytrace_mode(self):
+        doc = App.ActiveDocument
+        if not doc:
+            return
+        cfg = doc.getObject("OBARayConfig")
+        if not cfg:
+            return
+        if self._saved_run_mode is not None:
+            cfg.RunMode = self._saved_run_mode
+            self._saved_run_mode = None
+
+    def _trigger_manual_ray_trace(self):
+        doc = App.ActiveDocument
+        if not doc:
+            return
+        _trigger_ray_engine(reason="optuna_plot_restore", source=None, force=True)
+
     def study_changed(self):
         self.cmbX.blockSignals(True)
         self.cmbY.blockSignals(True)
@@ -136,13 +165,6 @@ class OptunaPlotWindow(QtWidgets.QDialog):
         self.current_study_name = self.cmbStudy.currentText()
         self.selected_trial = None
 
-        self.redraw()
-
-    def study_changed_old(self):
-        self.current_study_name = self.cmbStudy.currentText()
-        self.cmbX.clear()
-        self.cmbY.clear()
-        self.selected_trial = None
         self.redraw()
 
     def _delete_selected(self):
@@ -265,6 +287,9 @@ class OptunaPlotWindow(QtWidgets.QDialog):
 
     def redraw(self):
         if not self.current_study_name:
+            self.ax.clear()
+            self.ax.set_title("No data")
+            self.canvas.draw()
             return
 
         try:
@@ -279,9 +304,7 @@ class OptunaPlotWindow(QtWidgets.QDialog):
             return
 
         trials = self._get_trials(study)
-
         ignored = self.ignored_trials if self.chkHide.isChecked() else set()
-
         pareto_numbers = {t.number for t in study.best_trials if t.number not in ignored}
 
         if not trials:
@@ -418,14 +441,11 @@ class OptunaPlotWindow(QtWidgets.QDialog):
                 )
 
         if len(best_trials) >= 2:
-            # Sortera de bästa kompromisserna kronologiskt baserat på deras trial-nummer
-            chronological_bests = sorted(best_trials, key=lambda t: t.number)
 
-            line_x = [t.values[ix] for t in chronological_bests]
-            line_y = [t.values[iy] for t in chronological_bests]
+            line_x = [t.values[ix] for t in best_trials]
+            line_y = [t.values[iy] for t in best_trials]
 
-            # Rita en subtil streckad linje som visar utvecklingen
-            self.ax.plot(line_x, line_y, color="black", linestyle="--", linewidth=1.5, alpha=0.6, zorder=40, label="Compromise path")
+            self.ax.plot(line_x, line_y, color="black", linestyle="--", linewidth=1.5, alpha=0.6, zorder=40, label="Compromise ranking")
 
         # ------------------------------------------------------
         # selected trial
@@ -464,14 +484,18 @@ class OptunaPlotWindow(QtWidgets.QDialog):
                 params.update(trial.user_attrs.get("unselected_params", {}))
 
             print("Apply params:", params)
+            self._enable_manual_raytrace_mode()
             apply_cad_params(params)
             doc = App.ActiveDocument
             if doc:
                 doc.recompute()
-
-            self.redraw()
+            self._trigger_manual_ray_trace()
         except Exception as e:
             print("CAD error:", e)
+        finally:
+            self._restore_manual_raytrace_mode()
+
+        self.redraw()
 
     def on_pick(self, event):
 

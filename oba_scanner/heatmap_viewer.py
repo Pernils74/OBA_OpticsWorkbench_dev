@@ -132,6 +132,8 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
 
         self.chkPlane2D = QtWidgets.QCheckBox("2D plane view")
 
+        self.btnGotoMax = QtWidgets.QPushButton("Go to Max")
+
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel("Plane"))
         row.addWidget(self.comboPlane)
@@ -143,6 +145,8 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
 
         row.addSpacing(15)
         row.addWidget(self.chkPlane2D)
+        row.addSpacing(15)
+        row.addWidget(self.btnGotoMax)
         row.addStretch()
 
         self.lblMoved = QtWidgets.QLabel("Moved: -")
@@ -169,6 +173,8 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         layout.addLayout(plotRow, 1)
 
         # signals
+        self.btnGotoMax.clicked.connect(self._goto_maximum)
+
         self.comboStep.currentIndexChanged.connect(self._update_plot)
         self.comboTarget.currentIndexChanged.connect(self._target_changed)
         self.comboValue.currentIndexChanged.connect(self._update_plot)
@@ -688,6 +694,61 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
             self.setEnabled(True)
             QtWidgets.QApplication.restoreOverrideCursor()
             # self._click_busy = False  # 🔓 UNLOCK
+
+    def _move_to_offset(self, x, y):
+
+        plane = self.comboPlane.currentText()
+        if plane == "XY":
+            dx, dy, dz = x, y, 0.0
+        elif plane == "XZ":
+            dx, dy, dz = x, 0.0, y
+        else:
+            dx, dy, dz = 0.0, x, y
+
+        doc = App.ActiveDocument
+        if not doc:
+            return
+        cfg = doc.getObject("OBARayConfig")
+        old_mode = None
+        try:
+            if cfg:
+                old_mode = cfg.RunMode
+                cfg.RunMode = "MANUAL"
+            if not self._snapshotted_objects:
+                self._snapshot_objects()
+            self._restore_objects()
+            for obj in self._snapshotted_objects:
+                snap = self._placement_snapshot[obj.Name]
+                clear_placement_expressions(obj)
+                step_obj = find_step_by_id(App.ActiveDocument, self.comboStep.currentText())
+                apply_direct_offset(obj, snap, dx, dy, dz)
+                if step_obj:
+                    step_obj.StepOffset = App.Vector(dx, dy, dz)
+
+            doc.recompute()
+            hits = run_trace()
+            step = self.comboStep.currentText()
+            moved = self._current_moved_objects or ""
+            store_hits(self.db, step, hits, dx, dy, dz, moved)
+            self.db.commit()
+
+        finally:
+            if cfg and old_mode is not None:
+                cfg.RunMode = old_mode
+
+        self._update_plot()
+
+    def _goto_maximum(self):
+
+        result = self._compute_field()
+        if result is None:
+            return
+        Xi, Yi, Vi = result
+        idx = np.unravel_index(np.argmax(Vi), Vi.shape)
+        x = float(Xi[idx])
+        y = float(Yi[idx])
+        print(f"[MAX] X={x:.3f} " f"Y={y:.3f} " f"V={float(Vi[idx]):.3f}")
+        self._move_to_offset(x, y)
 
     # ==========================================================
     def _median(self, data, k):

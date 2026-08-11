@@ -11,69 +11,78 @@ METRICS = {
         "label": "⚡ power",
         "threshold": True,
         "widget": ["percent"],
-        "tooltip": ("Maximerar inkommande effekt.\n" "Med threshold: kräver förbättring relativt baseline.\n" "Percent = min förbättringsgrad."),
+        "direction": "maximize",
+        "tooltip": ("Power score = infångad effekt / emitterad effekt.\n" "1.0 betyder att all emitterad effekt når målet.\n" "\n" "Threshold:\n" "Percent anger minsta tillåtna power score.\n" "Används endast när Threshold är aktiv."),
     },
     "hit_count": {
         "label": "🎯 hit_count",
-        "threshold": False,
-        # "widget": ["percent"],
-        "tooltip": "Antal rayträffar på valt objekt. " "Kan användas som grundconstraint för att säkerställa att målet träffas.",
-    },
-    "preserve_cluster_count": {
-        "label": "⚡ preserve_cluster_count",
         "threshold": True,
         "widget": ["percent"],
-        "tooltip": "Bibehåller antal kluster jämfört med baseline.\nStraffar för stora avvikelser.",
+        "direction": "maximize",
+        "tooltip": ("Hit score baseras på hur stor andel av emitterade " "rays som träffar målet.\n" "\n" "Threshold:\n" "Percent anger minsta tillåtna andel träffande rays.\n" "Används endast när Threshold är aktiv."),
     },
     "target_cluster_count": {
         "label": "⚡ target_cluster_count",
         "threshold": True,
         "widget": ["percent", "value"],
-        "tooltip": ("Försöker uppnå ett visst antal betydande kluster.\n" "Filter (%) anger hur stor andel av baseline-maxträffar ett kluster " "måste ha för att räknas.\n" "Målvärde (≈) är önskat antal kluster."),
+        "direction": "maximize",
+        "tooltip": ("Försöker uppnå ett visst antal betydande kluster.\n" "Filter (%) anger hur stor andel av emitterade rays ett kluster " "måste ha för att räknas.\n" "Målvärde (≈) är önskat antal kluster."),
     },
     "density": {
         "label": "density",
         "threshold": False,
+        "widget": ["plane", "bounce"],
+        "direction": "maximize",
         "tooltip": "Medeldensitet för kluster (viktad med antal träffar).\nHög densitet = kompakt träffbild.",
     },
     "roundness": {
         "label": "roundness",
         "threshold": False,
+        "widget": ["plane", "bounce"],
+        "direction": "maximize",
         "tooltip": "Mäter hur cirkulära kluster är.\n1 = perfekt rund, 0 = utdragen.",
     },
     "equal_distance": {
         "label": "equal_distance",
         "threshold": False,
+        "widget": ["plane"],
+        "direction": "maximize",
         "tooltip": "Belönar små klusterradier.\nGer jämnt fördelade och kompakta träffzoner.",
-    },
-    "equal_ray_hits_count": {
-        "label": "equal_ray_hits_count",
-        "threshold": False,
-        "tooltip": "Fördelar rays jämnt mellan kluster.\n" "Maximerar både total träffmängd och jämn fördelning.",
     },
     "cluster_distribution": {
         "label": "📏 cluster_distribution",
-        "widget": ["axis"],
+        "widget": ["plane", "axis"],
         "threshold": False,
+        "direction": "maximize",
         "tooltip": ("Mäter hur jämnt klustercentra är fördelade längs vald axel.\n" "Hög score ges när klustren sprids ut på ett balanserat sätt."),
     },
     "cluster_axis_alignment": {
         "label": "📐 cluster_axis_alignment",
-        "widget": ["axis"],
+        "widget": ["plane", "axis"],
         "threshold": False,
+        "direction": "maximize",
         "tooltip": ("Belönar kluster som ligger på samma position " "längs vald axel."),
     },
     "cluster_origin_centering": {
         "label": "🎯 cluster_origin_centering",
-        "widget": ["origin_axis", "bounce"],
+        "widget": ["plane", "origin_axis", "bounce"],
         "threshold": False,
+        "direction": "maximize",
         "tooltip": ("Belönar kluster som ligger nära origo " "för valda koordinataxlar.\n" "X  → X=0\n" "XY → sqrt(X²+Y²)\n" "XYZ → sqrt(X²+Y²+Z²)\n"),
     },
     "scanner": {
         "label": "🧪 Scanner",
         "threshold": False,
-        "widget": ["step", "percent"],
-        "tooltip": "Kör valfri scanner-step och returnerar score.",
+        "widget": ["step", "radius"],
+        "direction": "maximize",
+        "tooltip": (
+            "Scanner körs över ett område kring nominellt läge.\n"
+            "Score = genomsnittlig infångad effekt i förhållande till "
+            "emitterad effekt inom vald toleransradie.\n"
+            "Belönar robusta lösningar som bibehåller effekt trots "
+            "positioneringsfel. Ger ofta även högre koncentration "
+            "och densitet som en bieffekt."
+        ),
     },
 }
 
@@ -91,6 +100,8 @@ class MetricRowWidget(QtWidgets.QWidget):
     changed = QtCore.Signal()
     removed = QtCore.Signal(object)
 
+    debugRequested = QtCore.Signal(dict)
+
     def __init__(self, metrics, metric="density", parent=None):
         super().__init__(parent)
 
@@ -107,14 +118,14 @@ class MetricRowWidget(QtWidgets.QWidget):
 
         self.btnTargets = QtWidgets.QPushButton()
 
-        self.cmbPlane = QtWidgets.QComboBox()
-        self.cmbPlane.addItems(["XY", "XZ", "YZ", "3D"])
-
         self.chkActive = QtWidgets.QCheckBox()
         self.chkActive.setChecked(True)
 
-        self.lbl = QtWidgets.QLabel()
-        self.lbl.setText("ℹ️")
+        # self.lbl = QtWidgets.QLabel()
+        # self.lbl.setText("ℹ️")
+
+        self.btnInfo = QtWidgets.QToolButton()
+        self.btnInfo.setText("ℹ️")
 
         # delete button
         self.btnDelete = QtWidgets.QPushButton("✕")
@@ -140,23 +151,25 @@ class MetricRowWidget(QtWidgets.QWidget):
         layout.addWidget(self.chkActive)
         layout.addWidget(self.cmb)
         layout.addWidget(self.btnTargets)
-        layout.addWidget(self.cmbPlane)
 
         # anchor for dynamic widgets
         self.dynamic_anchor_index = layout.count()
 
-        layout.addWidget(self.lbl, 1)
-        layout.addWidget(self.btnDelete, 0)
+        layout.addWidget(self.btnInfo)
+        layout.addStretch()
+        layout.addWidget(self.btnDelete)
 
         self._update_targets_button()
         self._rebuild_dynamic_ui()
 
         # signals
         self.cmb.currentIndexChanged.connect(self._rebuild_dynamic_ui)
-        self.cmbPlane.currentIndexChanged.connect(self.changed)
         self.btnTargets.clicked.connect(self._edit_targets)
         self.btnDelete.clicked.connect(lambda: self.removed.emit(self))
         self.chkActive.toggled.connect(self._update_row_style)
+
+        # self.btnInfo.clicked.connect(lambda: self.parent().parent().run_single_metric(self.get_payload_part()))
+        self.btnInfo.clicked.connect(self._debug_metric)
 
         # self._label_to_key = {cfg.get("label", k): k for k, cfg in METRICS.items()}
 
@@ -181,10 +194,12 @@ class MetricRowWidget(QtWidgets.QWidget):
             "percentWidget",
             "valueWidget",
             "rangeWidget",
+            "planeWidget",
             "axisWidget",
             "thresholdWidget",
             "stepWidget",
             "bounceWidget",
+            "radiusWidget",
         ]:
             if hasattr(self, attr):
                 delattr(self, attr)
@@ -204,20 +219,25 @@ class MetricRowWidget(QtWidgets.QWidget):
         tooltip = cfg.get("tooltip", "")
         self.setToolTip(tooltip)
         self.cmb.setToolTip(tooltip)
-        self.lbl.setToolTip(tooltip)
-
-        self.cmbPlane.setVisible(True)
-
-        if metric_key == "cluster_origin_centering" or metric_key == "scanner":
-            self.cmbPlane.setVisible(False)
-
-        # is_scanner = metric == "scanner"
-        # self.cmbPlane.setVisible(not is_scanner)
-        # self.btnTargets.setVisible(not is_scanner)
+        # self.lbl.setToolTip(tooltip)
+        self.btnInfo.setToolTip(tooltip)
 
         widgets = cfg.get("widget", [])
 
         insert_index = self.dynamic_anchor_index
+
+        widgets = cfg.get("widget", [])
+
+        insert_index = self.dynamic_anchor_index
+
+        if "plane" in widgets:
+            w = PlaneWidget()
+            layout.insertWidget(insert_index, w)
+
+            self.dynamic_widgets.append(w)
+            self.planeWidget = w
+
+            insert_index += 1
 
         if "value" in widgets:
             w = ValueWidget()
@@ -265,6 +285,15 @@ class MetricRowWidget(QtWidgets.QWidget):
 
             insert_index += 1
 
+        if "radius" in widgets:
+            w = RadiusWidget()
+            layout.insertWidget(insert_index, w)
+
+            self.dynamic_widgets.append(w)
+            self.radiusWidget = w
+
+            insert_index += 1
+
         if "step" in widgets:
             w = StepSelectWidget()
             layout.insertWidget(insert_index, w)
@@ -286,6 +315,18 @@ class MetricRowWidget(QtWidgets.QWidget):
     # PAYLOAD
     # --------------------------------------------------
 
+    def _debug_metric(self):
+        payload = self.get_payload_part()
+        print(payload)
+        self.debugRequested.emit(payload)
+
+        parent = self.parent()
+        while parent is not None:
+            if hasattr(parent, "run_single_metric"):
+                parent.run_single_metric(payload)
+                return
+            parent = parent.parent()
+
     def get_payload_part(self):
         # metric = self.cmb.currentText()
         # # ✅ översätt tillbaka
@@ -295,17 +336,21 @@ class MetricRowWidget(QtWidgets.QWidget):
         metric_key = LABEL_TO_KEY.get(label, label)
 
         cfg = METRICS.get(metric_key, {})
+        direction = cfg.get("direction", "maximize")
 
         data = {
             "base_metric": metric_key,  # metric
             "type": cfg.get("type"),
             "active": self.chkActive.isChecked(),
             "targets": self.get_targets(),
-            "plane": self.cmbPlane.currentText(),
+            "direction": direction,
         }
 
         # ✅ ONLY include valid fields
         widgets = cfg.get("widget", [])
+
+        if "plane" in widgets and hasattr(self, "planeWidget"):
+            data["plane"] = self.planeWidget.currentText()
 
         if "value" in widgets and hasattr(self, "valueWidget"):
             data["value"] = self.valueWidget.get_value()
@@ -327,8 +372,8 @@ class MetricRowWidget(QtWidgets.QWidget):
             data["bounce"] = self.bounceWidget.get_value()
             # print("[PAYLOAD]", metric_key, "bounce=", data["bounce"])
 
-        # if "axis" in widgets and hasattr(self, "axisWidget"):
-        #     data["axis"] = self.axisWidget.currentText()
+        if "radius" in widgets and hasattr(self, "radiusWidget"):
+            data["radius"] = self.radiusWidget.get_value()
 
         if "step" in widgets and hasattr(self, "stepWidget"):
             data["step_id"] = self.stepWidget.get_value()
@@ -423,9 +468,13 @@ class TargetWeightsWidget(QtWidgets.QGroupBox):
     #     return sorted(METRICS.keys(), key=self.metric_sort_key)
 
     def add_row(self, metric="density"):
-        row = MetricRowWidget(self.available_metrics(), metric)
+        row = MetricRowWidget(self.available_metrics(), metric, self)
         row.changed.connect(self._update)
         row.removed.connect(self.remove_row)
+
+        parent = self.parent()
+        if parent and hasattr(parent, "run_single_metric"):
+            row.debugRequested.connect(parent.run_single_metric)
 
         self.rows.append(row)
         self.container.addWidget(row)
@@ -443,8 +492,14 @@ class TargetWeightsWidget(QtWidgets.QGroupBox):
 
     def _update(self):
         payload = self.get_payload()
-        txt = [f"{e['base_metric']}[{e['plane']}]" for e in payload["entries"]]
-        self.lblSummary.setText(" | ".join(txt))
+        entries = []
+        for e in payload["entries"]:
+            plane = e.get("plane")
+            if plane:
+                entries.append(f"{e['base_metric']}[{plane}]")
+            else:
+                entries.append(e["base_metric"])
+        self.lblSummary.setText(" | ".join(entries))
         self.configChanged.emit(payload)
 
     def metric_sort_key(self, metric):
@@ -483,6 +538,12 @@ class TargetWeightsWidget(QtWidgets.QGroupBox):
 # ==========================================================
 
 
+class PlaneWidget(QtWidgets.QComboBox):
+    def __init__(self):
+        super().__init__()
+        self.addItems(["XY", "XZ", "YZ", "3D"])
+
+
 class ValueWidget(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
@@ -509,7 +570,7 @@ class PercentWidget(QtWidgets.QWidget):
         self.spin_percent = QtWidgets.QSpinBox()
         self.spin_percent.setRange(0, 100)
         self.spin_percent.setValue(70)
-        self.spin_percent.setToolTip("Minsta clusterstorlek (% av största cluster i baseline).\n" "Mindre cluster ignoreras vid beräkning.")
+        self.spin_percent.setToolTip("Minsta clusterstorlek (% av emitterade rays).\n" "Mindre kluster ignoreras vid beräkning.")
 
         layout.addWidget(QtWidgets.QLabel("Filter ≥"))
         layout.addWidget(self.spin_percent)
@@ -550,6 +611,26 @@ class BounceWidget(QtWidgets.QWidget):
         self.spin.setToolTip("Endast kluster från detta bounce-index används.\n" "0 = första träffen\n" "1 = andra träffen\n" "2 = tredje träffen\n" "osv.")
 
         layout.addWidget(QtWidgets.QLabel("Bounce"))
+        layout.addWidget(self.spin)
+
+    def get_value(self):
+        return self.spin.value()
+
+
+class RadiusWidget(QtWidgets.QWidget):
+    def __init__(self):
+        super().__init__()
+
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.spin = QtWidgets.QDoubleSpinBox()
+        self.spin.setDecimals(3)
+        self.spin.setRange(0.001, 1000.0)
+        self.spin.setValue(0.2)
+        self.spin.setSuffix(" mm")
+
+        layout.addWidget(QtWidgets.QLabel("R"))
         layout.addWidget(self.spin)
 
     def get_value(self):
