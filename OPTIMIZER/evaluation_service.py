@@ -17,7 +17,8 @@ from oba_rayengine.oba_ray_engine import OBARayEngine
 # from vendor_optuna.numpy._core.strings import count
 
 
-from .spreadsheet_utils import apply_cad_params
+from .spreadsheet_utils import apply_cad_params, get_param_info, SPREADSHEET_NAME
+
 from oba_objects.oba_base import _trigger_ray_engine
 
 import numpy as np
@@ -149,14 +150,7 @@ class EvaluationService(QtCore.QObject):
                 name = m.get("name")
                 direction = m.get("direction")
                 value = results_1.get(name)
-                if isinstance(
-                    value,
-                    (
-                        int,
-                        float,
-                        np.number,
-                    ),
-                ):
+                if isinstance(value, (int, float, np.number)):
                     if direction == "minimize":  # tar hänsyn till riktning
                         score_values_1.append(-float(value))
                     else:
@@ -268,21 +262,7 @@ class EvaluationService(QtCore.QObject):
                     value_1 = results_1.get(metric_name)
                     value_2 = recheck_results.get(metric_name)
 
-                    if isinstance(
-                        value_1,
-                        (
-                            int,
-                            float,
-                            np.number,
-                        ),
-                    ) and isinstance(
-                        value_2,
-                        (
-                            int,
-                            float,
-                            np.number,
-                        ),
-                    ):
+                    if isinstance(value_1, (int, float, np.number)) and isinstance(value_2, (int, float, np.number)):
                         final_results[metric_name] = (float(value_1) + float(value_2)) / 2.0
                 # --------------------------------------------------
                 # SCANNER:
@@ -424,42 +404,21 @@ class EvaluationService(QtCore.QObject):
         # --------------------------------------------------
 
         for m in metrics:
-
-            if not m.get(
-                "active",
-                True,
-            ):
+            if not m.get("active", True):
                 continue
 
             if m.get("base_metric") != "scanner":
                 continue
 
             targets = m.get("targets", [])
-
             label_map = self._build_label_to_name_map()
-
-            target_names = [
-                label_map.get(
-                    target,
-                    target,
-                )
-                for target in targets
-            ]
+            target_names = [label_map.get(target, target) for target in targets]
 
             filtered = {key: cluster for key, cluster in clusters.items() if cluster.get("object") in target_names}
 
-            value = metric_scanner(
-                m,
-                filtered,
-                m.get(
-                    "plane",
-                    "XY",
-                ),
-                {"doc": doc},
-            )
+            value = metric_scanner(m, filtered, m.get("plane", "XY"), {"doc": doc})
 
             results[m["name"]] = value
-
             self.statusChanged.emit(f"Trial {trial_id} → " f"SCANNER score: " f"({value}) " f"Targets: " f"({targets}) " f"Step_id: " f"{m.get('step_id')}")
 
         # --------------------------------------------------
@@ -483,167 +442,6 @@ class EvaluationService(QtCore.QObject):
         if not values:
             return 0.0
         return sum(values) / len(values)
-
-    def evaluate_old(self, payload):
-        if self._busy:
-            return
-        self._busy = True
-
-        doc = App.ActiveDocument
-        if not doc:
-            self.evaluationReady.emit({"_pruned": True})
-            self._busy = False  # 🔥 FIX: Säkra busy flaggan här med
-            return
-
-        params = payload.get("params", {})
-        # ✅ Hämta unselected_params (detta är en dictionary med {namn: värde})
-        unselected_params = payload.get("unselected_params", [])
-        metrics = payload.get("metrics", [])
-
-        # -------------------------
-        # APPLY CAD
-        # -------------------------
-        apply_cad_params(params)
-        doc.recompute(None)  # Skall tydligen göra en djupare recompute.
-
-        self._previous_params = None
-
-        if self._previous_params is None:
-            self._previous_params = params.copy()
-        else:
-            for i in range(30):
-
-                apply_cad_params(self._previous_params)
-                doc.recompute(None)  # Skall tydligen göra en djupare recompute.
-                _trigger_ray_engine(reason="optuna", source=None, force=True)
-
-                old_clusters = aggregate_interaction_clusters(mode="final", min_hits=1)
-                old_hash = OBARayManager().scene_hash()
-
-                apply_cad_params(params)
-                doc.recompute(None)  # Skall tydligen göra en djupare recompute.
-                _trigger_ray_engine(reason="optuna", source=None, force=True)
-
-                clusters = aggregate_interaction_clusters(mode="final", min_hits=1)
-                hash = OBARayManager().scene_hash()
-
-                # Utskrift som jämför FÖRE -> EFTER på en och samma rad
-                print(f"[LOOP {i:02d}] Hash: {old_hash[:8]} -> {hash[:8]} | Clusters: {len(old_clusters)} -> {len(clusters)}")
-
-            # engine = OBARayEngine.instance()
-            # old_counter = engine.trace_counter
-
-        _trigger_ray_engine(reason="optuna", source=None, force=True)
-        # print("[SECOND_RUN SCENE HASH]", OBARayManager().scene_hash())
-
-        # time.sleep(2)
-
-        # print("[SECOND_RUN SCENE HASH AFTER SLEEP]", OBARayManager().scene_hash())
-
-        # while engine.trace_counter == old_counter:
-        #     print("------------------------------------------")
-        #     QtWidgets.QApplication.processEvents()
-        #     QtCore.QThread.msleep(10)
-
-        # -------------------------
-        # CLUSTERS
-        # -------------------------
-        # print("          hämtar clusters ....")
-
-        clusters = aggregate_interaction_clusters(mode="final", min_hits=1)
-        trial_id = payload.get("trial_id", "?")
-        total_hits = sum(c.get("hit_count", 0) for c in clusters.values())
-        # print("trial", trial_id, "clusters", len(clusters), "hits", total_hits)
-
-        # skickas vidare i payload för att ingå i set_user_attr("debug", debug_info)
-        debug_info = {
-            "cluster_count": len(clusters),
-            "total_hits": total_hits,
-            "scene_hash": OBARayManager().scene_hash(),
-        }
-
-        results = {}
-        pruned = False
-
-        # -------------------------
-        # FAST METRICS (NO SCANNER)
-        # -------------------------
-        trial_id = payload.get("trial_id", "?")
-        for m in metrics:
-            self.statusChanged.emit(f"Trial {trial_id} → {m['base_metric']} ({m.get('plane', '')})")  # set lblStaus in optimizer_dialog.py
-
-            if m["base_metric"] == "scanner":
-                continue  # kör senare
-
-            value, valid = self._evaluate_metric(clusters, m)
-
-            results[m["name"]] = value
-            # print(f"[METRIC] {m['name']} " f"value={value} " f"valid={valid}")
-
-            # ✅ early pruning
-            if not valid:
-                print(f"[PRUNE] metric='{m['name']}' " f"base={m['base_metric']} " f"value={value} " f"threshold={self._debug_threshold_info(m)}")
-                pruned = True
-                break
-
-        # -------------------------
-        # EARLY EXIT
-        # -------------------------
-        if pruned:
-            # results["_prune_info"] = {"metric": m["name"], "base": m["base_metric"], "value": value}
-            self.evaluationReady.emit(
-                {
-                    "results": results,
-                    "_pruned": True,
-                    "unselected_params": unselected_params,
-                    "debug": debug_info,
-                }
-            )
-            self._busy = False  # 🔥 VIKTIGT: Du missade att sätta self._busy = False vid tidig exit!
-            return
-
-        # -------------------------
-        # SCANNER METRICS (EXPENSIVE)
-        # -------------------------
-        for m in metrics:
-
-            if not m.get("active", True):
-                continue
-
-            if m["base_metric"] != "scanner":
-                continue
-
-            targets = m.get("targets", [])
-            # filtered = {k: c for k, c in clusters.items() if c.get("object") in targets}
-
-            label_map = self._build_label_to_name_map()
-            target_names = [label_map.get(t, t) for t in targets]
-
-            # print("[ALL BOUNCES FOR MIRROR]:", sorted({c["bounce"] for c in clusters.values() if c["object"] == "Mirror"}))
-
-            filtered = {k: c for k, c in clusters.items() if c.get("object") in target_names}
-
-            # print("[SCANNER METRIC]", m["name"], m.get("step_id"))
-
-            value = metric_scanner(m, filtered, m.get("plane", "XY"), {"doc": doc})
-
-            results[m["name"]] = value
-
-            self.statusChanged.emit(f"Trial {trial_id} → SCANNER score: ({value})    Targets: ({targets})   Step_id: {m.get('step_id')}")  # set lblStaus in optimizer_dialog.py
-
-        # -------------------------
-        # FINAL RETURN
-        # -------------------------
-        self.evaluationReady.emit(
-            {
-                "results": results,
-                "_pruned": False,
-                "unselected_params": unselected_params,
-                "debug": debug_info,
-            }
-        )
-
-        self._busy = False
 
     # -------------------------------------------------------
     # PROJECTION HELPERS
@@ -709,11 +507,21 @@ class EvaluationService(QtCore.QObject):
         elif base == "equal_distance":
             value = compute_distance(filtered, plane)
 
-        elif base == "cluster_axis_alignment":
-            value = compute_cluster_axis_alignment(filtered, metric.get("axis"), plane)
+        elif base == "cluster_position_matching":
+            value = compute_cluster_position_matching(filtered, metric.get("axis"))
 
         elif base == "cluster_origin_centering":
             value = compute_cluster_origin_centering(filtered, metric.get("axis"), metric.get("bounce", 1))
+
+        elif base == "target_face_centering":
+            value = compute_target_face_centering(filtered, metric.get("bounce", 0))
+
+        elif base == "preserve_parameter":
+
+            value = compute_preserve_parameter(
+                metric.get("parameters", []),
+                metric.get("tolerance", 0.10),
+            )
 
         else:
             App.Console.PrintError(f"[evaluation_service] Unknown base metric: {base}\n")
@@ -788,6 +596,36 @@ def compute_hit_count(clusters, targets=None):
         return float(current), 0.0
     ratio = current / emitted_rays
     return float(current), ratio
+
+
+def compute_target_face_centering(clusters, bounce_count=0):
+    if not clusters:
+        return 0.0
+    scores = []
+    weights = []
+    for c in clusters.values():
+        if bounce_count > 0 and c.get("bounce") != bounce_count:
+            continue
+        centroid = c.get("centroid", {}).get("3D")
+        target_center = c.get("target_center")
+        if centroid is None or target_center is None:
+            continue
+
+        cx, cy, cz = centroid
+        tx, ty, tz = target_center
+
+        d = np.sqrt((cx - tx) ** 2 + (cy - ty) ** 2 + (cz - tz) ** 2)
+        hit_count = c.get("hit_count", 1)
+        # score = 1.0 / (1.0 + d)
+
+        radius = c["spread"]["3D"]["radius"]
+        score = 1.0 / (1.0 + d / (radius + 1e-6))  # mjukare score : hur långt från target-centret klustret ligger relativt sin egen storlek
+
+        scores.append(score * hit_count)
+        weights.append(hit_count)
+    if not weights:
+        return 0.0
+    return sum(scores) / sum(weights)
 
 
 def compute_target_cluster_count(clusters, targets, min_percent, target):
@@ -1017,34 +855,35 @@ def metric_scanner(metric, filtered_clusters, plane, context):
     return score
 
 
-def compute_cluster_axis_alignment(clusters, axis, plane=None):
+def compute_cluster_position_matching(clusters, axis):
+
     if not clusters or not axis:
         return 0.0
-
     vals = []
-
     for c in clusters.values():
-
         centroid = c.get("centroid", {}).get("3D")
-
         if centroid is None:
             continue
-
+        x, y, z = centroid
         if axis == "X":
-            vals.append(centroid[0])
+            vals.append(x)
         elif axis == "Y":
-            vals.append(centroid[1])
+            vals.append(y)
         elif axis == "Z":
-            vals.append(centroid[2])
-
+            vals.append(z)
+        elif axis == "XY":
+            vals.append(np.sqrt(x * x + y * y))
+        elif axis == "XZ":
+            vals.append(np.sqrt(x * x + z * z))
+        elif axis == "YZ":
+            vals.append(np.sqrt(y * y + z * z))
+        elif axis == "XYZ":
+            vals.append(np.sqrt(x * x + y * y + z * z))
     if len(vals) < 2:
         return 0.0
-
+    # låg spridning = klustren ligger på samma position
     std = np.std(vals)
-
-    # ✅ låg spridning = bra
     score = 1.0 / (1.0 + std)
-
     return score
 
 
@@ -1140,3 +979,38 @@ def compute_roundness(clusters, plane, bounce_count=0):
     if not vals:
         return 0.0
     return sum(vals) / len(vals)
+
+
+def compute_preserve_parameter(parameters, tolerance):
+    if not parameters:
+        return 0.0
+
+    doc = App.ActiveDocument
+    if not doc:
+        return 0.0
+    ss = doc.getObject(SPREADSHEET_NAME)
+    if not ss:
+        return 0.0
+    param_names = [p["name"] for p in parameters]
+    current_info = get_param_info(ss, param_names)
+
+    scores = []
+    for p in parameters:
+        name = p["name"]
+        start_value = p["value"]
+
+        current = current_info.get(name)
+        if not current:
+            continue
+        current_value = current["value"]
+        # print("[values]", current_value, start_value)
+        if abs(start_value) < 1e-12:
+            deviation = abs(current_value - start_value)
+        else:
+            deviation = abs(current_value - start_value) / abs(start_value)
+        score = 1.0 / (1.0 + deviation / max(tolerance, 1e-9))
+        scores.append(score)
+    if not scores:
+        return 0.0
+
+    return sum(scores) / len(scores)

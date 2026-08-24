@@ -157,7 +157,7 @@ class LensDialog(OBABaseDialog):
         row_index = QtWidgets.QHBoxLayout()
         row_index.addWidget(QtWidgets.QLabel("Refractive Index (n_d):"))
         self.spin_index = QtWidgets.QDoubleSpinBox()
-        self.spin_index.setRange(1.0, 5.0)
+        self.spin_index.setRange(1.0, 10.0)
         self.spin_index.setDecimals(4)
         self.spin_index.setValue(self.obj.RefractiveIndex)
         self.spin_index.valueChanged.connect(self._update_index)

@@ -265,29 +265,3 @@ class HitsDB:
                 (step_id,),
             )
             self.conn.commit()
-
-    # def clear_step(self, step_id):
-    #     with self._lock:
-
-    #         cur = self.conn.execute(
-    #             """
-    #             SELECT COUNT(*)
-    #             FROM hits
-    #             WHERE step_id=?
-    #             """,
-    #             (step_id,),
-    #         )
-
-    #         count = cur.fetchone()[0]
-
-    #         print(f"[HitsDB] deleting {count} rows " f"for step_id={step_id}")
-
-    #         self.conn.execute(
-    #             """
-    #             DELETE FROM hits
-    #             WHERE step_id=?
-    #             """,
-    #             (step_id,),
-    #         )
-
-    #         self.conn.commit()

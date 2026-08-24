@@ -268,12 +268,31 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
     def _build_metrics_config(self, payload):
         metrics = []
 
+        # print("\n[BUILD_METRICS_CONFIG]")
+
         for e in payload["entries"]:
+            # print("ENTRY:", e)
+
             name = e["base_metric"]
             plane = e.get("plane")
 
             # ✅ unikt metric-id (väldigt viktigt senare)
-            metric_name = f"{name}_{plane}" if plane else name
+            # metric_name = f"{name}_{plane}" if plane else name
+            metric_name = name
+            if plane:
+                metric_name += f"_{plane}"
+            if e.get("axis"):
+                metric_name += f"_{e['axis']}"
+            if e.get("bounce") is not None:
+                metric_name += f"_B{e['bounce']}"
+            if e.get("step_id"):
+                metric_name += f"_{e['step_id']}"
+
+            targets = e.get("targets", [])
+            if len(targets) == 1:
+                metric_name += f"@{targets[0]}"
+            elif len(targets) > 1:
+                metric_name += f"@{len(targets)}targets"
 
             metric = {
                 "name": metric_name,
@@ -289,6 +308,8 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
                 "max": e.get("max", None),
                 "bounce": e.get("bounce"),  # för cluster_origin_centering
                 "step_id": e.get("step_id", None),  # ✅ för scanner-metrics
+                "parameters": e.get("parameters", []),  # för preserve_params
+                "tolerance": e.get("tolerance", 0.10),  # för preserve_params
             }
 
             if plane is not None:
@@ -337,7 +358,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             self.lblActiveStudy.setText(f"Params: [{', '.join(params)}]  ❌ no study")
 
     def _on_progress(self, info):
-        print("Progress:", info)
+        print("[Progress]:", info)
 
         if self._optuna_plot_window:
             try:
@@ -1019,9 +1040,9 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
             entries = payload.get("entries", [])
 
-            print("")
+            print("[--APPLY_CONFIG--]")
             for e in entries:
-                print(e)
+                print("[Entry]:", e)
 
             self.targetWeights.blockSignals(True)
 
@@ -1038,9 +1059,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             # restore metrics
             # --------------------------------------------------
             for e in entries:
-
                 metric_key = e["base_metric"]
-
                 # ✅ key -> label
                 metric_label = METRICS.get(metric_key, {}).get(
                     "label",
@@ -1061,8 +1080,11 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
                 row.chkActive.setChecked(e.get("active", True))
 
-                row.targets = e.get("targets", [])
-                row._update_targets_button()
+                # row.targets = e.get("targets", [])
+                # row._update_targets_button()
+
+                if hasattr(row, "targetWidget"):
+                    row.targetWidget.set_targets(e.get("targets", []))
 
                 # threshold-percent
                 if "percent" in e and hasattr(row, "percentWidget"):
@@ -1130,6 +1152,9 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             "max": metric.get("max"),
             "bounce": metric.get("bounce"),
             "step_id": metric.get("step_id"),
+            # preserve_parameter
+            "parameters": metric.get("parameters", []),
+            "tolerance": metric.get("tolerance", 0.10),
         }
 
         if metric.get("plane") is not None:

@@ -201,8 +201,11 @@ class OBARayEngine:
 
             if force:
                 clear_mesh_cache()
-
             engine = build_mesh_engine(ray_targets, mesh_tolerance)
+
+            total_targets = len(engine)
+            total_tris = sum(t.get("num_tris", 0) for t in engine)
+            log.log("BVH", f"\n             Targets={total_targets}\n             Triangles={total_tris}")
             # print("[ENGINE]", trace_mode_backend, "targets=", len(ray_targets))
             # ray_multiplier = cfg.MeshRayMultiplier
 
@@ -258,13 +261,7 @@ class OBARayEngine:
         # --------------------------------------------------
         log.start("VIS", "Visualizing rays")
 
-        rm.visualize(
-            bounce_min=bounce_min,
-            bounce_max=bounce_max,
-            line_width=line_width,
-            color_by_bounce=color_by_bounce,
-            mode=run_mode,
-        )
+        rm.visualize(bounce_min=bounce_min, bounce_max=bounce_max, line_width=line_width, color_by_bounce=color_by_bounce, mode=run_mode)
 
         # --------------------------------------------------
         # 6. Visualisera surface normals (VIEW OVERLAY)
@@ -290,6 +287,13 @@ class OBARayEngine:
         #     )
 
         log.end("VIS")
+
+        # from .oba_ray_trace import _LOG_PROFILE
+
+        # log.log("TRACE_EMITTERS", f"\n           BBox     = {_LOG_PROFILE['bbox']:.4f} s")
+        # log.log("TRACE_EMITTERS", f"\n           Intersect= {_LOG_PROFILE['intersect']:.4f} s")
+        # log.log("TRACE_EMITTERS", f"\n           ArgMin   = {_LOG_PROFILE['argmin']:.4f} s")
+
         log.end("TOTAL")
         log.flush("ActiveRays: " + str(len(rm.get_all_rays())))
         log.clear()

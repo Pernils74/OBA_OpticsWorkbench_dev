@@ -59,34 +59,14 @@ class OBARayConfig(OBAElementProxy):
         #     default="Mesh",
         # )
 
-        self._ensure_bool(
-            obj,
-            "DisableDebounce",
-            "TraceSettings",
-            default=False,
-        )
+        self._ensure_bool(obj, "DisableDebounce", "TraceSettings", default=False)
 
-        self._ensure_bool(
-            obj,
-            "ShowLog",
-            "TraceSettings",
-            default=False,
-        )
+        self._ensure_bool(obj, "ShowLog", "TraceSettings", default=False)
 
         # -------- Mesh --------
-        self._ensure_float(
-            obj,
-            "MeshTolerance",
-            "MeshSettings",
-            default=50.0,
-        )
+        self._ensure_float(obj, "MeshTolerance", "MeshSettings", default=50.0)
 
-        self._ensure_int(
-            obj,
-            "MeshRayMultiplier",
-            "MeshSettings",
-            default=5,
-        )
+        self._ensure_int(obj, "MeshRayMultiplier", "MeshSettings", default=5)
 
         # -------- Visualization --------
         self._ensure_bool(obj, "SceneIsolation", "Visualization", False)

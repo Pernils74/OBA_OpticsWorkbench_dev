@@ -479,6 +479,9 @@ class OptimizationWorker(QtCore.QObject):
         params = {}
 
         step_ratio = 0.15  # ±15% av hela parameterns range
+        # --- NYTT: Definiera ett stenhårt minsta steg (t.ex. 0.001 eller 0.0001) ---
+        # Ändra detta steg beroende på hur fin precision du faktiskt behöver i din sketch
+        PRECISION_STEP = 0.0001
 
         best_params = None
 
@@ -510,8 +513,20 @@ class OptimizationWorker(QtCore.QObject):
                 lo2 = max(lo, prev - span)
                 hi2 = min(hi, prev + span)
 
-            params[name] = trial.suggest_float(name, lo2, hi2)
+            # --- MODIFIERAD RAD: Tvinga Optuna att hålla sig till fasta steg ---
+            # Genom att lägga till step=PRECISION_STEP tvingas Optuna att klippa bruset.
+            # Vi avrundar även lo2 och hi2 till samma precision för att undvika att gränserna krockar.
+            lo2_rounded = round(lo2, 4)
+            hi2_rounded = round(hi2, 4)
 
+            # Om gränserna blir identiska efter avrundning, säkra ett litet spann
+            if lo2_rounded >= hi2_rounded:
+                hi2_rounded = lo2_rounded + PRECISION_STEP
+            suggested_val = trial.suggest_float(name, lo2_rounded, hi2_rounded, step=PRECISION_STEP)
+
+            # Spara det rena, avklippta värdet i parameterträdet
+            params[name] = round(suggested_val, 5)
+            # params[name] = trial.suggest_float(name, lo2, hi2)
         return params
 
     def _create_sampler(self, config):

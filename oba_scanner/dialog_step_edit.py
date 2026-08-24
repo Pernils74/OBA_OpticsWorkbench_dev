@@ -77,7 +77,7 @@ class StepEditDialog(QtWidgets.QDialog):
 
         self.angle = QtWidgets.QSpinBox()
         self.angle.setRange(1, 360)
-        self.angle.setValue(8)
+        self.angle.setValue(4)
 
         self.rf = QtWidgets.QDoubleSpinBox()
         self.rf.setRange(0, 9999)
@@ -90,7 +90,7 @@ class StepEditDialog(QtWidgets.QDialog):
 
         self.rs = QtWidgets.QSpinBox()
         self.rs.setRange(1, 2000)
-        self.rs.setValue(4)
+        self.rs.setValue(6)
 
         self.rotAxis = QtWidgets.QComboBox()
         self.rotAxis.addItems(["X", "Y", "Z"])

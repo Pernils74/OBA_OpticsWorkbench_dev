@@ -3,7 +3,8 @@
 
 import json
 import math
-from pydoc import doc
+
+
 import time
 
 
@@ -17,6 +18,19 @@ from oba_rayengine.oba_ray_engine import OBARayEngine
 from .scan_db import HitsDB
 
 BATCH_OFFSET_OBJ = "__OBABatchOffset__"
+
+TARGET_TYPES = {
+    "Mirror",
+    "Lens",
+    "Absorber",
+    "Detector",
+    "Grating",
+}
+
+EMITTER_TYPES = {
+    "Beam",
+    "Emitter",
+}
 
 
 # run_steps_for_batch
@@ -91,8 +105,27 @@ def dump_placement_text(obj, header=None):
 
 
 # ============================================================
-# SAFE EXPRESSION INSTALLER
+# STEP OFFSET STATE / EXPRESSION INSTALLER
 # ============================================================
+
+# Runtime-only state.  The snapshot belongs to BatchRunner, not HeatmapViewer.
+# Keyed by document + step so several viewers/documents do not share state.
+_STEP_OFFSET_STATES = {}
+
+
+def _step_state_key(step):
+    doc = getattr(step, "Document", None)
+    doc_name = getattr(doc, "Name", None) or str(id(doc))
+    return (doc_name, getattr(step, "Name", str(id(step))))
+
+
+def _get_step_state(step):
+    return _STEP_OFFSET_STATES.get(_step_state_key(step))
+
+
+def _numeric_expression(value):
+    """Return a FreeCAD expression for a length-valued numeric component."""
+    return f"{float(value):.15g} mm"
 
 
 def snapshot_placement(obj):
@@ -108,6 +141,7 @@ def snapshot_placement(obj):
         "rotation": App.Rotation(pl.Rotation),
         "expressions": {},
     }
+
     ee = obj.ExpressionEngine
     if ee:
         for path, expr in ee:
@@ -118,30 +152,260 @@ def snapshot_placement(obj):
 
 
 def clear_placement_expressions(obj):
+    """Remove all Placement expressions. Intended primarily for restore."""
     ee = obj.ExpressionEngine
     if not ee:
         return
 
-    for path, _expr in list(ee):  # list() ← viktigt
+    for path, _expr in list(ee):
         if path.startswith(".Placement"):
             obj.setExpression(path.lstrip("."), None)
 
 
-def apply_direct_offset(obj, snap, dx, dy, dz):
-    base0 = snap["base"]
-    obj.Placement.Base = App.Vector(
-        base0.x + dx,
-        base0.y + dy,
-        base0.z + dz,
-    )
+def _clear_base_expressions(obj):
+    """Remove only the three temporary Base component expressions."""
+    ee = obj.ExpressionEngine
+    if not ee:
+        return
+
+    for path, _expr in list(ee):
+        normalized = path.lstrip(".")
+        if normalized in {
+            "Placement.Base.x",
+            "Placement.Base.y",
+            "Placement.Base.z",
+        }:
+            obj.setExpression(normalized, None)
+
+
+def _original_base_expression(snap, component, value):
+    path = f"Placement.Base.{component}"
+    expr = snap["expressions"].get(path)
+
+    if expr:
+        return f"({expr}) + Step.StepOffset.{component}"
+
+    return f"{_numeric_expression(value)} + Step.StepOffset.{component}"
+
+
+def install_step_offset_expressions(step):
+    """
+    Install temporary Placement.Base expressions for all objects belonging
+    to this step.
+
+    The original Placement is snapshotted exactly once per activation.
+    The installed expressions are always derived from that snapshot and
+    Step.StepOffset.
+    """
+    if not step:
+        return []
+
+    state = _get_step_state(step)
+    if state is None:
+        state = _activate_step_state(step)
+
+    for name, obj in state["objects"].items():
+        snap = state["snapshots"][name]
+        _clear_base_expressions(obj)
+
+        base = snap["base"]
+        obj.setExpression(
+            "Placement.Base.x",
+            _original_base_expression(snap, "x", base.x),
+        )
+        obj.setExpression(
+            "Placement.Base.y",
+            _original_base_expression(snap, "y", base.y),
+        )
+        obj.setExpression(
+            "Placement.Base.z",
+            _original_base_expression(snap, "z", base.z),
+        )
+
+    return list(state["objects"].values())
+
+
+def apply_step_offset(step, offset=None, recompute=True):
+    """
+    Set the single source of truth for movement and ensure the temporary
+    expressions are installed.
+
+    `offset` is an optional App.Vector. If omitted, the current StepOffset
+    property is used unchanged.
+    """
+    if not step:
+        return []
+
+    if offset is not None:
+        step.StepOffset = App.Vector(offset.x, offset.y, offset.z)
+
+    objects = install_step_offset_expressions(step)
+
+    if recompute:
+        doc = getattr(step, "Document", None) or App.ActiveDocument
+        if doc:
+            doc.recompute()
+
+    return objects
+
+
+def _activate_step_state(step):
+    doc = getattr(step, "Document", None)
+    if not doc:
+        return {
+            "objects": {},
+            "snapshots": {},
+            "step_offset": App.Vector(0, 0, 0),
+        }
+
+    data = {}
+    try:
+        data = json.loads(getattr(step, "DataJSON", "") or "{}")
+    except Exception:
+        data = {}
+
+    label_to_name = {o.Label: o.Name for o in doc.Objects}
+    objects = {}
+
+    for lbl in (
+        data.get("move"),
+        data.get("move1"),
+        data.get("move2"),
+    ):
+        if not lbl or lbl == "none":
+            continue
+
+        name = label_to_name.get(lbl)
+        raw = doc.getObject(name) if name else None
+        obj = resolve_move_target(raw)
+
+        if obj and obj.Name not in objects:
+            objects[obj.Name] = obj
+
+    snapshots = {name: snapshot_placement(obj) for name, obj in objects.items()}
+
+    step_offset = getattr(step, "StepOffset", App.Vector(0, 0, 0))
+    state = {
+        "objects": objects,
+        "snapshots": snapshots,
+        "step_offset": App.Vector(step_offset.x, step_offset.y, step_offset.z),
+    }
+    _STEP_OFFSET_STATES[_step_state_key(step)] = state
+
+    install_step_offset_expressions(step)
+    return state
+
+
+def activate_step_offset(step):
+    """
+    Public activation entry point for clients such as HeatmapViewer.
+
+    Returns the resolved objects so the caller can update labels/UI without
+    owning any movement logic.
+    """
+    state = _get_step_state(step)
+    if state is None:
+        state = _activate_step_state(step)
+    else:
+        install_step_offset_expressions(step)
+
+    return list(state["objects"].values())
+
+
+def restore_step_state(step, recompute=True):
+    """
+    Restore the exact Placement/expression snapshot and the original
+    StepOffset captured when the step was first activated.
+
+    This is the only normal runtime path that writes Placement.Base directly.
+    """
+    if not step:
+        return
+
+    state = _get_step_state(step)
+    if state is None:
+        return
+
+    for name, snap in state["snapshots"].items():
+        obj = state["objects"].get(name)
+        if not obj:
+            continue
+
+        # Expressions must be removed before direct Placement writes.
+        clear_placement_expressions(obj)
+        obj.Placement.Base = snap["base"]
+        obj.Placement.Rotation = snap["rotation"]
+
+        for path, expr in snap["expressions"].items():
+            obj.setExpression(path, expr)
+
+    step.StepOffset = App.Vector(state["step_offset"].x, state["step_offset"].y, state["step_offset"].z)
+
+    if recompute:
+        doc = getattr(step, "Document", None) or App.ActiveDocument
+        if doc:
+            doc.recompute()
+
+
+def clear_step_offset_state(step):
+    """Restore and forget runtime state for a step."""
+    if not step:
+        return
+    restore_step_state(step)
+    _STEP_OFFSET_STATES.pop(_step_state_key(step), None)
+
+
+def restore_all_step_states(doc=None, recompute=True, forget=True):
+    """Restore every active StepOffset state belonging to a document."""
+    doc = doc or App.ActiveDocument
+    if not doc:
+        return
+
+    keys = [key for key in list(_STEP_OFFSET_STATES) if key[0] == getattr(doc, "Name", None)]
+
+    for key in keys:
+        step = doc.getObject(key[1])
+        if step:
+            restore_step_state(step, recompute=False)
+        if forget:
+            _STEP_OFFSET_STATES.pop(key, None)
+
+    if recompute:
+        doc.recompute()
+
+
+def commit_step_offset(step):
+    """
+    Explicitly make the current evaluated placement permanent.
+
+    This operation removes the temporary StepOffset expressions and resets
+    StepOffset. It does not use direct Placement writes.
+    """
+    if not step:
+        return
+
+    state = _get_step_state(step)
+    if state is None:
+        return
+
+    for obj in state["objects"].values():
+        _clear_base_expressions(obj)
+
+    step.StepOffset = App.Vector(0, 0, 0)
+
+    doc = getattr(step, "Document", None) or App.ActiveDocument
+    if doc:
+        doc.recompute()
+
+    _STEP_OFFSET_STATES.pop(_step_state_key(step), None)
 
 
 def restore_placement(obj, snap):
-    # Återställ värden först
+    """Compatibility wrapper for legacy internal callers."""
+    clear_placement_expressions(obj)
     obj.Placement.Base = snap["base"]
     obj.Placement.Rotation = snap["rotation"]
 
-    # Återställ expressions
     for path, expr in snap["expressions"].items():
         obj.setExpression(path, expr)
 
@@ -202,9 +466,7 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
         return
 
     old_run_mode = collector.RunMode
-
     collector.RunMode = "MANUAL"
-
     parsed_steps, total_iters = _parse_steps(batch)
 
     # print("[runs_steps_for_batch] TOTAL_ITERS =", total_iters)
@@ -215,13 +477,12 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
 
     label_to_name = {o.Label: o.Name for o in doc.Objects}
 
-    move_objects, placement_snaps = _prepare_move_objects(doc, parsed_steps, label_to_name)
+    move_objects, _ = _prepare_move_objects(doc, parsed_steps, label_to_name)
 
     doc.recompute()
-
     done_iters = 0
-
     trace_count = 0
+    previous_step = None
     try:
         for step, data, A, rf, rt, R in parsed_steps:
             if stop_flag_func():
@@ -230,9 +491,19 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
             if only_step_id and step.Id != only_step_id:
                 continue
 
-            step_offset = getattr(step, "StepOffset", App.Vector(0, 0, 0))  # offset utifall man har klickat i heatmap
+            # Heatmap/interactive offset is the current StepOffset.
+            step_offset = getattr(step, "StepOffset", App.Vector(0, 0, 0))
 
             moved_str, step_move_objects = _resolve_step_objects(step, data, label_to_name, move_objects)
+
+            # If another step was active, restore it before taking/using
+            # the next step's snapshot. This keeps object snapshots original.
+            if previous_step is not None and previous_step is not step:
+                restore_step_state(previous_step, recompute=False)
+
+            # BatchRunner owns activation/expression installation.
+            apply_step_offset(step, recompute=False)
+            previous_step = step
 
             plan = data.get("plan", "XY")
             rot_axis = data.get("rotAxis", "X")
@@ -252,9 +523,31 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
 
                     dx, dy, dz = _compute_offset(ai, A, radius, plan, rot_axis, rot_angle)
 
-                    # APPLY
-                    _apply_offset(step_move_objects, placement_snaps, dx, dy, dz, step_offset)
-                    doc.recompute()
+                    # APPLY: StepOffset is the only movement source.
+                    step.StepOffset = App.Vector(step_offset.x + dx, step_offset.y + dy, step_offset.z + dz)
+                    apply_step_offset(step, recompute=True)
+
+                    # world_positions = {}
+                    # for obj in step_move_objects.values():
+                    #     b = obj.Placement.Base
+                    #     world_positions[obj.Name] = (
+                    #         b.x,
+                    #         b.y,
+                    #         b.z,
+                    #     )
+
+                    # first_obj = next(iter(step_move_objects.values()), None)
+                    # if first_obj:
+                    #     world_x = first_obj.Placement.Base.x
+                    #     world_y = first_obj.Placement.Base.y
+                    #     world_z = first_obj.Placement.Base.z
+                    # else:
+                    #     world_x = world_y = world_z = 0.0
+
+                    # snap = state["snapshots"][first_obj.Name]
+                    # base_x = snap["base"].x
+                    # base_y = snap["base"].y
+                    # base_z = snap["base"].z
 
                     # TRACE
                     hits = run_trace()
@@ -282,7 +575,10 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
 
     finally:
         db.commit()
-        _restore_all(move_objects, placement_snaps)
+        # Restore the exact state captured by BatchRunner.
+        for step, *_ in parsed_steps:
+            if _get_step_state(step) is not None:
+                restore_step_state(step, recompute=False)
         doc.recompute()
 
         _trigger_ray_engine(reason="batch_finished", force=True)
@@ -342,6 +638,21 @@ def _resolve_step_objects(step, data, label_to_name, move_objects):
     return moved_str, objs
 
 
+# def _compute_offset(ai, A, radius, plan, rot_axis, rot_angle):
+#     ang = (2.0 * math.pi / A) * ai
+
+#     dx = radius * math.cos(ang)
+#     dy = radius * math.sin(ang)
+#     dz = 0.0
+
+#     if plan == "XZ":
+#         dz, dy = dy, 0.0
+#     elif plan == "YZ":
+#         dx, dy, dz = 0.0, dx, dy
+
+#     return rotate(dx, dy, dz, rot_axis, rot_angle)
+
+
 def _compute_offset(ai, A, radius, plan, rot_axis, rot_angle):
     ang = (2.0 * math.pi / A) * ai
 
@@ -355,46 +666,11 @@ def _compute_offset(ai, A, radius, plan, rot_axis, rot_angle):
         dx, dy, dz = 0.0, dx, dy
 
     return rotate(dx, dy, dz, rot_axis, rot_angle)
-
-
-def _compute_offset(ai, A, radius, plan, rot_axis, rot_angle):
-    ang = (2.0 * math.pi / A) * ai
-
-    dx = radius * math.cos(ang)
-    dy = radius * math.sin(ang)
-    dz = 0.0
-
-    if plan == "XZ":
-        dz, dy = dy, 0.0
-    elif plan == "YZ":
-        dx, dy, dz = 0.0, dx, dy
-
-    return rotate(dx, dy, dz, rot_axis, rot_angle)
-
-
-def _apply_offset(objects, snaps, dx, dy, dz, step_offset):
-    for name, obj in objects.items():
-        apply_direct_offset(
-            obj,
-            snaps[name],
-            dx + step_offset.x,
-            dy + step_offset.y,
-            dz + step_offset.z,
-        )
-        # apply_direct_offset(obj, snaps[name], dx, dy, dz)
-
-
-def _restore_all(move_objects, snaps):
-    for name, snap in snaps.items():
-        obj = move_objects.get(name)
-        if obj:
-            App.Console.PrintLog(f"Restoring {obj.Name}\n")
-            restore_placement(obj, snap)
 
 
 def _prepare_move_objects(doc, parsed_steps, label_to_name):
+    """Resolve move targets for the batch without creating a second snapshot."""
     move_objects = {}
-    snaps = {}
 
     for _, data, *_ in parsed_steps:
         for lbl in (data.get("move"), data.get("move1"), data.get("move2")):
@@ -404,18 +680,10 @@ def _prepare_move_objects(doc, parsed_steps, label_to_name):
             raw = doc.getObject(label_to_name.get(lbl, ""))
             obj = resolve_move_target(raw)
 
-            if not obj:
-                continue
+            if obj:
+                move_objects[obj.Name] = obj
 
-            if obj.Name in move_objects:
-                continue
-
-            move_objects[obj.Name] = obj
-            snaps[obj.Name] = snapshot_placement(obj)
-
-            clear_placement_expressions(obj)
-
-    return move_objects, snaps
+    return move_objects, {}
 
 
 def run_trace():
@@ -424,52 +692,81 @@ def run_trace():
     return hits
 
 
-# def run_trace():
-#     t0 = time.perf_counter()
-#     # OBARayEngine.instance()._dirty = False
-#     # OBARayEngine.instance()._in_compute = False
-#     _trigger_ray_engine(reason="batch_trace", source=None, force=True)
-#     t1 = time.perf_counter()
-#     hits, _stats = collect_ray_hits_and_stats(mode="final")
-#     t2 = time.perf_counter()
-#     print(f"[TRACE] trigger={t1-t0:.3f}s " f"collect={t2-t1:.3f}s " f"hits={len(hits)}")
-
-#     return hits
-
-
 def store_hits(db, step_id, hits, dx, dy, dz, moved_objects_str):
+
+    doc = App.ActiveDocument
+
+    all_emitters = collect_scene_emitters(doc)
+    all_targets = collect_scene_targets(doc)
+
+    # ==========================================
+    # Initiera ALLA kombinationer med nollor
+    # ==========================================
+
     accum = {}
+
+    for target in all_targets:
+        for emitter in all_emitters:
+            accum[(target, emitter)] = {
+                "count": 0,
+                "power_in": 0.0,
+                "power_out": 0.0,
+                "absorbed_power": 0.0,
+            }
+
+    # ==========================================
+    # Lägg på riktiga träffar
+    # ==========================================
+
     for hit in hits:
+
         target = hit.get("object")
         if not target:
             continue
+
         emitter = hit.get("emitter_id") or "__UNKNOWN__"
+
         key = (target, emitter)
-        acc = accum.setdefault(
-            key,
-            {"count": 0, "power_in": 0.0, "power_out": 0.0, "absorbed_power": 0.0},
-        )
-        acc["count"] += 1
-        acc["power_in"] += hit.get("power_in") or 0.0
-        acc["power_out"] += hit.get("power_out") or 0.0
-        acc["absorbed_power"] += hit.get("absorbed_power") or 0.0
+
+        # Skydd om target/emitter inte finns i scensamlingen
+        if key not in accum:
+            accum[key] = {
+                "count": 0,
+                "power_in": 0.0,
+                "power_out": 0.0,
+                "absorbed_power": 0.0,
+            }
+
+        accum[key]["count"] += 1
+        accum[key]["power_in"] += hit.get("power_in") or 0.0
+        accum[key]["power_out"] += hit.get("power_out") or 0.0
+        accum[key]["absorbed_power"] += hit.get("absorbed_power") or 0.0
+
+    # ==========================================
+    # Bygg databasrader
+    # ==========================================
+
     rows = []
+
     for (target, emitter), info in accum.items():
-        row = (
-            step_id,
-            target,
-            emitter,
-            "",
-            moved_objects_str,
-            dx,
-            dy,
-            dz,
-            info["count"],
-            info["power_in"],
-            info["power_out"],
-            info["absorbed_power"],
+
+        rows.append(
+            (
+                step_id,
+                target,
+                emitter,
+                "",
+                moved_objects_str,
+                dx,
+                dy,
+                dz,
+                info["count"],
+                info["power_in"],
+                info["power_out"],
+                info["absorbed_power"],
+            )
         )
-        rows.append(row)
+
     if rows:
         db.write_hits_batch(rows)
         db.flush_if_needed()
@@ -478,6 +775,29 @@ def store_hits(db, step_id, hits, dx, dy, dz, moved_objects_str):
 # ============================================================
 # UTILS
 # ============================================================
+
+
+def collect_scene_targets(doc):
+    targets = []
+    for obj in doc.Objects:
+        otype = getattr(obj, "OpticalType", None)
+        if otype not in TARGET_TYPES:
+            continue
+        if not obj.ViewObject.Visibility:
+            continue
+        targets.append(obj.Name)
+    return targets
+
+
+def collect_scene_emitters(doc):
+    emitters = []
+    for obj in doc.Objects:
+        if getattr(obj, "OpticalType", None) not in EMITTER_TYPES:
+            continue
+        if hasattr(obj, "ViewObject") and not obj.ViewObject.Visibility:
+            continue
+        emitters.append(obj.Name)
+    return emitters
 
 
 def find_batch_object(doc):
