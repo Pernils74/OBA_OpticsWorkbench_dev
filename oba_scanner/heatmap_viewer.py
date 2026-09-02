@@ -10,16 +10,15 @@ from PySide.QtWidgets import QSizePolicy
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from mpl_toolkits.mplot3d import Axes3D
 
 from .scan_db import HitsDB, get_doc_db_path
 
+from oba_objects.oba_base import _trigger_ray_engine
+from oba_rayengine.oba_ray_analyser import collect_ray_hits_and_stats
 
 from .batch_runner import (
     apply_step_offset,
     restore_all_step_states,
-    commit_step_offset,
-    run_trace,
     store_hits,
     find_batch_object,
     find_step_by_id,
@@ -39,11 +38,16 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         self.db = HitsDB(get_doc_db_path())
         self._last_mtime = None
 
+        self._origin_offset = None
+        self._commit_requested = False  # sätta via knappen "Comitt and Close"
+
         self.emitter_checks = {}
-        self.profile_mode = "profile"  # Är för 2d profileplotten
-        # senare: "hist", "scatter", "fft" etc
         self._current_moved_objects = ""
+
+        self._moved_objects = []
+
         self._click_busy = False
+        self._cancel = False
 
         self._build_ui()
 
@@ -92,7 +96,6 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
 
         form.addRow(db_row)
 
-        # --------------------------------------------------
         # Progress
         # --------------------------------------------------
         self.prog = QtWidgets.QProgressBar()
@@ -252,7 +255,6 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         try:
             doc = App.ActiveDocument
             batch = find_batch_object(doc)
-
             if not batch:
                 QtWidgets.QMessageBox.warning(self, "Run", "No BatchGroup found")
                 return
@@ -262,37 +264,28 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
             if not step_obj:
                 return
 
-            desired_offset = App.Vector(
-                step_obj.StepOffset.x,
-                step_obj.StepOffset.y,
-                step_obj.StepOffset.z,
-            )
+            desired_offset = App.Vector(step_obj.StepOffset.x, step_obj.StepOffset.y, step_obj.StepOffset.z)
 
             self.prog.setValue(0)
             self.lbl.setText("Running...")
 
-            run_steps_for_batch(
-                batch,
-                self.prog,
-                self.lbl,
-                pump_events_func=lambda: QtWidgets.QApplication.processEvents(),
-                stop_flag_func=lambda: False,
-                only_step_id=step_id,
-            )
+            run_steps_for_batch(batch, self.prog, self.lbl, pump_events_func=QtWidgets.QApplication.processEvents, stop_flag_func=lambda: self._cancel, only_step_id=step_id)
 
-            # BatchRunner restores after tracing. Re-apply the current
-            # Heatmap position through StepOffset only.
+            if self._cancel:
+                self.lbl.setText("Stopped")
+                return
+
+            # BatchRunner restores after tracing. Re-apply the heatmap position.
             step_obj.StepOffset = desired_offset
             moved_objects = apply_step_offset(step_obj)
 
-            self._current_moved_objects = ";".join(sorted(obj.Name for obj in moved_objects))
-            self.lblMoved.setText(self._current_moved_objects)
+            self._set_moved_objects(moved_objects)
             doc.recompute()
 
             try:
                 self._last_mtime = os.path.getmtime(self.db.path)
-            except Exception:
-                pass
+            except OSError:
+                self._last_mtime = None
 
             self._update_plot()
             self.lbl.setText("Done")
@@ -303,23 +296,8 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         self._cancel = True
 
     def _commit_and_close(self):
-        step_obj = find_step_by_id(
-            App.ActiveDocument,
-            self.comboStep.currentText(),
-        )
-
-        # reply = QtWidgets.QMessageBox.question(
-        #     self,
-        #     "Commit position",
-        #     "Keep current moved positions as new base?\n\n" "This will remove StepOffset expressions.  ** ÄR BORTAGET",
-        #     QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-        # )
-
-        # if reply != QtWidgets.QMessageBox.Yes:
-        #     return
-
-        # if step_obj:
-        #     commit_step_offset(step_obj)
+        step_obj = find_step_by_id(App.ActiveDocument, self.comboStep.currentText())
+        self._commit_requested = True
 
         self.close()
 
@@ -329,14 +307,21 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
 
     def _maybe_refresh(self):
         try:
-            if os.path.getmtime(self.db.path) != self._last_mtime:
-                self._last_mtime = os.path.getmtime(self.db.path)
-                self._update_plot()
-        except:
-            pass
+            mtime = os.path.getmtime(self.db.path)
+        except OSError:
+            return
+
+        if mtime != self._last_mtime:
+            self._last_mtime = mtime
+            self._update_plot()
 
     def _get_selected_emitters(self):
-        return [e for e, c in self.emitter_checks.items() if c.isChecked()]
+        return [name for name, checkbox in self.emitter_checks.items() if checkbox.isChecked()]
+
+    def _set_moved_objects(self, moved_objects):
+        self._moved_objects = list(moved_objects or [])
+        self._current_moved_objects = ";".join(sorted(obj.Name for obj in self._moved_objects))
+        self.lblMoved.setText(self._current_moved_objects or "Moved: -")
 
     # ==========================================================
     # CORE
@@ -344,13 +329,11 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
 
     def _update_plot(self):
         result = self._compute_field()
-
         if result is None:
             self._clear()
             return
 
         Xi, Yi, Vi = result
-
         self._plot_3d(Xi, Yi, Vi)
 
         if self.chkPlane2D.isChecked():
@@ -359,10 +342,10 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
             self._plot_2d_profile(Xi, Yi, Vi)
 
     def _compute_field(self):
-        target = self.comboTarget.currentData()
-        step = self.comboStep.currentText()
+        hit_target = self.comboTarget.currentData()
+        step_id = self.comboStep.currentText()
 
-        if not target or step == "<none>":
+        if not hit_target or step_id == "<none>":
             return None
 
         emitters = self._get_selected_emitters()
@@ -370,40 +353,54 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
             return None
 
         X = Y = Z = V = None
+        value_mode = self.comboValue.currentText()
 
-        for em in emitters:
-            data = self.db.read_grid(target, em, step)
+        for emitter in emitters:
+            data = self.db.read_grid(hit_target, emitter, step_id)
             if not data:
                 continue
 
-            Xi, Yi, Zi, Hi, Pin, Pout, moved = data
+            WX, WY, WZ, _Xi, _Yi, _Zi, hits, power_in, power_out, move_object, _moved_objects = data
 
-            if not Xi:  # tidig exit då det inte finns något data.
+            if not WX or not move_object:
                 continue
 
-            if self.comboValue.currentText() == "Hits":
-                val = np.asarray(Hi, float)
-            elif self.comboValue.currentText() == "Power In":
-                val = np.asarray(Pin, float)
+            if value_mode == "Hits":
+                values = np.asarray(hits, dtype=float)
+            elif value_mode == "Power In":
+                values = np.asarray(power_in, dtype=float)
             else:
-                val = np.asarray(Pout, float)
+                values = np.asarray(power_out, dtype=float)
+
+            selected_name = move_object[0]
+            selected_object = App.ActiveDocument.getObject(selected_name)
+            if selected_object is None:
+                continue
+
+            mask = np.asarray(move_object) == selected_name
+            wx = np.asarray(WX)[mask]
+            wy = np.asarray(WY)[mask]
+            wz = np.asarray(WZ)[mask]
+            values = values[mask]
 
             if V is None:
-                X, Y, Z = map(np.asarray, (Xi, Yi, Zi))
-                V = val.copy()
-                # ✅ SÄTT vilka objekt som flyttas
-                if moved:
-                    self._current_moved_objects = moved[0]
-                    self.lblMoved.setText(self._current_moved_objects)
+                X = selected_object.Placement.Base.x - wx
+                Y = selected_object.Placement.Base.y - wy
+                Z = selected_object.Placement.Base.z - wz
+                V = values.copy()
             else:
-                V += val
+                V += values
 
-        if V is None:
+        if V is None or X is None:
             return None
 
-        # projection
         plane = self.comboPlane.currentText()
-        px, py = (X, Y) if plane == "XY" else (X, Z) if plane == "XZ" else (Y, Z)
+        if plane == "XY":
+            px, py = X, Y
+        elif plane == "XZ":
+            px, py = X, Z
+        else:
+            px, py = Y, Z
 
         Xi, Yi = np.meshgrid(
             np.linspace(px.min(), px.max(), 60),
@@ -411,24 +408,30 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         )
 
         Vi = np.zeros_like(Xi)
-
         for i in range(Xi.shape[0]):
             for j in range(Xi.shape[1]):
-                d = np.sqrt((px - Xi[i, j]) ** 2 + (py - Yi[i, j]) ** 2)
-                w = 1 / (d + 1e-6)
-                Vi[i, j] = np.sum(w * V) / np.sum(w)
+                distances = np.hypot(px - Xi[i, j], py - Yi[i, j])
+                weights = 1.0 / (distances + 1e-6)
+                Vi[i, j] = np.average(V, weights=weights)
 
-        # smooth
         if self.chkSmooth.isChecked():
             Vi = self._median(Vi, 2 * self.spinSmooth.value() + 1)
 
-        # percent
         if self.chkPercent.isChecked():
-            m = np.max(Vi)
-            if m > 0:
-                Vi = Vi / m * 100
+            maximum = np.max(Vi)
+            if maximum > 0:
+                Vi = Vi / maximum * 100
 
         return Xi, Yi, Vi
+
+    def _trace_and_store(self, step_obj, dx, dy, dz):
+        _trigger_ray_engine(reason="batch_trace", source=None, force=True)
+
+        hits, _stats = collect_ray_hits_and_stats(mode="final")
+
+        store_hits(self.db, step_obj.Id, hits, dx, dy, dz, self._moved_objects)
+
+        self.db.commit()
 
     def _plot_3d(self, Xi, Yi, Vi):
         self.fig3d.clear()
@@ -447,28 +450,22 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         mid_x_idx = Vi.shape[0] // 2
         mid_y_idx = Vi.shape[1] // 2
 
-        mid_x = (xmin + xmax) * 0.5
-        mid_y = (ymin + ymax) * 0.5
+        # mid_x = (xmin + xmax) * 0.5
+        # mid_y = (ymin + ymax) * 0.5
+
+        step_obj = find_step_by_id(App.ActiveDocument, self.comboStep.currentText())
+        mid_x = step_obj.StepOffset.x
+        mid_y = step_obj.StepOffset.y
 
         # =========================
         # GHOST PLANES (TRUE PLANES)
         # =========================
 
         # --- X plane (vertical slice)
-        Yp, Zp = np.meshgrid(
-            np.linspace(ymin, ymax, 30),
-            np.linspace(zmin, zmax, 30),
-        )
+        Yp, Zp = np.meshgrid(np.linspace(ymin, ymax, 30), np.linspace(zmin, zmax, 30))
         Xp = np.full_like(Yp, mid_x)
 
-        ax.plot_surface(
-            Xp,
-            Yp,
-            Zp,
-            color="white",
-            alpha=0.15,
-            edgecolor="none",
-        )
+        ax.plot_surface(Xp, Yp, Zp, color="white", alpha=0.15, edgecolor="none")
 
         # --- Y plane (vertical slice)
         Xp, Zp = np.meshgrid(
@@ -477,14 +474,7 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         )
         Yp = np.full_like(Xp, mid_y)
 
-        ax.plot_surface(
-            Xp,
-            Yp,
-            Zp,
-            color="cyan",
-            alpha=0.15,
-            edgecolor="none",
-        )
+        ax.plot_surface(Xp, Yp, Zp, color="cyan", alpha=0.15, edgecolor="none")
 
         # =========================
         # PROFILE LINES (on surface)
@@ -495,26 +485,14 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         X_line_Y = Yi[mid_x_idx, :]
         X_line_Z = Vi[mid_x_idx, :]
 
-        ax.plot(
-            X_line_X,
-            X_line_Y,
-            X_line_Z,
-            color="white",
-            linewidth=2,
-        )
+        ax.plot(X_line_X, X_line_Y, X_line_Z, color="white", linewidth=2)
 
         # Y profile
         Y_line_X = Xi[:, mid_y_idx]
         Y_line_Y = Yi[:, mid_y_idx]
         Y_line_Z = Vi[:, mid_y_idx]
 
-        ax.plot(
-            Y_line_X,
-            Y_line_Y,
-            Y_line_Z,
-            color="cyan",
-            linewidth=2,
-        )
+        ax.plot(Y_line_X, Y_line_Y, Y_line_Z, color="cyan", linewidth=2)
 
         # =========================
         # COSMETICS
@@ -536,21 +514,26 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
 
         step_obj = find_step_by_id(App.ActiveDocument, self.comboStep.currentText())
 
-        if step_obj:
+        # spar ner orginal vid första visningen
+        if step_obj and not self._origin_offset:
+            self._origin_offset = App.Vector(step_obj.StepOffset)
 
+        if step_obj:
             if self.comboPlane.currentText() == "XY":
-                current_x = step_obj.StepOffset.x
-                current_y = step_obj.StepOffset.y
+                current_x = self._origin_offset.x - step_obj.StepOffset.x
+                current_y = self._origin_offset.y - step_obj.StepOffset.y
 
             elif self.comboPlane.currentText() == "XZ":
-                current_x = step_obj.StepOffset.x
-                current_y = step_obj.StepOffset.z
+                current_x = self._origin_offset.x - step_obj.StepOffset.x
+                current_y = self._origin_offset.z - step_obj.StepOffset.z
 
             else:
-                current_x = step_obj.StepOffset.y
-                current_y = step_obj.StepOffset.z
+                current_x = self._origin_offset.y - step_obj.StepOffset.y
+                current_y = self._origin_offset.z - step_obj.StepOffset.z
 
-            ax.scatter(current_x, current_y, s=120, color="red", edgecolors="black", label="Current")
+            # ax.scatter(self._current_heatmap_x, self._current_heatmap_y, s=120, color="red", edgecolors="black", label="Start")
+
+            ax.scatter(current_x, current_y, s=120, color="red", edgecolors="black", label="Start")
         if hasattr(self, "_max_x"):
             ax.scatter(self._max_x, self._max_y, s=250, marker="*", color="yellow", edgecolors="black", label="Max")
 
@@ -582,62 +565,33 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         self.canvas2d.draw_idle()
 
     def _on_2d_click(self, event):
+        if self._click_busy:
+            return
+        if event.inaxes is None or not self.chkPlane2D.isChecked():
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+
+        self._click_busy = True
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         self.setEnabled(False)
 
         try:
-            if event.inaxes is None or not self.chkPlane2D.isChecked():
-                return
-
-            x = event.xdata
-            y = event.ydata
-            if x is None or y is None:
-                return
-
-            plane = self.comboPlane.currentText()
-            if plane == "XY":
-                dx, dy, dz = x, y, 0.0
-            elif plane == "XZ":
-                dx, dy, dz = x, 0.0, y
-            else:
-                dx, dy, dz = 0.0, x, y
-
-            doc = App.ActiveDocument
-            if not doc:
-                return
-
-            step_obj = find_step_by_id(doc, self.comboStep.currentText())
-            if not step_obj:
-                return
-
-            # HeatmapViewer changes only StepOffset. BatchRunner owns all
-            # object resolution, snapshots and Placement expressions.
-            step_obj.StepOffset = App.Vector(dx, dy, dz)
-            moved_objects = apply_step_offset(step_obj)
-
-            self._current_moved_objects = ";".join(sorted(obj.Name for obj in moved_objects))
-            self.lblMoved.setText(self._current_moved_objects)
-
-            hits = run_trace()
-            store_hits(
-                self.db,
-                step_obj.Id,
-                hits,
-                dx,
-                dy,
-                dz,
-                self._current_moved_objects,
-            )
-            self.db.commit()
+            step_obj, dx, dy, dz = self._apply_heatmap_position(event.xdata, event.ydata)
+            self._trace_and_store(step_obj, dx, dy, dz)
             self._update_plot()
-
         finally:
             self.setEnabled(True)
             QtWidgets.QApplication.restoreOverrideCursor()
             self._click_busy = False
 
-    def _move_to_offset(self, x, y):
+    def _apply_heatmap_position(self, x, y):
+
+        # self._current_heatmap_x = x
+        # self._current_heatmap_y = y
+
         plane = self.comboPlane.currentText()
+
         if plane == "XY":
             dx, dy, dz = x, y, 0.0
         elif plane == "XZ":
@@ -645,36 +599,22 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         else:
             dx, dy, dz = 0.0, x, y
 
-        self._current_dx = dx
-        self._current_dy = dy
-        self._current_dz = dz
+        step_obj = find_step_by_id(
+            App.ActiveDocument,
+            self.comboStep.currentText(),
+        )
 
-        doc = App.ActiveDocument
-        if not doc:
-            return
+        default_offset = step_obj.StepOffset
 
-        step_obj = find_step_by_id(doc, self.comboStep.currentText())
-        if not step_obj:
-            return
+        dx = default_offset.x - dx
+        dy = default_offset.y - dy
+        dz = default_offset.z - dz
 
         step_obj.StepOffset = App.Vector(dx, dy, dz)
         moved_objects = apply_step_offset(step_obj)
+        self._set_moved_objects(moved_objects)
 
-        self._current_moved_objects = ";".join(sorted(obj.Name for obj in moved_objects))
-        self.lblMoved.setText(self._current_moved_objects)
-
-        hits = run_trace()
-        store_hits(
-            self.db,
-            step_obj.Id,
-            hits,
-            dx,
-            dy,
-            dz,
-            self._current_moved_objects,
-        )
-        self.db.commit()
-        self._update_plot()
+        return step_obj, dx, dy, dz
 
     def _goto_maximum(self):
 
@@ -690,7 +630,10 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         self._max_y = y
 
         print(f"[MAX] X={x:.3f} " f"Y={y:.3f} " f"V={float(Vi[idx]):.3f}")
-        self._move_to_offset(x, y)
+
+        step_obj, dx, dy, dz = self._apply_heatmap_position(x, y)
+        self._trace_and_store(step_obj, dx, dy, dz)
+        self._update_plot()
 
     # ==========================================================
     def _median(self, data, k):
@@ -711,12 +654,13 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
     def closeEvent(self, event):
         try:
             # BatchRunner owns the snapshots and the restore operation.
-            restore_all_step_states(App.ActiveDocument, recompute=True)
+            if not self._commit_requested:
+                restore_all_step_states(App.ActiveDocument, recompute=True)
 
         except Exception as e:
             App.Console.PrintError(f"Restore failed: {e}\n")
 
-        self.db.close()
+        # self.db.close()
         super().closeEvent(event)
 
 

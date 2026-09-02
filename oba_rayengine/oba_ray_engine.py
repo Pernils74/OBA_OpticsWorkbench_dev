@@ -101,7 +101,7 @@ class OBARayEngine:
 
         # fallback (om ingen config)
         if not cfg:
-            print("[obarrayenigen finns inte och det är nog preview mode]")
+            # print("[obarrayenigen finns inte och det är nog preview mode]")
             if force:
                 self._run(force=True)
             else:

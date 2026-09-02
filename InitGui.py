@@ -127,13 +127,43 @@ if IS_ACTIVE:
                 pixmap=get_icon("oba_optical_object.svg"),
             )
 
-            # hot_reload.register_command(
-            #     command="OBA_CreateMirrorBuilder",
-            #     impl_module="oba_objects.oba_mirrorbuilder",
-            #     menu="Mirror builder",
-            #     tooltip="Mirror builder",
-            #     pixmap=get_icon("oba_mirrorbuilder.svg"),
-            # )
+            hot_reload.register_command(
+                command="OBA_CreateEllipsoid",
+                impl_module="oba_toolbox.oba_ellipsoid",
+                menu="Ellipsoid builder",
+                tooltip="Ellipsoid builder",
+                pixmap=get_icon("oba_mirrorbuilder2.svg"),
+            )
+            hot_reload.register_command(
+                command="OBA_CreateEllipsoid_old",
+                impl_module="oba_toolbox.oba_ellipsoid_copy",
+                menu="Ellipsoid builder OLD",
+                tooltip="Ellipsoid builder OLD",
+                pixmap=get_icon("oba_mirrorbuilder2.svg"),
+            )
+
+            hot_reload.register_command(
+                command="OBA_CreateMainMirror",
+                impl_module="oba_toolbox.oba_main_mirror",
+                menu="Main mirror builder",
+                tooltip="Main mirror builder",
+                pixmap=get_icon("oba_mirrorbuilder2.svg"),
+            )
+
+            hot_reload.register_command(
+                command="OBA_CreateComponentMirror",
+                impl_module="oba_toolbox.oba_component_mirror",
+                menu="Component mirror builder",
+                tooltip="Component mirror builder",
+                pixmap=get_icon("oba_mirrorbuilder2.svg"),
+            )
+            hot_reload.register_command(
+                command="OBA_CreateLightDome",
+                impl_module="oba_toolbox.oba_light_dome",
+                menu="Light dome builder",
+                tooltip="Light dome builder",
+                pixmap=get_icon("oba_mirrorbuilder2.svg"),
+            )
 
             # hot_reload.register_command(
             #     command="OBA_CreateLensBuilder",
@@ -319,6 +349,11 @@ if IS_ACTIVE:
                 SEP(),
                 "ShowOptimizeDialog",
                 SEP(),
+                "OBA_CreateEllipsoid",
+                "OBA_CreateEllipsoid_old",
+                "OBA_CreateMainMirror",
+                "OBA_CreateComponentMirror",
+                "OBA_CreateLightDome",
                 SEP(),
                 "OBA_ShowBatchDialog",
                 "OBA_ShowXYZLiveList",

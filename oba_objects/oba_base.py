@@ -1,4 +1,4 @@
-# oba_ray_base.py
+# oba_base.py
 
 # Document
 #  ├─ OBAElementProxy        ← optisk logik

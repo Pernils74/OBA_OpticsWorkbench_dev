@@ -70,10 +70,15 @@ class HitsDB:
         c.execute("""
             CREATE TABLE IF NOT EXISTS hits (
                 step_id TEXT,
-                target_object TEXT,
+                hit_target TEXT,
+                move_target TEXT,
                 emitter_id TEXT,
                 optical_type TEXT,
                 moved_objects TEXT,
+                wx REAL,
+                wy REAL,
+                wz REAL,
+
                 x REAL,
                 y REAL,
                 z REAL,
@@ -83,8 +88,12 @@ class HitsDB:
                 absorbed_power REAL,
                 PRIMARY KEY (
                     step_id,
-                    target_object,
+                    hit_target,
+                    move_target,                    
                     emitter_id,
+                    optical_type,
+                    moved_objects,
+                    wx, wy, wz,
                     x, y, z
                 )
             )
@@ -105,14 +114,18 @@ class HitsDB:
 
         fixed_rows = []
         for r in rows:
-            step_id, target, emitter, optical, moved, x, y, z, hits, pin, pout, absorbed = r
+            step_id, hit_target, move_target, emitter, opticalType, moved_objects_str, wx, wy, wz, x, y, z, hits, pin, pout, absorbed = r
             fixed_rows.append(
                 (
                     step_id,
-                    target,
+                    hit_target,
+                    move_target,
                     emitter,
-                    optical,
-                    moved,
+                    opticalType,
+                    moved_objects_str,
+                    trunc(wx),
+                    trunc(wy),
+                    trunc(wz),
                     trunc(x),
                     trunc(y),
                     trunc(z),
@@ -128,21 +141,27 @@ class HitsDB:
                 """
                 INSERT INTO hits (
                     step_id,
-                    target_object,
+                    hit_target,
+                    move_target,
                     emitter_id,
                     optical_type,
                     moved_objects,
+                    wx,wy, wz,
                     x, y, z,
                     hits,
                     power_in,
                     power_out,
                     absorbed_power
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(
                     step_id,
-                    target_object,
+                    hit_target,
+                    move_target,                    
                     emitter_id,
+                    optical_type,
+                    moved_objects,
+                    wx, wy, wz,
                     x, y, z
                 )
                 DO UPDATE SET
@@ -150,7 +169,7 @@ class HitsDB:
                     power_in = excluded.power_in,
                     power_out = excluded.power_out,
                     absorbed_power = excluded.absorbed_power,
-                    moved_objects = excluded.moved_objects
+                    moved_objects = excluded.moved_objects                    
                 """,
                 fixed_rows,
             )
@@ -168,35 +187,41 @@ class HitsDB:
     # --------------------------------------------------
     # READ
     # --------------------------------------------------
-    def read_grid(self, target_object, emitter_id, step_id):
+    def read_grid(self, hit_target, emitter_id, step_id):
         with self._lock:
             cur = self.conn.execute(
                 """
-                SELECT x, y, z,
+                SELECT wx, wy, wz,
+                       x, y, z,
                        hits,
                        power_in,
                        power_out,
+                       move_target,
                        moved_objects
                 FROM hits
-                WHERE target_object=? AND emitter_id=? AND step_id=?
-                ORDER BY z, y, x
+                WHERE hit_target=? AND emitter_id=? AND step_id=?
+                ORDER BY wx, wy, wz
                 """,
-                (target_object, emitter_id, step_id),
+                (hit_target, emitter_id, step_id),
             )
             rows = cur.fetchall()
 
-        X, Y, Z, H, PIN, POUT, MOVED = [], [], [], [], [], [], []
+        WX, WY, WZ, X, Y, Z, H, PIN, POUT, MOVE_OBJECT, MOVED_OBJECTS = [], [], [], [], [], [], [], [], [], [], []
 
-        for x, y, z, h, pin, pout, moved in rows:
+        for wx, wy, wz, x, y, z, h, pin, pout, move_object, moved_objects in rows:
+            WX.append(wx)
+            WY.append(wy)
+            WZ.append(wz)
             X.append(x)
             Y.append(y)
             Z.append(z)
             H.append(h)
             PIN.append(pin)
             POUT.append(pout)
-            MOVED.append(moved)
+            MOVE_OBJECT.append(move_object)
+            MOVED_OBJECTS.append(moved_objects)
 
-        return X, Y, Z, H, PIN, POUT, MOVED
+        return WX, WY, WZ, X, Y, Z, H, PIN, POUT, MOVE_OBJECT, MOVED_OBJECTS
 
     # --------------------------------------------------
     # LIST
@@ -213,35 +238,35 @@ class HitsDB:
     def list_target_objects(self):
         with self._lock:
             cur = self.conn.execute("""
-                SELECT DISTINCT target_object
+                SELECT DISTINCT hit_target
                 FROM hits
-                ORDER BY target_object
+                ORDER BY hit_target
             """)
             return [r[0] for r in cur.fetchall()]
 
-    def list_emitters(self, target_object):
+    def list_emitters(self, hit_target):
         with self._lock:
             cur = self.conn.execute(
                 """
                 SELECT DISTINCT emitter_id
                 FROM hits
-                WHERE target_object=?
+                WHERE hit_target=?
                 ORDER BY emitter_id
                 """,
-                (target_object,),
+                (hit_target,),
             )
             return [r[0] for r in cur.fetchall()]
 
-    def get_optical_type(self, target_object):
+    def get_optical_type(self, hit_target):
         with self._lock:
             cur = self.conn.execute(
                 """
                 SELECT optical_type
                 FROM hits
-                WHERE target_object=?
+                WHERE hit_target=?
                 LIMIT 1
                 """,
-                (target_object,),
+                (hit_target,),
             )
             row = cur.fetchone()
             return row[0] if row else None

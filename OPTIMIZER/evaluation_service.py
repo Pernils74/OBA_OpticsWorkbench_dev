@@ -772,7 +772,8 @@ def metric_scanner(metric, filtered_clusters, plane, context):
     for tgt in targets:
 
         for em in db.list_emitters(tgt):
-            X, Y, Z, H, PIN, _, _ = db.read_grid(tgt, em, step_id)
+            # WX, WY, WZ, X, Y, Z, H, PIN, POUT, MOVE_OBJECT, MOVED_OBJECTS
+            WX, WY, WZ, X, Y, Z, H, PIN, POUT, MOVE_OBJECT, MOVED_OBJECTS = db.read_grid(tgt, em, step_id)
             if not X:
                 continue
 

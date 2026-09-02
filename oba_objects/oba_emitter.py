@@ -228,7 +228,8 @@ class EmitterDialog(OBABaseDialog):
         w.setProperty("binding", f"{self.obj.Name}.{prop}")
 
         # Koppla en signal för när användaren ändrar värdet manuellt i fältet
-        w.valueChanged.connect(lambda v, p=prop: setattr(self.obj, p, v))
+        w.valueChanged.connect(lambda v, p=prop: setattr(self.obj, p, v.Value))
+        # w.valueChanged.connect(lambda v, p=prop: setattr(self.obj, p, v))
 
         row.addWidget(w)
         layout.addLayout(row)
@@ -286,24 +287,6 @@ class EmitterDialog(OBABaseDialog):
         row.addWidget(w)
         layout.addLayout(row)
         return w
-
-    def _add_enum_old(self, label, prop, layout):
-        row = QtWidgets.QHBoxLayout()
-        row.addWidget(QtWidgets.QLabel(label))
-        cmb = QtWidgets.QComboBox()
-        values = getattr(self.obj, prop)
-        if isinstance(values, (list, tuple)):
-            cmb.addItems(values)
-        else:
-            prop_obj = self.obj.getPropertyByName(prop)
-            cmb.addItems(prop_obj)
-
-        cmb.setCurrentText(str(getattr(self.obj, prop)))
-        cmb.currentTextChanged.connect(lambda v, p=prop: setattr(self.obj, p, v))
-        row.addWidget(cmb)
-        layout.addLayout(row)
-        return cmb
-        # self.custom_layout.addLayout(row)
 
 
 # ============================================================
