@@ -151,8 +151,8 @@ if IS_ACTIVE:
             )
 
             hot_reload.register_command(
-                command="OBA_CreateComponentMirror",
-                impl_module="oba_toolbox.oba_component_mirror",
+                command="OBA_CreateCompMirror",
+                impl_module="oba_toolbox.oba_comp_mirror",
                 menu="Component mirror builder",
                 tooltip="Component mirror builder",
                 pixmap=get_icon("oba_mirrorbuilder2.svg"),
@@ -352,7 +352,7 @@ if IS_ACTIVE:
                 "OBA_CreateEllipsoid",
                 "OBA_CreateEllipsoid_old",
                 "OBA_CreateMainMirror",
-                "OBA_CreateComponentMirror",
+                "OBA_CreateCompMirror",
                 "OBA_CreateLightDome",
                 SEP(),
                 "OBA_ShowBatchDialog",

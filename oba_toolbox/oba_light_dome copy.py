@@ -1,6 +1,6 @@
-# oba_component_mirror_builder.py
+# oba_light_dome.py
 #
-# OBA Component Mirror
+
 #
 # Geometry:
 #   - One rectangular cube/body
@@ -43,25 +43,28 @@ from .oba_toolbox_base import (
     restore_view_provider,
 )
 
-COMPONENT_MIRROR_PROPERTIES = [
-    {"name": "Width", "type": "App::PropertyLength", "group": "Component Mirror", "default": 100.0, "doc": "Width of the cube/body along X"},
-    {"name": "Height", "type": "App::PropertyLength", "group": "Component Mirror", "default": 30.0, "doc": "Height of the cube/body along Z"},
+LIGHT_DOME_PROPERTIES = [
+    {"name": "Width", "type": "App::PropertyLength", "group": "Light Dome", "default": 100.0, "doc": "Width of the cube/body along X"},
+    {"name": "Height", "type": "App::PropertyLength", "group": "Light Dome", "default": 30.0, "doc": "Height of the cube/body along Z"},
     {"name": "A", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 40.0, "doc": "Ellipsoid semi-major axis"},
     {"name": "B", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 30.0, "doc": "Ellipsoid semi-minor radius"},
     {"name": "UseIndependentRadius3", "type": "App::PropertyBool", "group": "Ellipsoid", "default": False, "doc": "Use independent radius in Y direction"},
     {"name": "B2", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 20.0, "doc": "Independent ellipsoid Y radius"},
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 26.4575131106, "doc": "Distance from ellipsoid centre to focus"},
+    {"name": "DirectionX", "type": "App::PropertyFloat", "group": "Orientation", "default": 1.0, "doc": "Optical axis X direction"},
+    {"name": "DirectionY", "type": "App::PropertyFloat", "group": "Orientation", "default": 0.0, "doc": "Optical axis Y direction"},
+    {"name": "DirectionZ", "type": "App::PropertyFloat", "group": "Orientation", "default": 0.0, "doc": "Optical axis Z direction"},
 ]
 
 
-class OBAComponentMirror(OBAElementProxy):
+class OBALightDome(OBAElementProxy):
     def __init__(self, obj):
         self._initializing = True
         self._updating = False
         self._ellipsoid = None
 
         super().__init__(obj, use_binders=False)
-        install_properties(obj, COMPONENT_MIRROR_PROPERTIES)
+        install_properties(obj, LIGHT_DOME_PROPERTIES)
         ensure_debug_property(obj)
 
         obj.setEditorMode("FocusDistance", 1)
@@ -99,14 +102,7 @@ class OBAComponentMirror(OBAElementProxy):
         cube = make_centered_cube(width, depth, height)
 
         doc = obj.Document
-        tmp, ellipsoid = create_ellipsoid(
-            doc,
-            a,
-            b,
-            b2,
-            "_OBA_ComponentMirror_EllipsoidTmp",
-            "_OBA Component Mirror temporary ellipsoid",
-        )
+        tmp, ellipsoid = create_ellipsoid(doc, a, b, b2, "_OBA_LightDome_EllipsoidTmp", "_OBA Component Mirror temporary ellipsoid")
 
         try:
 
@@ -114,13 +110,13 @@ class OBAComponentMirror(OBAElementProxy):
             # convention used by the existing White Cell geometry.
             ellipsoid.rotate(
                 App.Vector(0.0, 0.0, 0.0),
-                App.Vector(1.0, 0.0, 0.0),
+                App.Vector(0.0, 0.0, 1.0),
                 -90.0,
             )
             ellipsoid.rotate(
                 App.Vector(0.0, 0.0, 0.0),
-                App.Vector(0.0, 0.0, 1.0),
-                -90.0,
+                App.Vector(1.0, 0.0, 0.0),
+                270.0,
             )
 
             ellipsoid.translate(App.Vector(0.0, b, 0.0))
@@ -206,14 +202,14 @@ class OBAComponentMirror(OBAElementProxy):
     def onDocumentRestored(self, obj):
         obj.Proxy = self
         self.Object = obj
-        install_properties(obj, COMPONENT_MIRROR_PROPERTIES)
+        install_properties(obj, LIGHT_DOME_PROPERTIES)
         ensure_debug_property(obj)
         obj.setEditorMode("FocusDistance", 1)
         make_calculated_length(obj, "MirrorCentreX", "X coordinate of ellipsoid centre")
         make_calculated_length(obj, "MirrorCentreZ", "Z coordinate of ellipsoid centre")
         make_optical_type(obj, "ComponentMirror")
 
-        restore_view_provider(obj, ComponentMirrorViewProvider)
+        restore_view_provider(obj, LightDomeViewProvider)
 
     def onDelete(self, obj, subelements):
         remove_objects(obj.Document, [f"{obj.Name}_DebugEllipsoid"])
@@ -226,13 +222,8 @@ class OBAComponentMirror(OBAElementProxy):
         return None
 
 
-class ComponentMirrorDialog(OBAToolboxDialogBase):
-    def __init__(
-        self,
-        obj,
-        title="Component Mirror Settings",
-        parent=None,
-    ):
+class LightDomeDialog(OBAToolboxDialogBase):
+    def __init__(self, obj, title="Component Mirror Settings", parent=None):
         super().__init__(obj, title=title, parent=parent)
 
         group = QtWidgets.QGroupBox("Component Mirror")
@@ -248,6 +239,10 @@ class ComponentMirrorDialog(OBAToolboxDialogBase):
 
         self.b2 = self._add_spin("B2", "B2", 0, 1000, "mm", form)
 
+        self.direction_x = self._add_spin("Direction X", "DirectionX", -10, 10, "mm", form)
+        self.direction_y = self._add_spin("Direction Y", "DirectionY", -10, 10, "mm", form)
+        self.direction_z = self._add_spin("Direction Z", "DirectionZ", -10, 10, "mm", form)
+
         self.c = QtWidgets.QLabel()
         self.centre_x = QtWidgets.QLabel()
         self.centre_z = QtWidgets.QLabel()
@@ -260,7 +255,7 @@ class ComponentMirrorDialog(OBAToolboxDialogBase):
         self.add_debug_checkbox()
         self.add_placement_group()
 
-        info = QtWidgets.QLabel("The component mirror consists of one ellipsoid centred in " "the cube. The ellipsoid is subtracted from the cube.")
+        info = QtWidgets.QLabel("The light dome consists of one ellipsoid centred in " "the cube. The ellipsoid is subtracted from the cube.")
         info.setWordWrap(True)
         self.custom_layout.addWidget(info)
 
@@ -309,16 +304,16 @@ class ComponentMirrorDialog(OBAToolboxDialogBase):
         return valid
 
 
-class ComponentMirrorViewProvider(OBAToolboxViewProviderBase):
-    dialog_class = ComponentMirrorDialog
+class LightDomeViewProvider(OBAToolboxViewProviderBase):
+    dialog_class = LightDomeDialog
 
     def __init__(self, vobj):
-        super().__init__(vobj, ComponentMirrorDialog)
+        super().__init__(vobj, LightDomeDialog)
 
 
-def OBA_CreateComponentMirror(
+def OBA_CreateLightDome(
     doc=None,
-    label="Component_Mirror",
+    label="Light Dome",
     width=100.0,
     height=30.0,
     a=40.0,
@@ -338,9 +333,9 @@ def OBA_CreateComponentMirror(
     if a < b:
         raise ValueError("A must be greater than or equal to B.")
 
-    obj = doc.addObject("Part::FeaturePython", "OBAComponentMirror")
+    obj = doc.addObject("Part::FeaturePython", "OBALightDome")
     obj.Label = label
-    OBAComponentMirror(obj)
+    OBALightDome(obj)
 
     obj.Width = App.Units.Quantity(f"{width} mm")
     obj.Height = App.Units.Quantity(f"{height} mm")
@@ -352,17 +347,17 @@ def OBA_CreateComponentMirror(
     obj.Placement = placement
 
     if App.GuiUp:
-        ComponentMirrorViewProvider(obj.ViewObject)
+        LightDomeViewProvider(obj.ViewObject)
 
     doc.recompute()
 
     if show_dialog:
-        ComponentMirrorDialog(obj).show()
+        LightDomeDialog(obj).show()
     return obj
 
 
 def create(doc=None, label="Component_Mirror", width=100.0, height=30.0, a=40.0, b=30.0, x=0, y=0, z=0):
-    return OBA_CreateComponentMirror(
+    return OBA_CreateLightDome(
         doc=doc,
         label=label,
         width=width,

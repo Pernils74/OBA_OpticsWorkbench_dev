@@ -4,6 +4,7 @@
 #
 
 import math
+import os
 
 import FreeCAD as App
 import FreeCADGui as Gui
@@ -15,6 +16,8 @@ from oba_objects.oba_base import (
     OBAElementProxy,
     OBAViewProviderBase,
 )
+
+BASE_PATH = os.path.dirname(__file__)
 
 
 def focus_distance(a, b):
@@ -115,21 +118,32 @@ def make_centered_cube(width, depth, height, x=0.0, y=0.0, z=0.0):
     )
 
 
-def install_property(obj, spec):
-    """Add one property from a property specification if it is missing."""
-    if not hasattr(obj, spec["name"]):
-        obj.addProperty(
-            spec["type"],
-            spec["name"],
-            spec["group"],
-            spec.get("doc", ""),
-        )
-        setattr(obj, spec["name"], spec["default"])
-
-
 def install_properties(obj, specs):
     for spec in specs:
-        install_property(obj, spec)
+
+        # 1. Guard: Skapa bara egenskapen om den inte redan finns
+        if not hasattr(obj, spec["name"]):
+            obj.addProperty(spec["type"], spec["name"], spec["group"], spec.get("doc", ""))
+
+        # 2. Guard: Sätt standardvärde ENDAST om 'default' finns i spec
+        # OCH om egenskapen är tom/nollställd (så du inte skriver över sparad data)
+        if "default" in spec:
+            current_value = getattr(obj, spec["name"])
+
+            # Kollar om värdet är oanvänt (t.ex. 0.0, None eller tom sträng) innan default sätts
+            if not current_value or current_value == 0.0:
+                setattr(obj, spec["name"], spec["default"])
+
+
+def install_properties_old(obj, specs):
+    for spec in specs:
+
+        if hasattr(obj, spec["name"]):
+            continue
+
+        obj.addProperty(spec["type"], spec["name"], spec["group"], spec.get("doc", ""))
+
+        setattr(obj, spec["name"], spec["default"])
 
 
 def make_calculated_length(obj, name, doc):
@@ -177,6 +191,36 @@ class OBAToolboxViewProviderBase(OBAViewProviderBase):
         except Exception:
             pass
 
+    def doubleClicked(self, vobj):
+        try:
+            print("[OBA] doubleClicked:", vobj.Object.Name)
+
+            if hasattr(self, "dialog_class") and self.dialog_class:
+                dlg = self.dialog_class(vobj.Object)
+                dlg.show()
+            else:
+                print("[OBA] missing dialog_class")
+            return True  # ✅ ALLTID TRUE
+
+        except Exception as e:
+            App.Console.PrintError(f"[OBA] doubleClick error: {e}\n")
+            return True  # ✅ stoppa fallback
+
+    def getIcon(self):
+        try:
+            obj = self.Object
+            ot = getattr(obj, "OpticalType", "").lower()
+            if not ot:
+                return ""
+
+            # print("ikooon", ot)
+            path = os.path.join(BASE_PATH, "..", "icons", f"oba_{ot}.svg")
+            if os.path.exists(path):
+                return path
+        except Exception:
+            pass
+        return ""
+
     def onDocumentRestored(self, vobj):
         super().onDocumentRestored(vobj)
         self.dialog_class = type(self).dialog_class
@@ -218,6 +262,25 @@ class OBAToolboxDialogBase(OBABaseDialog):
         w.setProperty("rawValue", float(getattr(self.obj, prop)))
         w.setProperty("binding", f"{self.obj.Name}.{prop}")
         w.valueChanged.connect(lambda v, p=prop: setattr(self.obj, p, v.Value))
+        layout.addRow(label, w)
+        return w
+
+    def _add_spin_new(self, label, prop, mn, mx, unit, layout):
+        w = Gui.UiLoader().createWidget("Gui::QuantitySpinBox")
+
+        w.setProperty("minimum", mn)
+        w.setProperty("maximum", mx)
+        w.setProperty("unit", unit)
+
+        # Set initial displayed value.
+        w.setProperty("rawValue", float(getattr(self.obj, prop)))
+
+        # Bind to the FreeCAD property.
+        w.setProperty("binding", f"{self.obj.Name}.{prop}")
+
+        # User edits -> FreeCAD property.
+        w.valueChanged.connect(lambda v, p=prop: setattr(self.obj, p, v.Value))
+
         layout.addRow(label, w)
         return w
 
@@ -319,3 +382,32 @@ def restore_view_provider(obj, view_provider_cls):
     else:
         obj.ViewObject.Proxy.onDocumentRestored(obj.ViewObject)
     obj.ViewObject.update()
+
+
+# class OBADeleteObserver:
+#     def slotDeletedObject(self, document, object_name):
+#         if not object_name.endswith("_CompMirror"):
+#             return
+
+#         internal_name = f"{object_name}_Internal"
+#         internal = document.getObject(internal_name)
+
+#         if internal is not None:
+#             App.Console.PrintMessage(f"[OBA] Delete cleanup: {internal_name}\n")
+#             document.removeObject(internal_name)
+
+
+# _delete_observer = None
+
+
+# def _install_delete_observer():
+#     global _delete_observer
+
+#     if _delete_observer is None:
+#         _delete_observer = OBADeleteObserver()
+#         App.addDocumentObserver(_delete_observer)
+
+# _install_delete_observer()
+
+# _delete_observer = OBADeleteObserver()
+# App.addDocumentObserver(_delete_observer)
