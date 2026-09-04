@@ -28,24 +28,6 @@ from .oba_toolbox_base import (
 # ============================================================
 
 
-# ELLIPSOID_PROPERTIES = [
-#     {"name": "A", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 40.0, "doc": "Semi-major axis"},
-#     {"name": "B", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 20.0, "doc": "Semi-minor axis"},
-#     {"name": "UseIndependentRadius3", "type": "App::PropertyBool", "group": "Ellipsoid", "default": False, "doc": "Use independent radius in Y direction"},
-#     {"name": "B2", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 20.0, "doc": "Independent ellipsoid Y radius"},
-#     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 26.4575131106, "doc": "Distance from ellipsoid centre to focus"},
-#     {"name": "ShowDebugEllipsoid", "type": "App::PropertyBool", "group": "Debug", "default": False, "doc": "Show ellipsoids for debugging"},
-#     # --------------------------------------------------------
-#     # Orientation.
-#     # --------------------------------------------------------
-#     {"name": "RotX", "type": "App::PropertyAngle", "group": "Orientation", "default": 1.0, "doc": "Optical axis X direction"},
-#     {"name": "RotY", "type": "App::PropertyAngle", "group": "Orientation", "default": 0.0, "doc": "Optical axis Y direction"},
-#     {"name": "RotZ", "type": "App::PropertyAngle", "group": "Orientation", "default": 0.0, "doc": "Optical axis Z direction"},
-#     {"name": "UseAimPoint", "type": "App::PropertyBool", "group": "Orientation", "default": False, "doc": "Aim the optical axis at a point"},
-#     {"name": "AimX", "type": "App::PropertyDistance", "group": "Orientation", "default": 100.0, "doc": "Target X coordinate"},
-#     {"name": "AimY", "type": "App::PropertyDistance", "group": "Orientation", "default": 0.0, "doc": "Target Y coordinate"},
-#     {"name": "AimZ", "type": "App::PropertyDistance", "group": "Orientation", "default": 0.0, "doc": "Target Z coordinate"},
-# ]
 ELLIPSOID_PROPERTIES = [
     {"name": "A", "type": "App::PropertyLength", "group": "Ellipsoid", "doc": "Semi-major axis"},
     {"name": "B", "type": "App::PropertyLength", "group": "Ellipsoid", "doc": "Semi-minor axis"},
@@ -53,6 +35,7 @@ ELLIPSOID_PROPERTIES = [
     {"name": "B2", "type": "App::PropertyLength", "group": "Ellipsoid", "doc": "Independent ellipsoid Y radius"},
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "doc": "Distance from ellipsoid centre to focus"},
     {"name": "ShowDebugEllipsoid", "type": "App::PropertyBool", "group": "Debug", "doc": "Show ellipsoid for debugging"},
+    {"name": "ShowDebugFoci", "type": "App::PropertyBool", "group": "Debug", "doc": "Show focal points"},
     # --------------------------------------------------------
     # Orientation.
     # --------------------------------------------------------
@@ -72,12 +55,16 @@ ELLIPSOID_PROPERTIES = [
 
 
 class OBAEllipsoid:
-    CHILD_OBJECTS = ("_ellipsoid",)
+    CHILD_OBJECTS = ("_ellipsoid", "_focus1", "_focus2")
 
     def __init__(self, obj):
         self._initializing = True
-        self._updating_orientation = False
+        self._updating_widgets = False
+        self._syncing_orientation = False
+
         self._ellipsoid = None
+        self._focus1 = None
+        self._focus2 = None
 
         obj.Proxy = self
         self.Object = obj
@@ -85,7 +72,7 @@ class OBAEllipsoid:
         install_properties(obj, ELLIPSOID_PROPERTIES)
 
         # ensure_debug_property(obj)
-        # make_calculated_length(obj, "FocusDistance", "Distance from ellipsoid centre to focus")
+        make_calculated_length(obj, "FocusDistance", "Distance from ellipsoid centre to focus")
 
         make_optical_type(obj, "Ellipsoid")
 
@@ -98,7 +85,6 @@ class OBAEllipsoid:
     # ========================================================
 
     def _ensure_features(self, obj):
-
         doc = obj.Document
         if doc is None:
             return
@@ -117,11 +103,54 @@ class OBAEllipsoid:
         if ellipsoid is None:
             ellipsoid = doc.addObject("Part::Ellipsoid", name)
         ellipsoid.Label = f"{obj.Label} Ellipsoid"
+
+        ellipsoid.ViewObject.Transparency = 80
+        ellipsoid.ViewObject.ShapeColor = (0.7, 0.8, 1.0)
+
         self._ellipsoid = ellipsoid
 
     # ========================================================
     #  U P D A T E   E L L I P S O I D
     # ========================================================
+
+    def focal_points_world(self, obj):
+        a = float(obj.A)
+        b = float(obj.B)
+
+        c = focus_distance(a, b)
+
+        rotation = self._ellipsoid.Placement.Rotation
+        center = self._ellipsoid.Placement.Base
+
+        f1 = center + rotation.multVec(App.Vector(0, 0, -c))
+        f2 = center + rotation.multVec(App.Vector(0, 0, +c))
+
+        return f1, f2
+
+    def show_foci(self, obj):
+        f1, f2 = self.focal_points_world(obj)
+        doc = obj.Document
+        s1 = doc.getObject(f"{obj.Name}_Focus1")
+        if s1 is None:
+            s1 = doc.addObject("Part::Sphere", f"{obj.Name}_Focus1")
+        s2 = doc.getObject(f"{obj.Name}_Focus2")
+        if s2 is None:
+            s2 = doc.addObject("Part::Sphere", f"{obj.Name}_Focus2")
+
+        s1.ViewObject.ShapeColor = (0.0, 1.0, 0.0)  # grön
+        s2.ViewObject.ShapeColor = (1.0, 0.0, 0.0)  # röd
+
+        s1.Label = f"{obj.Label} OriginFocus"
+        s2.Label = f"{obj.Label} Focus 2"
+
+        s1.Radius = 1
+        s2.Radius = 1
+
+        s1.Placement.Base = f1
+        s2.Placement.Base = f2
+
+        self._focus1 = s1
+        self._focus2 = s2
 
     def _update_ellipsoid(self, obj):
         self._ensure_features(obj)
@@ -132,10 +161,17 @@ class OBAEllipsoid:
         a = float(obj.A)
         b = float(obj.B)
 
+        # guard emot felaktiva a och b värden
+        if a <= 0 or b <= 0:
+            return
+
         if obj.UseIndependentRadius3:
             b2 = float(obj.B2)
         else:
             b2 = b
+
+        if b2 <= 0:
+            return
 
         validate_ellipsoid(a, b, b2)
         c = focus_distance(a, b)
@@ -154,51 +190,38 @@ class OBAEllipsoid:
 
         # ----------------------------------------------------
         # Part::Ellipsoid is centred on its local origin.
-        #
         # We want the OBA local origin to be one focal point.
-        #
         # Therefore move the ellipsoid centre to:
-        #
-        #     (-C, 0, 0)
-        #
+        #     (0, C, 0)
         # relative to the OBA focal-point origin.
         # ----------------------------------------------------
 
-        # Skapar en kombinerad rotation men behåller namnet rot0
         rot0 = App.Rotation(App.Vector(0, 0, 1), 90).multiply(App.Rotation(App.Vector(0, 1, 0), 90))
-
         rotx = App.Rotation(App.Vector(1, 0, 0), float(obj.RotX))
         roty = App.Rotation(App.Vector(0, 1, 0), float(obj.RotY))
         rotz = App.Rotation(App.Vector(0, 0, 1), float(obj.RotZ))
 
         rotation = rot0
-        rotation = rotation.multiply(rotx)
-        rotation = rotation.multiply(roty)
-        rotation = rotation.multiply(rotz)
+        rotation = rotx.multiply(rotation)
+        rotation = roty.multiply(rotation)
+        rotation = rotz.multiply(rotation)
 
-        # rotation = rot0.multiply(rotz.multiply(roty.multiply(rotx)))
+        # rotation = rot0
+        # rotation = rotx.multiply(rotation)
+        # rotation = roty.multiply(rotation)
+        # rotation = rotz.multiply(rotation)
 
-        # obj.Placement = App.Placement(obj.Placement.Base, rotation)
+        center_offset = rotation.multVec(App.Vector(0, 0, c))
+        ellipsoid.Placement = App.Placement(obj.Placement.Base + center_offset, rotation)
 
-        # Placement.Base
-        #     = optiskt referensläge
-        #       (fokuspunkt / komponentreferens)
+        f1, f2 = self.focal_points_world(obj)
 
-        # Placement.Rotation
-        #     = lokalt koordinatsystem
+        # print("origin =", obj.Placement.Base)
+        # print("f1     =", f1)
+        # print("f2     =", f2)
 
-        # RotX
-        # RotY
-        # RotZ
-        #     = användarvänligt sätt att styra rotationen
+        self.show_foci(obj)
 
-        # UseAimPoint
-        #     = alternativ orienteringsmodell
-
-        local_placement = App.Placement(App.Vector(0, c, 0.0), rot0)
-        # local_placement = App.Placement(App.Vector(0.0, 0.0, 0.0), rotation)
-
-        ellipsoid.Placement = obj.Placement.multiply(local_placement)
         obj.FocusDistance = c
 
     # ========================================================
@@ -208,106 +231,12 @@ class OBAEllipsoid:
     def _rebuild(self, obj):
         if getattr(self, "_initializing", False):
             return
-        a = float(obj.A)
-        b = float(obj.B)
-        if a <= 0 or b <= 0:
-            return
-        if obj.UseIndependentRadius3:
-            b2 = float(obj.B2)
-        else:
-            b2 = b
-        if b2 <= 0:
-            return
 
-        was_updating = self._updating_orientation
-        self._updating_orientation = True
-        try:
-            self._update_ellipsoid(obj)
-        finally:
-            self._updating_orientation = was_updating
+        self._update_ellipsoid(obj)
 
         obj.Document.recompute()
         self._update_debug(obj)
 
-    # ========================================================
-    #  O R I E N T A T I O N
-    # ========================================================
-
-    @staticmethod
-    def rotation_from_direction(direction):
-        """
-        Create a rotation that maps local +X onto direction.
-        """
-        return
-        direction = App.Vector(direction.x, direction.y, direction.z)
-        if direction.Length == 0:
-            raise ValueError("Direction must not be zero.")
-        direction.normalize()
-        return App.Rotation(App.Vector(1, 0, 0), direction)
-
-    # ========================================================
-
-    @classmethod
-    def rotation_from_aimpoint(cls, obj, target_point):
-        """
-        Aim from the focal point (Placement.Base)
-        towards target_point.
-        """
-        direction = target_point - obj.Placement.Base
-        return cls.rotation_from_direction(direction)
-
-    # ========================================================
-
-    @classmethod
-    def apply_orientation(cls, obj):
-
-        proxy = obj.Proxy
-        if getattr(proxy, "_updating_orientation", False):
-            return
-        proxy._updating_orientation = True
-        try:
-            # ------------------------------------------------
-            # Aim mode.
-            # ------------------------------------------------
-            if obj.UseAimPoint:
-                target = App.Vector(obj.AimX, obj.AimY, obj.AimZ)
-                rotation = cls.rotation_from_aimpoint(obj, target)
-            else:
-                direction = App.Vector(obj.RotX, obj.RotY, obj.RotZ)
-                rotation = cls.rotation_from_direction(direction)
-
-            placement = obj.Placement.copy()
-            placement.Rotation = rotation
-            obj.Placement = placement
-            cls.synchronize_direction(obj)
-
-        finally:
-            proxy._updating_orientation = False
-        # ----------------------------------------------------
-        # Main Placement has changed.
-        #
-        # Update the real Part::Ellipsoid accordingly.
-        # ----------------------------------------------------
-        proxy._update_ellipsoid(obj)
-        obj.Document.recompute()
-        proxy._update_debug(obj)
-
-    # ========================================================
-
-    @staticmethod
-    def synchronize_direction(obj):
-        """
-        Read the actual local +X axis from Placement.Rotation
-        and store it in RotX/Y/Z.
-        """
-        direction = obj.Placement.Rotation.multVec(App.Vector(1, 0, 0))
-        return
-        obj.RotX = direction.x
-        obj.RotY = direction.y
-        obj.RotZ = direction.z
-
-    # ========================================================
-    #  D E B U G
     # ========================================================
 
     def _update_debug(self, obj):
@@ -318,29 +247,70 @@ class OBAEllipsoid:
         if show_debug:
             ellipsoid.ViewObject.Visibility = True
 
+        if self._focus1:
+            self._focus1.ViewObject.Visibility = obj.ShowDebugFoci
+        if self._focus2:
+            self._focus2.ViewObject.Visibility = obj.ShowDebugFoci
+
+    def synchronize_aim_from_rotation(self, obj):
+        if self._syncing_orientation:
+            return
+        self._syncing_orientation = True
+        try:
+            f1, f2 = self.focal_points_world(obj)
+            obj.AimX = App.Units.Quantity(f"{f2.x} mm")
+            obj.AimY = App.Units.Quantity(f"{f2.y} mm")
+            obj.AimZ = App.Units.Quantity(f"{f2.z} mm")
+        finally:
+            self._syncing_orientation = False
+
+    def synchronize_rotation_from_aim(self, obj):
+
+        if self._syncing_orientation:
+            return
+        self._syncing_orientation = True
+        try:
+            target = App.Vector(float(obj.AimX), float(obj.AimY), float(obj.AimZ))
+            direction = target - obj.Placement.Base
+
+            if direction.Length == 0:
+                return
+
+            direction.normalize()
+            rot0 = App.Rotation(App.Vector(0, 0, 1), 90).multiply(App.Rotation(App.Vector(0, 1, 0), 90))
+            rotation = App.Rotation(App.Vector(0, 1, 0), direction)
+
+            print(rotation.multVec(App.Vector(1, 0, 0)))
+            print(rotation.multVec(App.Vector(0, 1, 0)))
+            print(rotation.multVec(App.Vector(0, 0, 1)))
+
+            print("X", rotation.multVec(App.Vector(1, 0, 0)))
+            print("Y", rotation.multVec(App.Vector(0, 1, 0)))
+            print("Z", rotation.multVec(App.Vector(0, 0, 1)))
+
+            # rotation = rotation.multiply(rot0)
+
+            yaw, pitch, roll = rotation.toEuler()
+
+            obj.RotX = yaw
+            obj.RotY = pitch
+            obj.RotZ = roll
+        finally:
+            self._syncing_orientation = False
+
     # ========================================================
     #  C H A N G E D
     # ========================================================
 
     def onChanged(self, obj, prop):
+
         if getattr(self, "_initializing", False):
             return
+
         # ----------------------------------------------------
         # Geometry
         # ----------------------------------------------------
         if prop in ("A", "B", "UseIndependentRadius3", "B2"):
-            a = float(obj.A)
-            b = float(obj.B)
-            if obj.UseIndependentRadius3:
-                b2 = float(obj.B2)
-            else:
-                b2 = b
-            # During creation/reload properties may temporarily
-            # become zero.
-            if a <= 0 or b <= 0:
-                return
-            if b2 <= 0:
-                return
             try:
                 self._rebuild(obj)
             except Exception as exc:
@@ -350,50 +320,32 @@ class OBAEllipsoid:
         # ----------------------------------------------------
         # Orientation.
         # ----------------------------------------------------
+
         if prop in ("RotX", "RotY", "RotZ", "UseAimPoint", "AimX", "AimY", "AimZ"):
-            a = float(obj.A)
-            b = float(obj.B)
-
-            if a <= 0 or b <= 0:
-                return
-
-            if obj.UseIndependentRadius3:
-                if float(obj.B2) <= 0:
-                    return
-
+            if obj.UseAimPoint:
+                self.synchronize_rotation_from_aim(obj)
+            else:
+                self.synchronize_aim_from_rotation(obj)
             try:
                 self._rebuild(obj)
             except Exception as exc:
                 App.Console.PrintError("[OBA] Ellipsoid orientation failed: " f"{exc}\n")
             return
+
         # ----------------------------------------------------
         # Main placement changed.
         # ----------------------------------------------------
         if prop == "Placement":
-            if getattr(self, "_updating_orientation", False):
-                return
-            a = float(obj.A)
-            b = float(obj.B)
-            if a <= 0 or b <= 0:
-                return
             try:
-                self._updating_orientation = True
                 self._update_ellipsoid(obj)
             except Exception as exc:
                 App.Console.PrintError("[OBA] Ellipsoid placement update failed: " f"{exc}\n")
-            finally:
-                self._updating_orientation = False
-
-            obj.Document.recompute()
-            self._update_debug(obj)
-            print("[rot_x ] ", obj.RotX, prop)
-
             return
 
         # ----------------------------------------------------
         # Debug visibility.
         # ----------------------------------------------------
-        if prop == "ShowDebugEllipsoid":
+        if prop in ("ShowDebugEllipsoid", "ShowDebugFoci"):
             self._update_debug(obj)
             return
 
@@ -402,25 +354,26 @@ class OBAEllipsoid:
     # ========================================================
 
     def onDocumentRestored(self, obj):
-
         obj.Proxy = self
         self.Object = obj
 
         self._initializing = True
-        self._updating_orientation = False
         self._ellipsoid = None
+        self._focus1 = None
+        self._focus2 = None
 
         install_properties(obj, ELLIPSOID_PROPERTIES)
         ensure_debug_property(obj)
+
         make_calculated_length(obj, "FocusDistance", "Distance from ellipsoid centre to focus")
+
         make_optical_type(obj, "Ellipsoid")
         self._initializing = False
         self._ensure_features(obj)
-        self._updating_orientation = True
         try:
             self.synchronize_direction(obj)
         finally:
-            self._updating_orientation = False
+            pass
         try:
             self._rebuild(obj)
         except Exception as exc:
@@ -451,6 +404,8 @@ class EllipsoidDialog(OBAToolboxDialogBase):
 
         super().__init__(obj, title=title, parent=parent)
 
+        self._updating_widgets = False
+
         group = QtWidgets.QGroupBox("Ellipsoid")
         form = QtWidgets.QFormLayout(group)
 
@@ -461,43 +416,27 @@ class EllipsoidDialog(OBAToolboxDialogBase):
         self.b2 = self._add_spin("B2", "B2", 0, 1_000_000, "mm", form)
         self.c = QtWidgets.QLabel()
         form.addRow("Focus distance C", self.c)
-        self.chkAimPoint = QtWidgets.QCheckBox("Aim at point")
-        form.addRow(self.chkAimPoint)
 
         self.add_debug_checkbox("Show debug ellipsoid")
+
+        self.show_debug = QtWidgets.QCheckBox("Show focus points (debug)")
+        form.addRow(self.show_debug)
 
         self.rot_x = self._add_spin("Rotation X", "RotX", -360, 360, "deg", form)
         self.rot_y = self._add_spin("Rotation Y", "RotY", -360, 360, "deg", form)
         self.rot_z = self._add_spin("Rotation Z", "RotZ", -360, 360, "deg", form)
 
-        self.aim_x = self._coordinate_spin(" mm")
-        self.aim_y = self._coordinate_spin(" mm")
-        self.aim_z = self._coordinate_spin(" mm")
+        self.chkAimPoint = QtWidgets.QCheckBox("Aim at point")
+        form.addRow(self.chkAimPoint)
 
-        form.addRow("Target X", self.aim_x)
-        form.addRow("Target Y", self.aim_y)
-        form.addRow("Target Z", self.aim_z)
+        self.aim_x = self._add_spin("Target X", "AimX", -1_000_000, 1_000_000, "mm", form)
+        self.aim_y = self._add_spin("Target Y", "AimY", -1_000_000, 1_000_000, "mm", form)
+        self.aim_z = self._add_spin("Target Z", "AimZ", -1_000_000, 1_000_000, "mm", form)
+
         # ----------------------------------------------------
         # Add group.
         # ----------------------------------------------------
-
         self.custom_layout.addWidget(group)
-
-        # ====================================================
-        #  I N F O
-        # ====================================================
-
-        info = QtWidgets.QLabel(
-            "The local origin is one focal point.\n\n"
-            "The optical axis is the local +X direction.\n\n"
-            "In Direction mode the optical axis direction "
-            "is entered directly.\n\n"
-            "In Aim mode the ellipsoid is rotated so that "
-            "the optical axis points from the focal point "
-            "towards the specified target coordinate."
-        )
-        info.setWordWrap(True)
-        self.custom_layout.addWidget(info)
 
         # ====================================================
         #  B U T T O N S
@@ -511,28 +450,53 @@ class EllipsoidDialog(OBAToolboxDialogBase):
         #  S I G N A L S
         # ====================================================
 
-        self.a.valueChanged.connect(self._preview)
-        self.b.valueChanged.connect(self._preview)
-        self.b2.valueChanged.connect(self._preview)
-        self.use_b2.toggled.connect(self._preview)
-        self.chkAimPoint.toggled.connect(self._update_orientation_controls)
+        self.a.valueChanged.connect(lambda value: self._set_property("A", value.Value))
+        self.b.valueChanged.connect(lambda value: self._set_property("B", value.Value))
+        self.b2.valueChanged.connect(lambda value: self._set_property("B2", value.Value))
+
+        self.rot_x.valueChanged.connect(lambda value: self._set_property("RotX", value.Value))
+        self.rot_y.valueChanged.connect(lambda value: self._set_property("RotY", value.Value))
+        self.rot_z.valueChanged.connect(lambda value: self._set_property("RotZ", value.Value))
+
+        self.aim_x.valueChanged.connect(lambda value: self._set_property("AimX", value.Value))
+        self.aim_y.valueChanged.connect(lambda value: self._set_property("AimY", value.Value))
+        self.aim_z.valueChanged.connect(lambda value: self._set_property("AimZ", value.Value))
+
+        self.show_debug.toggled.connect(lambda checked: self._set_property("ShowDebugFoci", checked))
+        self.chkAimPoint.toggled.connect(lambda checked: self._set_property("UseAimPoint", checked))
+
+        self.chkAimPoint.toggled.connect(self._update_dialog_orientation_controls)
         # ----------------------------------------------------
         # Load.
         # ----------------------------------------------------
         self.reload()
 
-    # ========================================================
-    #  C O O R D I N A T E   S P I N
-    # ========================================================
+    def _set_property(self, prop, value):
+        if self._updating_widgets:
+            return
 
-    @staticmethod
-    def _coordinate_spin(suffix):
-        spin = QtWidgets.QDoubleSpinBox()
-        spin.setDecimals(4)
-        spin.setRange(-1_000_000.0, 1_000_000.0)
-        spin.setSingleStep(1.0)
-        spin.setSuffix(suffix)
-        return spin
+        try:
+            setattr(self.obj, prop, value)
+            self._update_information()
+
+        except Exception as exc:
+            App.Console.PrintError(f"[OBA] Failed to update {prop}: {exc}\n")
+
+    def _update_information(self):
+        self.c.setText(f"{float(self.obj.FocusDistance):.4f} mm")
+
+        # f1, f2 = self.focal_points_world(self.obj)
+
+        # obj.AimX = f2.x
+        # obj.AimY = f2.y
+        # obj.AimZ = f2.z
+
+        # --------------------------------------------------------------
+        # Symmetric ellipsoid angles
+        # --------------------------------------------------------------
+        # self.left_angle.setText(f"{90 - tilt:.3f}°")
+        # self.right_angle.setText(f"{90 + tilt:.3f}°")
+        # self.b2.setEnabled(bool(self.obj.UseIndependentRadius3))
 
     # ========================================================
     #  R E L O A D
@@ -542,7 +506,7 @@ class EllipsoidDialog(OBAToolboxDialogBase):
 
         direction = self.obj.Placement.Rotation.multVec(App.Vector(1, 0, 0))
         proxy = getattr(self.obj, "Proxy", None)
-        was_updating = getattr(proxy, "_updating_orientation", False) if proxy is not None else False
+        # was_updating = getattr(proxy, "_updating_orientation", False) if proxy is not None else False
         # if proxy is not None:
         #     proxy._updating_orientation = True
         # try:
@@ -553,6 +517,8 @@ class EllipsoidDialog(OBAToolboxDialogBase):
         #     if proxy is not None:
         #         proxy._updating_orientation = was_updating
 
+        # self.c.setText(f"{float(self.obj.FocusDistance):.4f} mm")
+
         self.a.setProperty("rawValue", float(self.obj.A))
         self.b.setProperty("rawValue", float(self.obj.B))
 
@@ -562,21 +528,21 @@ class EllipsoidDialog(OBAToolboxDialogBase):
         # self.b2.setValue(float(self.obj.B2))  # funkar inte
 
         self.chkAimPoint.setChecked(bool(self.obj.UseAimPoint))
+        self.show_debug.setChecked(bool(self.obj.ShowDebugFoci))
 
         self.rot_x.setProperty("rawValue", float(self.obj.RotX))
         self.rot_y.setProperty("rawValue", float(self.obj.RotY))
         self.rot_z.setProperty("rawValue", float(self.obj.RotZ))
 
-        self.aim_x.setValue(float(self.obj.AimX))
-        self.aim_y.setValue(float(self.obj.AimY))
-        self.aim_z.setValue(float(self.obj.AimZ))
-        self.reload_placement()
+        self.aim_x.setProperty("rawValue", float(self.obj.AimX))
+        self.aim_y.setProperty("rawValue", float(self.obj.AimY))
+        self.aim_z.setProperty("rawValue", float(self.obj.AimZ))
 
+        self.reload_placement()
         # ----------------------------------------------------
         # UI.
         # ----------------------------------------------------
-
-        self._update_orientation_controls()
+        self._update_dialog_orientation_controls()
 
         self._preview()
 
@@ -584,7 +550,7 @@ class EllipsoidDialog(OBAToolboxDialogBase):
     #  O R I E N T A T I O N   C O N T R O L S
     # ========================================================
 
-    def _update_orientation_controls(self):
+    def _update_dialog_orientation_controls(self):
         use_aim = self.chkAimPoint.isChecked()
         for control in (self.rot_x, self.rot_y, self.rot_z):
             control.setVisible(not use_aim)
@@ -608,7 +574,6 @@ class EllipsoidDialog(OBAToolboxDialogBase):
             self.c.setText("Invalid: A must be ≥ B")
             self.apply_button.setEnabled(False)
             return
-
         if self.use_b2.isChecked() and self.b2.value() <= 0:
             self.c.setText("Invalid: B2 must be > 0")
             return
@@ -671,7 +636,7 @@ class EllipsoidViewProvider(OBAToolboxViewProviderBase):
         return True
 
 
-def OBA_CreateEllipsoid(doc=None, label="Ellipsoid", a=40.0, b=20.0, b2=None, rot_x=45, rot_y=45, rot_z=0, x=0, y=0, z=0, placement=None, show_dialog=True):
+def OBA_CreateEllipsoid(doc=None, label="Ellipsoid", a=40.0, b=20.0, b2=None, rot_x=0, rot_y=0, rot_z=0, x=0, y=0, z=0, placement=None, show_dialog=True):
     doc = doc or App.ActiveDocument or App.newDocument()
     if b2 is None:
         b2 = b
@@ -685,17 +650,8 @@ def OBA_CreateEllipsoid(doc=None, label="Ellipsoid", a=40.0, b=20.0, b2=None, ro
 
     proxy = OBAEllipsoid(obj)
 
-    # --------------------------------------------------------
-    # Set all properties before allowing any rebuild.
-    # --------------------------------------------------------
-
-    # proxy._initializing = True
-    # App.Console.PrintMessage(f"CREATE BEFORE: a={a}, b={b}\n")
-
     obj.A = App.Units.Quantity(f"{a} mm")
     obj.B = App.Units.Quantity(f"{b} mm")
-
-    # App.Console.PrintMessage(f"CREATE AFTER: A={obj.A}, B={obj.B}\n")
 
     obj.UseIndependentRadius3 = use_b2
     obj.B2 = App.Units.Quantity(f"{b2} mm")

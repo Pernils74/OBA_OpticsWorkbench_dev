@@ -550,10 +550,7 @@ class MainMirrorViewProvider(OBAToolboxViewProviderBase):
     dialog_class = MainMirrorDialog
 
     def __init__(self, vobj):
-        super().__init__(
-            vobj,
-            MainMirrorDialog,
-        )
+        super().__init__(vobj, MainMirrorDialog)
 
     def attach(self, vobj):
         self.ViewObject = vobj
