@@ -1,4 +1,9 @@
 # -*- coding: utf-8 -*-
+# import optuna.visualization as vis
+# optuna.visualization.plot_parallel_coordinate()
+# optuna.visualization.plot_param_importances()
+
+
 import optuna
 import FreeCAD as App
 

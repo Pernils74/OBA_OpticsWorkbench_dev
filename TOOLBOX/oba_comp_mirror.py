@@ -37,8 +37,11 @@ COMP_MIRROR_PROPERTIES = [
     {"name": "UseIndependentRadius3", "type": "App::PropertyBool", "group": "Ellipsoid", "default": False, "doc": "Use independent radius in Y direction"},
     {"name": "B2", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 20.0, "doc": "Independent ellipsoid Y radius"},
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 26.4575131106, "doc": "Distance from ellipsoid centre to focus"},
-    {"name": "TiltAngle", "type": "App::PropertyAngle", "group": "Ellipsoid", "default": 0.0, "doc": "Tilt angle of the ellipsoids around the Z axis"},
+    # {"name": "TiltAngle", "type": "App::PropertyAngle", "group": "Ellipsoid", "default": 0.0, "doc": "Tilt angle of the ellipsoids around the Z axis"},
     {"name": "ShowDebugEllipsoids", "type": "App::PropertyBool", "group": "Debug", "default": False, "doc": "Show ellipsoids for debugging"},
+    {"name": "PosX", "type": "App::PropertyDistance", "group": "Placement", "doc": "X coordinate"},
+    {"name": "PosY", "type": "App::PropertyDistance", "group": "Placement", "doc": "Y coordinate"},
+    {"name": "PosZ", "type": "App::PropertyDistance", "group": "Placement", "doc": "Z coordinate"},
 ]
 
 
@@ -48,12 +51,12 @@ class OBACompMirror:
     def _init_runtime_state(self):
         """
         Initialise all Python-only runtime references.
-
         These references are not persisted by FreeCAD and therefore must
         also be recreated when a document is restored.
         """
-        self._initializing = False
-        self._updating = False
+        self._initializing = True
+
+        self._rebuilding = False
 
         self._cube = None
         self._ellipsoid = None
@@ -61,18 +64,19 @@ class OBACompMirror:
 
     def __init__(self, obj):
         self._init_runtime_state()
-
         obj.Proxy = self
         self.Object = obj
+        self._dialog = None
 
-        self._initializing = True
-
-        obj.setEditorMode("Placement", 1)
+        # obj.setEditorMode("Placement", 1)
 
         install_properties(obj, COMP_MIRROR_PROPERTIES)
+
         if hasattr(obj, "FocusDistance"):
-            obj.setEditorMode("FocusDistance", 1)
-        make_optical_type(obj, "MainMirror")
+            obj.setEditorMode("FocusDistance", 1)  # sets readonly
+
+        # make_optical_type(obj, "MainMirror")
+
         self._initializing = False
 
         App.Console.PrintMessage(f"[OBA] Proxy attached: {obj.Name}\n")
@@ -211,71 +215,68 @@ class OBACompMirror:
         """
         Rebuild the complete Comp Mirror geometry immediately.
         """
-        if self._updating:
+        if self._rebuilding:
             return
-        self._updating = True
+
+        self._rebuilding = True
         try:
-            if self._initializing:
-                return
-            required = (
-                "Width",
-                "Height",
-                "A",
-                "B",
-            )
 
-            for name in required:
-                if not hasattr(obj, name):
-                    return
+            # required = ("Width", "Height", "A", "B")
 
-            self._ensure_features(obj)
+            # for name in required:
+            #     if not hasattr(obj, name):
+            #         return
+
+            # self._ensure_features(obj)
             self._update_cube(obj)
             self._update_ellipsoid(obj)
+
             self._update_debug_visibility(obj)
 
             c = focus_distance(float(obj.A), float(obj.B))
-
             obj.FocusDistance = c
+
             obj.Document.recompute()
         finally:
-            self._updating = False
+            # dialog = getattr(self, "_dialog", None)
+            # if dialog:
+            #     dialog.refresh_from_object()
+
+            self._rebuilding = False
 
     # ------------------------------------------------------------------
     # Property changes
     # ------------------------------------------------------------------
 
     def onChanged(self, obj, prop):
-        if getattr(self, "_initializing", False):
+
+        if prop in ("Shape", "Label"):  # Early exits on special props
             return
-        if getattr(self, "_updating", False):
+
+        if self._initializing:
             return
+
+        if self._rebuilding:
+            return
+
         App.Console.PrintMessage(f"onChanged: {prop}\n")
-        rebuild_properties = {
-            "Width",
-            "Height",
-            "A",
-            "B",
-            "UseIndependentRadius3",
-            "B2",
-            "TiltAngle",
-            "ShowDebugEllipsoids",
-        }
-        if prop in rebuild_properties:
+
+        if prop in {"Width", "Height", "A", "B", "UseIndependentRadius3", "B2", "ShowDebugEllipsoids"}:
             try:
                 self._rebuild(obj)
             except Exception as exc:
                 App.Console.PrintError("[OBA] Comp Mirror rebuild failed: " f"{exc}\n")
-        elif prop == "Placement":
+
+        if prop in ("Placement"):
             try:
-                # Construction objects are direct document objects,
-                # so there is no _internal.Placement to update.
-                #
-                # Their placements are updated explicitly here.
-                self._update_cube(obj)
-                self._update_ellipsoid(obj)
-                obj.Document.recompute()
+                self._rebuild(obj)
             except Exception as exc:
                 App.Console.PrintError("[OBA] Comp Mirror placement update failed: " f"{exc}\n")
+
+        # update dialog if its open
+        dialog = getattr(self, "_dialog", None)
+        if dialog:
+            dialog.refresh_from_object()
 
     # ------------------------------------------------------------------
     # Document restore
@@ -287,16 +288,18 @@ class OBACompMirror:
         FreeCAD construction objects.
         """
         self._init_runtime_state()
-        self._initializing = True
+
         obj.Proxy = self
         self.Object = obj
+
         obj.setEditorMode("Placement", 1)
+
         try:
             install_properties(obj, COMP_MIRROR_PROPERTIES)
             if hasattr(obj, "FocusDistance"):
                 obj.setEditorMode("FocusDistance", 1)
 
-            make_optical_type(obj, "CompMirror")
+            # make_optical_type(obj, "CompMirror")
             self._ensure_features(obj)
         finally:
             self._initializing = False
@@ -306,16 +309,11 @@ class OBACompMirror:
             App.Console.PrintError("[OBA] Comp Mirror restore rebuild failed: " f"{exc}\n")
         restore_view_provider(obj, CompMirrorViewProvider)
 
-    # def onDelete(self, obj, subelements):
-    #     App.Console.PrintMessage("[OBA] onDelete called\n")
-    #     print("[OBA] onDelete called\n")
-    #     return True
-
     def __getstate__(self):
         return None
 
     def __setstate__(self, state):
-        self._init_runtime_state()
+        return None
 
 
 # ======================================================================
@@ -328,7 +326,10 @@ class CompMirrorDialog(OBAToolboxDialogBase):
     def __init__(self, obj, title="Main Mirror Main Mirror Settings", parent=None):
         super().__init__(obj, title=title, parent=parent)
 
-        self._updating_widgets = False
+        # self.obj.Proxy._dialog = self  # registrering av dialog på objektet
+
+        self._refreshing_ui = False
+
         group = QtWidgets.QGroupBox("Main Mirror Main Mirror Parameters")
         form = QtWidgets.QFormLayout(group)
 
@@ -339,19 +340,24 @@ class CompMirrorDialog(OBAToolboxDialogBase):
         self.use_b2 = QtWidgets.QCheckBox("Use independent Radius3")
         form.addRow(self.use_b2)
         self.b2 = self._add_spin("B2", "B2", 0, 1000, "mm", form)
-        self.tiltangle = self._add_spin("Tilt angle", "TiltAngle", -90, 90, "°", form)
+        # self.tiltangle = self._add_spin("Tilt angle", "TiltAngle", -90, 90, "°", form)
         self.c = QtWidgets.QLabel()
-        self.focus1 = QtWidgets.QLabel()
-        self.focus2 = QtWidgets.QLabel()
 
+        # info text
         form.addRow("Focus distance C", self.c)
-        form.addRow("Ellipsoid 1 focus X", self.focus1)
-        form.addRow("Ellipsoid 2 focus X", self.focus2)
 
         self.debug_show = QtWidgets.QCheckBox("Show ellipsoids (debug)")
         form.addRow(self.debug_show)
         self.custom_layout.addWidget(group)
-        self.add_placement_group()
+
+        # group = QtWidgets.QGroupBox("Placement")
+        # form = QtWidgets.QFormLayout(group)
+        # self.pos_x = self._add_spin("X", "PosX", -1_000_000, 1_000_000, "mm", form)
+        # self.pos_y = self._add_spin("Y", "PosY", -1_000_000, 1_000_000, "mm", form)
+        # self.pos_z = self._add_spin("Z", "PosZ", -1_000_000, 1_000_000, "mm", form)
+        # self.custom_layout.addWidget(group)
+        # self.add_placement_group()
+
         info = QtWidgets.QLabel("The two ellipsoids are mirrored around the centre " "plane of the Main Mirror.\n\n" "TiltAngle is the symmetric tilt of the ellipsoids.")
         info.setWordWrap(True)
         self.custom_layout.addWidget(info)
@@ -363,27 +369,36 @@ class CompMirrorDialog(OBAToolboxDialogBase):
         self.a.valueChanged.connect(lambda value: self._set_property("A", value.Value))
         self.b.valueChanged.connect(lambda value: self._set_property("B", value.Value))
         self.b2.valueChanged.connect(lambda value: self._set_property("B2", value.Value))
-        self.tiltangle.valueChanged.connect(lambda value: self._set_property("TiltAngle", value.Value))
+        # self.tiltangle.valueChanged.connect(lambda value: self._set_property("TiltAngle", value.Value))
         self.use_b2.toggled.connect(self._use_b2_changed)
         self.debug_show.toggled.connect(lambda checked: self._set_property("ShowDebugEllipsoids", checked))
 
-        self.reload()
+        # self.pos_x.valueChanged.connect(lambda value: self._set_property("PosX", value.Value))
+        # self.pos_y.valueChanged.connect(lambda value: self._set_property("PosY", value.Value))
+        # self.pos_z.valueChanged.connect(lambda value: self._set_property("PosZ", value.Value))
+
+        self.refresh_from_object()
 
     # ------------------------------------------------------------------
     # Property editing
     # ------------------------------------------------------------------
 
     def _set_property(self, prop, value):
-        if self._updating_widgets:
+        # print("_set_property", prop, value)
+        if self._refreshing_ui:
             return
+        # current = getattr(self.obj, prop)
+        # if float(current) == float(value):
+        #     print(f"[OBA] {prop} unchanged -> skip")
+        #     return
         try:
             setattr(self.obj, prop, value)
             self._update_information()
         except Exception as exc:
-            App.Console.PrintError(f"[OBA] Failed to update {prop}: " f"{exc}\n")
+            App.Console.PrintError(f"[OBA] Failed to update {prop}: {exc}\n")
 
     def _use_b2_changed(self, checked):
-        if self._updating_widgets:
+        if self._refreshing_ui:
             return
         try:
             self.obj.UseIndependentRadius3 = checked
@@ -396,26 +411,33 @@ class CompMirrorDialog(OBAToolboxDialogBase):
     # Dialog refresh
     # ------------------------------------------------------------------
 
-    def reload(self):
-        self._updating_widgets = True
+    def refresh_from_object(self):
+        self._refreshing_ui = True
 
         try:
             self.use_b2.setChecked(bool(self.obj.UseIndependentRadius3))
             self.b2.setEnabled(bool(self.obj.UseIndependentRadius3))
-            self.reload_placement()
-            self._update_information()
-
             self.debug_show.setChecked(bool(self.obj.ShowDebugEllipsoids))
 
+            self.a.setProperty("rawValue", float(self.obj.A))
+            self.b.setProperty("rawValue", float(self.obj.B))
+            self.b2.setProperty("rawValue", float(self.obj.B2))
+
+            self.width.setProperty("rawValue", float(self.obj.Width))
+            self.height.setProperty("rawValue", float(self.obj.Height))
+            # self.tiltangle.setProperty("rawValue", float(self.obj.TiltAngle))
+            self._update_information()
+
         finally:
-            self._updating_widgets = False
+            self._refreshing_ui = False
 
     def _update_information(self):
+        print("_update_information called")
         width = float(self.obj.Width)
         height = float(self.obj.Height)
         a = float(self.obj.A)
         b = float(self.obj.B)
-        tilt = float(self.obj.TiltAngle)
+        # tilt = float(self.obj.TiltAngle)
 
         if a > 0 and b > 0 and a >= b:
             c = math.sqrt(max(0.0, a * a - b * b))
@@ -424,6 +446,15 @@ class CompMirrorDialog(OBAToolboxDialogBase):
             self.c.setText("Invalid A/B")
 
         self.b2.setEnabled(bool(self.obj.UseIndependentRadius3))
+
+    # def closeEvent(self, event):
+    #     self.obj.Proxy._dialog = None
+    #     super().closeEvent(event)
+
+    # def showEvent(self, event):
+    #     self.obj.Proxy._dialog = self
+    #     super().showEvent(event)
+    #     print("dialog opened")
 
 
 # ======================================================================
@@ -479,18 +510,11 @@ class CompMirrorViewProvider(OBAToolboxViewProviderBase):
         Open the Main Mirror settings dialog when the object is
         double-clicked in the tree.
         """
-        obj = getattr(
-            vobj,
-            "Object",
-            None,
-        )
-
+        obj = getattr(vobj, "Object", None)
         if obj is None:
             return False
-
         try:
             dialog = CompMirrorDialog(obj)
-
             # Keep a reference so the dialog cannot be garbage-collected
             # while it is still open.
             self._dialog = dialog
@@ -498,12 +522,9 @@ class CompMirrorViewProvider(OBAToolboxViewProviderBase):
             dialog.show()
             dialog.raise_()
             dialog.activateWindow()
-
             return True
-
         except Exception as exc:
             App.Console.PrintError("[OBA] Failed to open Main Mirror dialog: " f"{exc}\n")
-
             return False
 
     def onDelete(self, vobj, subelements):
@@ -535,11 +556,10 @@ def OBA_CreateCompMirror(
     height=30.0,
     a=40.0,
     b=30.0,
-    tiltangle=0.0,
+    # tiltangle=0.0,
     x=0.0,
     y=0.0,
     z=0.0,
-    placement=None,
     show_dialog=True,
 ):
     doc = doc or App.ActiveDocument or App.newDocument()
@@ -568,18 +588,20 @@ def OBA_CreateCompMirror(
 
     obj.Label = label
 
-    OBACompMirror(obj)
+    proxy = OBACompMirror(obj)
+    proxy._initializing = True
 
     obj.Width = App.Units.Quantity(f"{width} mm")
     obj.Height = App.Units.Quantity(f"{height} mm")
     obj.A = App.Units.Quantity(f"{a} mm")
     obj.B = App.Units.Quantity(f"{b} mm")
-    obj.TiltAngle = App.Units.Quantity(f"{tiltangle} deg")
+    # obj.TiltAngle = App.Units.Quantity(f"{tiltangle} deg")
 
-    if placement is None:
-        placement = App.Placement(App.Vector(x, y, z), App.Rotation())
+    proxy._ensure_features(obj)
+    proxy._initializing = False
+    proxy._rebuild(obj)
 
-    obj.Placement = placement
+    obj.Placement = App.Placement(App.Vector(x, y, z), App.Rotation())
 
     if App.GuiUp:
         CompMirrorViewProvider(obj.ViewObject)
@@ -605,7 +627,7 @@ def create(
     height=30.0,
     a=40.0,
     b=30.0,
-    tiltangle=0.0,
+    # tiltangle=0.0,
     x=0.0,
     y=30.0,
     z=0.0,
@@ -617,7 +639,7 @@ def create(
         height=height,
         a=a,
         b=b,
-        tiltangle=tiltangle,
+        # tiltangle=tiltangle,
         x=x,
         y=y,
         z=z,

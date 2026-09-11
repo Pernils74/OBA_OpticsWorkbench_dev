@@ -129,14 +129,14 @@ if IS_ACTIVE:
 
             hot_reload.register_command(
                 command="OBA_CreateEllipsoid",
-                impl_module="oba_toolbox.oba_ellipsoid",
+                impl_module="TOOLBOX.oba_ellipsoid",
                 menu="Ellipsoid builder",
                 tooltip="Ellipsoid builder",
                 pixmap=get_icon("oba_mirrorbuilder2.svg"),
             )
             hot_reload.register_command(
                 command="OBA_CreateEllipsoid_old",
-                impl_module="oba_toolbox.oba_ellipsoid_copy",
+                impl_module="TOOLBOX.oba_ellipsoid_copy",
                 menu="Ellipsoid builder OLD",
                 tooltip="Ellipsoid builder OLD",
                 pixmap=get_icon("oba_mirrorbuilder2.svg"),
@@ -144,7 +144,7 @@ if IS_ACTIVE:
 
             hot_reload.register_command(
                 command="OBA_CreateMainMirror",
-                impl_module="oba_toolbox.oba_main_mirror",
+                impl_module="TOOLBOX.oba_main_mirror",
                 menu="Main mirror builder",
                 tooltip="Main mirror builder",
                 pixmap=get_icon("oba_mirrorbuilder2.svg"),
@@ -152,14 +152,14 @@ if IS_ACTIVE:
 
             hot_reload.register_command(
                 command="OBA_CreateCompMirror",
-                impl_module="oba_toolbox.oba_comp_mirror",
+                impl_module="TOOLBOX.oba_comp_mirror",
                 menu="Component mirror builder",
                 tooltip="Component mirror builder",
                 pixmap=get_icon("oba_mirrorbuilder2.svg"),
             )
             hot_reload.register_command(
                 command="OBA_CreateLightDome",
-                impl_module="oba_toolbox.oba_light_dome",
+                impl_module="TOOLBOX.oba_light_dome",
                 menu="Light dome builder",
                 tooltip="Light dome builder",
                 pixmap=get_icon("oba_mirrorbuilder2.svg"),

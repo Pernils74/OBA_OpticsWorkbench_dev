@@ -7,7 +7,6 @@ from PySide import QtWidgets, QtCore, QtGui
 
 from .oba_ray_core import OBARayManager
 
-
 # ============================================================
 # RANGE SLIDER (PURE PySide)
 # ============================================================
@@ -104,6 +103,9 @@ class OBARangeSlider(QtWidgets.QWidget):
             return
 
         val = self._x_to_value(ev.pos().x())
+        # Snap till max när man drar längst till höger
+        if val >= self._max - 2:
+            val = self._max
 
         if self.magnet_enabled:
             self._handle_magnet(val)
@@ -187,6 +189,37 @@ class OBARayBounceRangeDialog(QtWidgets.QDialog):
         self.slider = OBARangeSlider(0, max_bounce)
         layout.addWidget(self.slider)
 
+        # Min/Max spinboxar
+        spin_layout = QtWidgets.QHBoxLayout()
+        spin_layout.setContentsMargins(0, 0, 0, 0)
+        spin_layout.setSpacing(6)
+
+        spin_layout.addWidget(QtWidgets.QLabel("Min:"))
+
+        self.spin_min = QtWidgets.QSpinBox()
+        self.spin_min.setRange(0, max_bounce)
+        self.spin_min.setKeyboardTracking(False)
+        self.spin_min.setMaximumWidth(80)
+        spin_layout.addWidget(self.spin_min)
+
+        spin_layout.addSpacing(10)
+
+        spin_layout.addWidget(QtWidgets.QLabel("Max:"))
+
+        self.spin_max = QtWidgets.QSpinBox()
+        self.spin_max.setRange(0, max_bounce)
+        self.spin_max.setKeyboardTracking(False)
+        self.spin_max.setMaximumWidth(80)
+        spin_layout.addWidget(self.spin_max)
+
+        spin_layout.addStretch()
+
+        # Reset button
+        self.btn_show_all = QtWidgets.QPushButton("Show All")
+        spin_layout.addWidget(self.btn_show_all, 1)  # fyller återstående plats
+
+        layout.addLayout(spin_layout)
+
         # Checkboxes
         self.chk_magnet = QtWidgets.QCheckBox("Magnet (lock range)")
         self.chk_color = QtWidgets.QCheckBox("Color by bounce")
@@ -202,13 +235,21 @@ class OBARayBounceRangeDialog(QtWidgets.QDialog):
         high = max_bounce if rc.RayBounceMax == -1 else rc.RayBounceMax
 
         self.slider.setValue(low, high)
+        self.spin_min.setValue(low)
+        self.spin_max.setValue(high)
+
         self.chk_color.setChecked(rc.ColorByBounce)
         self.chk_scene.setChecked(rc.SceneIsolation)
 
-        self.slider.valueChanged.connect(self._apply)
+        # self.slider.valueChanged.connect(self._apply)
+        self.slider.valueChanged.connect(self._on_slider_changed)
+        self.spin_min.valueChanged.connect(self._on_spin_changed)
+        self.spin_max.valueChanged.connect(self._on_spin_changed)
+
         self.chk_color.toggled.connect(self._apply)
         self.chk_scene.toggled.connect(self._apply)
         self.chk_magnet.toggled.connect(self._on_magnet)
+        self.btn_show_all.clicked.connect(self._reset_to_full_range)
 
         self._update_label(low, high)
 
@@ -222,7 +263,8 @@ class OBARayBounceRangeDialog(QtWidgets.QDialog):
 
         rc = self._ray_config
         rc.RayBounceMin = low
-        rc.RayBounceMax = high
+        # rc.RayBounceMax = high
+        rc.RayBounceMax = -1 if high == self.slider._max else high
         rc.ColorByBounce = self.chk_color.isChecked()
         rc.SceneIsolation = self.chk_scene.isChecked()
 
@@ -235,11 +277,49 @@ class OBARayBounceRangeDialog(QtWidgets.QDialog):
             mode="final",
         )
 
+    def _on_slider_changed(self, low, high):
+        self.spin_min.blockSignals(True)
+        self.spin_max.blockSignals(True)
+
+        self.spin_min.setValue(low)
+        self.spin_max.setValue(high)
+
+        self.spin_min.blockSignals(False)
+        self.spin_max.blockSignals(False)
+
+        self._apply()
+
+    def _on_spin_changed(self):
+        low = self.spin_min.value()
+        high = self.spin_max.value()
+        if low > high:
+            if self.sender() == self.spin_min:
+                self.spin_max.setValue(low)
+                high = low
+            else:
+                self.spin_min.setValue(high)
+                low = high
+
+        self.slider.setValue(low, high)
+
     def _on_magnet(self, state):
         self.slider.magnet_enabled = state
 
     def _update_label(self, low, high):
         self.lbl.setText(f"Bounce range: {low} – {high}")
+
+    def _reset_to_full_range(self):
+        max_bounce = self.slider._max
+
+        self.spin_min.setValue(0)
+        self.spin_max.setValue(max_bounce)
+
+        self.slider.setValue(0, max_bounce)
+
+        self.slider._last_low = 0
+        self.slider._last_high = max_bounce
+
+        self._apply()
 
     # ----------------------------
     # Helpers

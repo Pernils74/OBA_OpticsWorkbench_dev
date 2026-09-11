@@ -48,6 +48,9 @@ MAIN_MIRROR_PROPERTIES = [
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 26.4575131106, "doc": "Distance from ellipsoid centre to focus"},
     {"name": "TiltAngle", "type": "App::PropertyAngle", "group": "Ellipsoid", "default": 0.0, "doc": "Tilt angle of the ellipsoids around the Z axis"},
     {"name": "ShowDebugEllipsoids", "type": "App::PropertyBool", "group": "Debug", "default": False, "doc": "Show ellipsoids for debugging"},
+    {"name": "PosX", "type": "App::PropertyDistance", "group": "Placement", "doc": "X coordinate"},
+    {"name": "PosY", "type": "App::PropertyDistance", "group": "Placement", "doc": "Y coordinate"},
+    {"name": "PosZ", "type": "App::PropertyDistance", "group": "Placement", "doc": "Z coordinate"},
 ]
 
 
@@ -62,14 +65,8 @@ class OBAMainMirror:
     CHILD_OBJECTS = ("_cube", "_ellipsoid_Left", "_ellipsoid_Right", "_cut1", "_cut2")
 
     def _init_runtime_state(self):
-        """
-        Initialise all Python-only runtime references.
-
-        These references are not persisted by FreeCAD and therefore must
-        also be recreated when a document is restored.
-        """
-        self._initializing = False
-        self._updating = False
+        self._initializing = True
+        self._rebuilding = False
 
         self._cube = None
         self._ellipsoid_Left = None
@@ -82,7 +79,8 @@ class OBAMainMirror:
         obj.Proxy = self
         self.Object = obj
 
-        self._initializing = True
+        self._dialog = None
+
         obj.setEditorMode("Placement", 1)
         install_properties(obj, MAIN_MIRROR_PROPERTIES)
         if hasattr(obj, "FocusDistance"):
@@ -101,7 +99,6 @@ class OBAMainMirror:
     def _obj_exists(obj):
         if obj is None:
             return False
-
         try:
             return obj.Document is not None and obj.Document.getObject(obj.Name) is obj
         except Exception:
@@ -288,28 +285,14 @@ class OBAMainMirror:
         """
         Rebuild the complete Main Mirror geometry immediately.
         """
-        if self._updating:
+        if self._rebuilding:
             return
-        self._updating = True
+        self._rebuilding = True
         try:
-            if self._initializing:
-                return
-            required = (
-                "Width",
-                "Height",
-                "SplitOffset",
-                "A",
-                "B",
-            )
-
-            for name in required:
-                if not hasattr(obj, name):
-                    return
-
-            self._ensure_features(obj)
 
             self._update_cube(obj)
             self._update_ellipsoids(obj)
+
             self._update_debug_visibility(obj)
 
             c = focus_distance(float(obj.A), float(obj.B))
@@ -318,49 +301,40 @@ class OBAMainMirror:
             obj.Ellipsoid1FocusX = -float(obj.SplitOffset) / 2.0
             obj.Ellipsoid2FocusX = float(obj.SplitOffset) / 2.0
             obj.MirrorPlaneX = 0.0
-            obj.Document.recompute()
 
+            obj.Document.recompute()
         finally:
-            self._updating = False
+            self._rebuilding = False
 
     # ------------------------------------------------------------------
     # Property changes
     # ------------------------------------------------------------------
 
     def onChanged(self, obj, prop):
-        if getattr(self, "_initializing", False):
+        if self._rebuilding:
             return
-        if getattr(self, "_updating", False):
+        if self._initializing:
             return
-        App.Console.PrintMessage(f"onChanged: {prop}\n")
-        rebuild_properties = {
-            "Width",
-            "Height",
-            "SplitOffset",
-            "A",
-            "B",
-            "UseIndependentRadius3",
-            "B2",
-            "TiltAngle",
-            "ShowDebugEllipsoids",
-        }
 
-        if prop in rebuild_properties:
+        App.Console.PrintMessage(f"onChanged: {prop}\n")
+        # rebuild_properties = {"Width", "Height", "SplitOffset", "A", "B", "UseIndependentRadius3", "B2", "TiltAngle", "ShowDebugEllipsoids"}
+
+        if prop in {"Width", "Height", "SplitOffset", "A", "B", "UseIndependentRadius3", "B2", "TiltAngle", "ShowDebugEllipsoids"}:
             try:
                 self._rebuild(obj)
             except Exception as exc:
                 App.Console.PrintError(f"[OBA] Main Mirror rebuild failed: {exc}\n")
 
-        elif prop == "Placement":
+        if prop in ("Placement"):
             try:
-                self._ensure_features(obj)
-                self._update_cube(obj)
-                self._update_ellipsoids(obj)
-                self._update_debug_visibility(obj)
-
-                obj.Document.recompute()
+                self._rebuild(obj)
             except Exception as exc:
                 App.Console.PrintError("[OBA] Main Mirror placement update failed: " f"{exc}\n")
+
+        # update dialog if its open
+        dialog = getattr(self, "_dialog", None)
+        if dialog:
+            dialog.refresh_from_object()
 
     # ------------------------------------------------------------------
     # Document restore
@@ -413,8 +387,13 @@ class MainMirrorDialog(OBAToolboxDialogBase):
 
     def __init__(self, obj, title="Main Mirror Main Mirror Settings", parent=None):
         super().__init__(obj, title=title, parent=parent)
-        self._updating_widgets = False
+
+        # self.obj.Proxy._dialog = self  # registrering av dialog på objektet
+
+        self._refreshing_ui = False
+
         group = QtWidgets.QGroupBox("Main Mirror Main Mirror Parameters")
+
         form = QtWidgets.QFormLayout(group)
         self.width = self._add_spin("Width", "Width", 0, 1000, "mm", form)
         self.height = self._add_spin("Height", "Height", 0, 1000, "mm", form)
@@ -441,7 +420,7 @@ class MainMirrorDialog(OBAToolboxDialogBase):
         form.addRow(self.show_debug)
 
         self.custom_layout.addWidget(group)
-        self.add_placement_group()
+
         info = QtWidgets.QLabel("The two ellipsoids are mirrored around the centre " "plane of the Main Mirror.\n\n" "SplitOffset is the distance between the two " "ellipsoid focal points.\n\n" "TiltAngle is the symmetric tilt of the ellipsoids.")
         info.setWordWrap(True)
         self.custom_layout.addWidget(info)
@@ -461,27 +440,29 @@ class MainMirrorDialog(OBAToolboxDialogBase):
 
         self.show_debug.toggled.connect(lambda checked: self._set_property("ShowDebugEllipsoids", checked))
 
-        self.reload()
+        self.refresh_from_object()
 
     # ------------------------------------------------------------------
     # Property editing
     # ------------------------------------------------------------------
 
     def _set_property(self, prop, value):
-        if self._updating_widgets:
+        # print("_set_property", prop, value)
+        if self._refreshing_ui:
             return
-
+        # current = getattr(self.obj, prop)
+        # if float(current) == float(value):
+        #     print(f"[OBA] {prop} unchanged -> skip")
+        #     return
         try:
             setattr(self.obj, prop, value)
             self._update_information()
-
         except Exception as exc:
             App.Console.PrintError(f"[OBA] Failed to update {prop}: {exc}\n")
 
     def _use_b2_changed(self, checked):
-        if self._updating_widgets:
+        if self._refreshing_ui:
             return
-
         try:
             self.obj.UseIndependentRadius3 = checked
             self.b2.setEnabled(checked)
@@ -494,19 +475,48 @@ class MainMirrorDialog(OBAToolboxDialogBase):
     # Dialog refresh
     # ------------------------------------------------------------------
 
-    def reload(self):
-        self._updating_widgets = True
+    def refresh_from_object(self):
+        self._refreshing_ui = True
 
         try:
             self.use_b2.setChecked(bool(self.obj.UseIndependentRadius3))
             self.b2.setEnabled(bool(self.obj.UseIndependentRadius3))
-
-            self.reload_placement()
-            self._update_information()
             self.show_debug.setChecked(bool(self.obj.ShowDebugEllipsoids))
 
+            self.a.setProperty("rawValue", float(self.obj.A))
+            self.b.setProperty("rawValue", float(self.obj.B))
+            self.b2.setProperty("rawValue", float(self.obj.B2))
+
+            self.width.setProperty("rawValue", float(self.obj.Width))
+            self.height.setProperty("rawValue", float(self.obj.Height))
+
+            self.tiltangle.setProperty("rawValue", float(self.obj.TiltAngle))
+
+            self._update_information()
+
         finally:
-            self._updating_widgets = False
+            self._refreshing_ui = False
+
+    def refresh_from_object_old(self):
+        self._refreshing_ui = True
+        try:
+            self.use_b2.setChecked(bool(self.obj.UseIndependentRadius3))
+            self.b2.setEnabled(bool(self.obj.UseIndependentRadius3))
+            self.debug_show.setChecked(bool(self.obj.ShowDebugEllipsoids))
+
+            self.a.setProperty("rawValue", float(self.obj.A))
+            self.b.setProperty("rawValue", float(self.obj.B))
+            self.b2.setProperty("rawValue", float(self.obj.B2))
+
+            self.width.setProperty("rawValue", float(self.obj.Width))
+            self.height.setProperty("rawValue", float(self.obj.Height))
+
+            self.tiltangle.setProperty("rawValue", float(self.obj.TiltAngle))
+
+            self._update_information()
+
+        finally:
+            self._refreshing_ui = False
 
     def _update_information(self):
         width = float(self.obj.Width)
@@ -539,12 +549,19 @@ class MainMirrorDialog(OBAToolboxDialogBase):
         self.right_angle.setText(f"{90 + tilt:.3f}°")
         self.b2.setEnabled(bool(self.obj.UseIndependentRadius3))
 
+    # def closeEvent(self, event):
+    #     self.obj.Proxy._dialog = None
+    #     super().closeEvent(event)
+
+    # def showEvent(self, event):
+    #     self.obj.Proxy._dialog = self
+    #     super().showEvent(event)
+    #     print("dialog opened")
+
 
 # ======================================================================
 # View Provider
 # ======================================================================
-
-
 class MainMirrorViewProvider(OBAToolboxViewProviderBase):
 
     dialog_class = MainMirrorDialog
@@ -618,12 +635,10 @@ class MainMirrorViewProvider(OBAToolboxViewProviderBase):
         double-clicked in the tree.
         """
         obj = getattr(vobj, "Object", None)
-
         if obj is None:
             return False
         try:
             dialog = MainMirrorDialog(obj)
-
             # Keep a reference so the dialog cannot be garbage-collected
             # while it is still open.
             self._dialog = dialog
@@ -631,12 +646,9 @@ class MainMirrorViewProvider(OBAToolboxViewProviderBase):
             dialog.show()
             dialog.raise_()
             dialog.activateWindow()
-
             return True
-
         except Exception as exc:
             App.Console.PrintError("[OBA] Failed to open Main Mirror dialog: " f"{exc}\n")
-
             return False
 
 
@@ -657,7 +669,6 @@ def OBA_CreateMainMirror(
     x=0.0,
     y=32.0,
     z=0.0,
-    placement=None,
     show_dialog=True,
 ):
     doc = doc or App.ActiveDocument or App.newDocument()
@@ -687,7 +698,9 @@ def OBA_CreateMainMirror(
 
     obj = doc.addObject("Part::FeaturePython", "OBA_MainMirror")
     obj.Label = label
-    OBAMainMirror(obj)
+    proxy = OBAMainMirror(obj)
+    proxy._initializing = True
+
     obj.Width = App.Units.Quantity(f"{width} mm")
     obj.Height = App.Units.Quantity(f"{height} mm")
     obj.SplitOffset = App.Units.Quantity(f"{split_offset} mm")
@@ -695,10 +708,13 @@ def OBA_CreateMainMirror(
     obj.B = App.Units.Quantity(f"{b} mm")
     obj.TiltAngle = App.Units.Quantity(f"{tiltangle} deg")
 
-    if placement is None:
-        placement = App.Placement(App.Vector(x, y, z), App.Rotation())
+    obj.Placement = App.Placement(App.Vector(x, y, z), App.Rotation())
 
-    obj.Placement = placement
+    proxy._ensure_features(obj)
+
+    proxy._initializing = False
+
+    proxy._rebuild(obj)
 
     if App.GuiUp:
         MainMirrorViewProvider(obj.ViewObject)

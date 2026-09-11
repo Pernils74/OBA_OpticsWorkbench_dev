@@ -532,14 +532,17 @@ class OptimizationWorker(QtCore.QObject):
     def _create_sampler(self, config):
         name = config.get("sampler", "TPESampler")
         constant_liar = config.get("constant_liar", False)
-        multi = config.get("multi_objective", False)
+        multi = config.get("multi_objective", False)  # sätts i dialogen
 
         # ✅ multi-objective kräver NSGA-II
-        if multi and name != "NSGAIISampler":
-            print("[WARN] Switching to NSGAIISampler (multi-objective)")
+        # if multi and name != "NSGAIISampler":
+        if name != "NSGAIISampler":
+            # print("[WARN] Switching to NSGAIISampler (multi-objective)")
+            print("[create_sampler] 🚀 -> ", name, "mulitobjective : ", multi)
             return NSGAIISampler()
 
         if name == "TPESampler":
+            print("[create_sampler] 🚀 -> ", name, "mulitobjective : ", multi)
             return TPESampler(
                 constant_liar=constant_liar,
                 multivariate=True,
@@ -548,13 +551,12 @@ class OptimizationWorker(QtCore.QObject):
             )
 
         elif name == "RandomSampler":
+            print("[create_sampler] 🚀 -> ", name, "mulitobjective : ", multi)
             return RandomSampler()
 
         elif name == "CmaEsSampler":
+            print("[create_sampler] 🚀 -> ", name, "mulitobjective : ", multi)
             return CmaEsSampler()
-
-        elif name == "NSGAIISampler":
-            return NSGAIISampler()
 
         return TPESampler(seed=42)
 

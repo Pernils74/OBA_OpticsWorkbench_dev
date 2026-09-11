@@ -57,7 +57,8 @@ def create_ellipsoid(doc, a, b, b2, tmp_name="_OBA_EllipsoidTmp", label="_OBA te
     old = doc.getObject(tmp_name)
     if old is not None:
         doc.removeObject(old.Name)
-        doc.recompute()
+
+        # doc.recompute()
 
     tmp = doc.addObject("Part::Ellipsoid", tmp_name)
     tmp.Label = label
@@ -68,7 +69,7 @@ def create_ellipsoid(doc, a, b, b2, tmp_name="_OBA_EllipsoidTmp", label="_OBA te
     tmp.Angle2 = 90.0
     tmp.Angle3 = 360.0
 
-    doc.recompute()
+    # doc.recompute()
     return tmp, tmp.Shape.copy()
 
 
@@ -254,6 +255,17 @@ class OBAToolboxDialogBase(OBABaseDialog):
             spin.valueChanged.connect(changed)
         return spin
 
+    def _add_spin_old(self, label, prop, mn, mx, unit, layout):
+        w = Gui.UiLoader().createWidget("Gui::QuantitySpinBox")
+        w.setProperty("minimum", mn)
+        w.setProperty("maximum", mx)
+        w.setProperty("unit", unit)
+        w.setProperty("rawValue", float(getattr(self.obj, prop)))
+        w.setProperty("binding", f"{self.obj.Name}.{prop}")
+        w.valueChanged.connect(lambda v, p=prop: setattr(self.obj, p, v.Value))
+        layout.addRow(label, w)
+        return w
+
     def _add_spin(self, label, prop, mn, mx, unit, layout):
         w = Gui.UiLoader().createWidget("Gui::QuantitySpinBox")
         w.setProperty("minimum", mn)
@@ -261,28 +273,17 @@ class OBAToolboxDialogBase(OBABaseDialog):
         w.setProperty("unit", unit)
         w.setProperty("rawValue", float(getattr(self.obj, prop)))
         w.setProperty("binding", f"{self.obj.Name}.{prop}")
-        w.valueChanged.connect(lambda v, p=prop: setattr(self.obj, p, v.Value))
         layout.addRow(label, w)
         return w
 
-    def _add_spin_new(self, label, prop, mn, mx, unit, layout):
-        w = Gui.UiLoader().createWidget("Gui::QuantitySpinBox")
+    def add_placement_group_med_spinn(self):
+        group = QtWidgets.QGroupBox("Placement")
+        form = QtWidgets.QFormLayout(group)
 
-        w.setProperty("minimum", mn)
-        w.setProperty("maximum", mx)
-        w.setProperty("unit", unit)
-
-        # Set initial displayed value.
-        w.setProperty("rawValue", float(getattr(self.obj, prop)))
-
-        # Bind to the FreeCAD property.
-        w.setProperty("binding", f"{self.obj.Name}.{prop}")
-
-        # User edits -> FreeCAD property.
-        w.valueChanged.connect(lambda v, p=prop: setattr(self.obj, p, v.Value))
-
-        layout.addRow(label, w)
-        return w
+        self.pos_x = self._add_spin("X", "PlacementX", -1_000_000, 1_000_000, "mm", form)
+        self.pos_y = self._add_spin("Y", "PlacementY", -1_000_000, 1_000_000, "mm", form)
+        self.pos_z = self._add_spin("Z", "PlacementZ", -1_000_000, 1_000_000, "mm", form)
+        self.custom_layout.addWidget(group)
 
     def add_placement_group(self):
         group = QtWidgets.QGroupBox("Placement")
@@ -325,15 +326,6 @@ class OBAToolboxDialogBase(OBABaseDialog):
         except Exception:
             pass
 
-        if self._closing:
-            event.accept()
-            return
-        self._closing = True
-        self.obj.Document.recompute()
-        Gui.updateGui()
-        super().closeEvent(event)
-
-    def closeEvent_old(self, event):
         if self._closing:
             event.accept()
             return

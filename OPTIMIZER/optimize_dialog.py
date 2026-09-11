@@ -412,31 +412,6 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
         self._evaluation_active = False
 
-    def _evaluate_main_old(self, params, unselected_params):  # , unselected_params=None ):
-
-        if self._evaluation_active:
-            return
-
-        worker = self._worker
-        if not worker:
-            return
-
-        self._evaluation_active = True
-
-        # # 🔥 NYTT: Hämta ut de låsta parametrarna som sparades i din workers konfiguration
-        # unselected_params = getattr(worker, "unselected_params", {})
-
-        payload = {
-            "trial_id": worker.current_trial_id,
-            "params": params,
-            # 🔥 NYTT: Skicka med till EvaluationService.evaluate()
-            "unselected_params": unselected_params,
-            "metrics": worker.metrics,
-        }
-
-        # ✅ skicka till EvaluationService
-        self._eval_service.evaluate(payload)
-
     def _evaluate_main(self, params, unselected_params):
 
         if self._evaluation_active:
@@ -475,74 +450,6 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             "metrics": self._worker.metrics,
         }
         self._eval_service.evaluate(payload)
-
-    def _start_optimization_old(self, new_study=False):
-
-        self._eval_service = EvaluationService()
-        self._eval_service.evaluationReady.connect(self._on_evaluation_ready)
-        self._eval_service.statusChanged.connect(self._on_eval_status)
-
-        # 1. Hämta de parametrar som faktiskt ska optimeras (valda i listan)
-        selected_params = [i.text() for i in self.listParams.selectedItems()]
-        if not selected_params:
-            QtWidgets.QMessageBox.warning(self, "Optimize", "Select params")
-            return
-
-        # doc = App.ActiveDocument
-        self._enable_manual_raytrace_mode()
-
-        # 2. 🔥 NYTT: Identifiera alla parametrar som INTE är valda
-        all_items = [self.listParams.item(i).text() for i in range(self.listParams.count())]
-        unselected_params = [p for p in all_items if p not in selected_params]
-
-        selected_info = self._read_params_info(selected_params)
-        unselected_info = self._read_params_info(unselected_params)
-
-        current_params = {n: d["value"] for n, d in selected_info.items()}
-        bounds = {n: d["bounds"] for n, d in selected_info.items()}
-
-        unselected_params = {n: d["value"] for n, d in unselected_info.items()}
-
-        # bounds = self._read_bounds(doc, selected_params)
-        payload = self.targetWeights.get_payload()
-        metrics = self._build_metrics_config(payload)
-
-        sampler_name = self.cmbSampler.currentText()
-        use_constant_liar = self.chkConstantLiar.isChecked()
-
-        # ✅ detect multi-objective automatically
-        active_metrics = [m for m in metrics if m.get("active", True)]
-        multi_objective = len(active_metrics) > 1
-
-        n_trials = self.spinTrials.value()
-        # print("Metrics config:", metrics)
-
-        study_name = self._make_study_name(selected_params, metrics)
-
-        config = {
-            "metrics": metrics,
-            "params": selected_params,
-            "bounds": bounds,
-            "unselected_params": unselected_params,
-            "n_trials": n_trials,
-            "study_name": study_name,
-            "new_study": new_study,
-            "initial_params": current_params,  # ✅ för att kunna köra enque trials å default
-            # ✅ NEW
-            "sampler": sampler_name,
-            "constant_liar": use_constant_liar,
-            "multi_objective": multi_objective,
-        }
-
-        print("🚀 Start", "NEW" if new_study else "RESUME")
-
-        self._setup_worker()
-        self.startRequested.emit(config)
-        self._running = True
-        self.btnStart.setText("Stop")
-
-        self.listParams.setEnabled(False)
-        self.targetWeights.setEnabled(False)
 
     def _start_optimization(self, new_study=False):
 

@@ -182,6 +182,8 @@ def _original_base_expression(snap, component, value):
     path = f"Placement.Base.{component}"
     expr = snap["expressions"].get(path)
 
+    # print("[OFFSET]", path, "expr=", repr(expr))
+
     if expr:
         return f"({expr}) + Step.StepOffset.{component}"
 
