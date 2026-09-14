@@ -478,25 +478,31 @@ class EvaluationService(QtCore.QObject):
         filtered = {k: c for k, c in clusters.items() if c.get("object") in target_names}
         # filtered = {k: c for k, c in clusters.items() if c.get("object") in targets}
         valid = True
-
+        constraint = 0
         # ----------------------------------
         # DISPATCH + THRESHOLD (tillsammans)
         # ----------------------------------
 
         if base == "power":
             value, ratio = compute_power(filtered, target_names)
+            constraint = 0.0
             if metric.get("use_threshold"):
-                valid = ratio >= metric.get("percent", 0.0)
+                threshold = metric.get("percent", 0.0)
+                valid = ratio >= threshold  # 1 metric.get("percent", 0.0)
+                constraint = threshold - ratio
 
         elif base == "target_cluster_count":
             value, diff = compute_target_cluster_count(filtered, target_names, metric.get("percent", 0.01), metric.get("value", 3))
             if metric.get("use_threshold"):
+
                 valid = diff == 0
 
         elif base == "hit_count":
             value, ratio = compute_hit_count(filtered, target_names)
             if metric.get("use_threshold"):
-                valid = ratio >= metric.get("percent", 0.0)
+                threshold = metric.get("percent", 0.0)
+                valid = ratio >= threshold  # metric.get("percent", 0.0)
+                constraint = threshold - ratio
 
         elif base == "density":
             value = compute_density(filtered, plane, metric.get("bounce", 0))
@@ -527,7 +533,7 @@ class EvaluationService(QtCore.QObject):
             App.Console.PrintError(f"[evaluation_service] Unknown base metric: {base}\n")
             value = 0.0
 
-        return value, valid
+        return value, valid, constraint
 
 
 def _is_model_valid(doc):

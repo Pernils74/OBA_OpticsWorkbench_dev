@@ -81,6 +81,22 @@ class OBACompMirror:
 
         App.Console.PrintMessage(f"[OBA] Proxy attached: {obj.Name}\n")
 
+    def delete(self):
+        doc = self.Object.Document
+
+        for attr_name in reversed(self.CHILD_OBJECTS):
+            child = getattr(self, attr_name, None)
+
+            if child and doc.getObject(child.Name):
+                doc.removeObject(child.Name)
+
+        if doc.getObject(self.Object.Name):
+            doc.removeObject(self.Object.Name)
+
+    # def get_cube(self):
+    #     self._ensure_features(self.Object)
+    #     return self._cube
+
     # ------------------------------------------------------------------
     # Runtime object handling
     # ------------------------------------------------------------------
@@ -129,9 +145,7 @@ class OBACompMirror:
 
         if self._ellipsoid is None:
             self._ellipsoid = doc.addObject("Part::Ellipsoid", f"{obj.Name}_Ellipsoid")
-
             self._ellipsoid.Label = f"{obj.Label} Ellipsoid"
-
             self._ellipsoid.ViewObject.ShapeColor = (0.0, 0.0, 1.0)
 
         if self._cut is None:
@@ -156,7 +170,7 @@ class OBACompMirror:
         height = float(obj.Height)
 
         # Keep enough depth for the ellipsoid geometry.
-        depth = 2 * float(obj.B)
+        depth = 1.8 * float(obj.B)
 
         self._cube.Length = width
         self._cube.Width = depth
@@ -221,13 +235,6 @@ class OBACompMirror:
         self._rebuilding = True
         try:
 
-            # required = ("Width", "Height", "A", "B")
-
-            # for name in required:
-            #     if not hasattr(obj, name):
-            #         return
-
-            # self._ensure_features(obj)
             self._update_cube(obj)
             self._update_ellipsoid(obj)
 
@@ -238,9 +245,6 @@ class OBACompMirror:
 
             obj.Document.recompute()
         finally:
-            # dialog = getattr(self, "_dialog", None)
-            # if dialog:
-            #     dialog.refresh_from_object()
 
             self._rebuilding = False
 
@@ -250,8 +254,8 @@ class OBACompMirror:
 
     def onChanged(self, obj, prop):
 
-        if prop in ("Shape", "Label"):  # Early exits on special props
-            return
+        # if prop in ("Shape", "Label"):  # Early exits on special props
+        #     return
 
         if self._initializing:
             return
@@ -292,7 +296,7 @@ class OBACompMirror:
         obj.Proxy = self
         self.Object = obj
 
-        obj.setEditorMode("Placement", 1)
+        # obj.setEditorMode("Placement", 1)
 
         try:
             install_properties(obj, COMP_MIRROR_PROPERTIES)
@@ -473,11 +477,11 @@ class CompMirrorViewProvider(OBAToolboxViewProviderBase):
         self.ViewObject = vobj
         self.Object = vobj.Object
 
-    def canTransform(self):
-        """
-        Disable the standard Transform/Gizmo action for the main object.
-        """
-        return False
+    # def canTransform(self):
+    #     """
+    #     Disable the standard Transform/Gizmo action for the main object.
+    #     """
+    #     return False
 
     def claimChildren(self):
         """

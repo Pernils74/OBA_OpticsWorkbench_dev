@@ -81,7 +81,8 @@ class OBAMainMirror:
 
         self._dialog = None
 
-        obj.setEditorMode("Placement", 1)
+        # obj.setEditorMode("Placement", 1)
+
         install_properties(obj, MAIN_MIRROR_PROPERTIES)
         if hasattr(obj, "FocusDistance"):
             obj.setEditorMode("FocusDistance", 1)
@@ -90,6 +91,18 @@ class OBAMainMirror:
         make_calculated_length(obj, "MirrorPlaneX", "X coordinate of mirror symmetry plane")
         make_optical_type(obj, "MainMirror")
         self._initializing = False
+
+    def delete(self):
+        doc = self.Object.Document
+
+        for attr_name in reversed(self.CHILD_OBJECTS):
+            child = getattr(self, attr_name, None)
+
+            if child and doc.getObject(child.Name):
+                doc.removeObject(child.Name)
+
+        if doc.getObject(self.Object.Name):
+            doc.removeObject(self.Object.Name)
 
     # ------------------------------------------------------------------
     # Runtime object handling
@@ -198,7 +211,7 @@ class OBAMainMirror:
         self._cube.Height = height
 
         base = obj.Placement
-        cube_local = App.Placement(App.Vector(-width / 2.0, 0.0, -height / 2.0), App.Rotation())
+        cube_local = App.Placement(App.Vector(-width / 2.0, float(obj.B), -height / 2.0), App.Rotation())
         self._cube.Placement = base.multiply(cube_local)
 
     def _update_ellipsoids(self, obj):
@@ -232,7 +245,7 @@ class OBAMainMirror:
 
         left_local = App.Placement()
 
-        left_local.Base = App.Vector(-split / 2.0, 0.0, 0.0)
+        left_local.Base = App.Vector(-split / 2.0, b, 0.0)
         rot1 = App.Rotation(App.Vector(1, 0, 0), 90)
 
         rot2 = App.Rotation(App.Vector(0, 0, 1), 270 + tilt)
@@ -249,7 +262,7 @@ class OBAMainMirror:
 
         right_local = App.Placement()
 
-        right_local.Base = App.Vector(split / 2.0, 0.0, 0.0)
+        right_local.Base = App.Vector(split / 2.0, b, 0.0)
         rot1 = App.Rotation(App.Vector(1, 0, 0), 90)
         rot2 = App.Rotation(App.Vector(0, 0, 1), 270 - tilt)
         right_local.Rotation = rot2.multiply(rot1)
@@ -290,8 +303,8 @@ class OBAMainMirror:
         self._rebuilding = True
         try:
 
-            self._update_cube(obj)
             self._update_ellipsoids(obj)
+            self._update_cube(obj)
 
             self._update_debug_visibility(obj)
 
@@ -311,6 +324,7 @@ class OBAMainMirror:
     # ------------------------------------------------------------------
 
     def onChanged(self, obj, prop):
+
         if self._rebuilding:
             return
         if self._initializing:
@@ -349,7 +363,8 @@ class OBAMainMirror:
         self._initializing = True
         obj.Proxy = self
         self.Object = obj
-        obj.setEditorMode("Placement", 1)
+        # obj.setEditorMode("Placement", 1)
+
         try:
             install_properties(obj, MAIN_MIRROR_PROPERTIES)
             if hasattr(obj, "FocusDistance"):
@@ -573,11 +588,11 @@ class MainMirrorViewProvider(OBAToolboxViewProviderBase):
         self.ViewObject = vobj
         self.Object = vobj.Object
 
-    def canTransform(self):
-        """
-        Disable the standard Transform/Gizmo action for the main object.
-        """
-        return False
+    # def canTransform(self):
+    #     """
+    #     Disable the standard Transform/Gizmo action for the main object.
+    #     """
+    #     return False
 
     def claimChildren(self):
         """
@@ -667,7 +682,7 @@ def OBA_CreateMainMirror(
     b=31.0,
     tiltangle=0.0,
     x=0.0,
-    y=32.0,
+    y=0.0,
     z=0.0,
     show_dialog=True,
 ):
@@ -743,7 +758,7 @@ def create(
     b=30.0,
     tiltangle=0.0,
     x=0.0,
-    y=30.0,
+    y=0.0,
     z=0.0,
 ):
     return OBA_CreateMainMirror(

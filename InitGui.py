@@ -134,13 +134,6 @@ if IS_ACTIVE:
                 tooltip="Ellipsoid builder",
                 pixmap=get_icon("oba_mirrorbuilder2.svg"),
             )
-            hot_reload.register_command(
-                command="OBA_CreateEllipsoid_old",
-                impl_module="TOOLBOX.oba_ellipsoid_copy",
-                menu="Ellipsoid builder OLD",
-                tooltip="Ellipsoid builder OLD",
-                pixmap=get_icon("oba_mirrorbuilder2.svg"),
-            )
 
             hot_reload.register_command(
                 command="OBA_CreateMainMirror",
@@ -158,10 +151,10 @@ if IS_ACTIVE:
                 pixmap=get_icon("oba_mirrorbuilder2.svg"),
             )
             hot_reload.register_command(
-                command="OBA_CreateLightDome",
-                impl_module="TOOLBOX.oba_light_dome",
-                menu="Light dome builder",
-                tooltip="Light dome builder",
+                command="OBA_CreateWhiteCell",
+                impl_module="TOOLBOX.oba_white_cell",
+                menu="White cell builder",
+                tooltip="White cell builder",
                 pixmap=get_icon("oba_mirrorbuilder2.svg"),
             )
 
@@ -350,10 +343,9 @@ if IS_ACTIVE:
                 "ShowOptimizeDialog",
                 SEP(),
                 "OBA_CreateEllipsoid",
-                "OBA_CreateEllipsoid_old",
                 "OBA_CreateMainMirror",
                 "OBA_CreateCompMirror",
-                "OBA_CreateLightDome",
+                "OBA_CreateWhiteCell",
                 SEP(),
                 "OBA_ShowBatchDialog",
                 "OBA_ShowXYZLiveList",
