@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from collections.abc import Sequence
 from typing import Any
 from typing import TYPE_CHECKING
 
+from optuna import _deprecated
 from optuna._experimental import warn_experimental_argument
-from optuna.distributions import BaseDistribution
+from optuna._warnings import optuna_warn
 from optuna.samplers._ga import BaseGASampler
 from optuna.samplers._lazy_random_state import LazyRandomState
 from optuna.samplers._random import RandomSampler
@@ -17,12 +16,17 @@ from optuna.samplers.nsgaii._crossovers._uniform import UniformCrossover
 from optuna.samplers.nsgaii._elite_population_selection_strategy import (
     NSGAIIElitePopulationSelectionStrategy,
 )
+from optuna.samplers.nsgaii._mutations._base import BaseMutation
 from optuna.search_space import IntersectionSearchSpace
 from optuna.trial import FrozenTrial
 from optuna.trial import TrialState
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from collections.abc import Sequence
+
+    from optuna.distributions import BaseDistribution
     from optuna.study import Study
 
 
@@ -73,6 +77,14 @@ class NSGAIISampler(BaseGASampler):
             :class:`~optuna.samplers.nsgaii.SPXCrossover`, ``n_parents=3``, and for the other
             algorithms, ``n_parents=2``.
 
+        mutation:
+            Mutation to be applied when creating child individuals.
+            The available mutations are listed here:
+            https://optuna.readthedocs.io/en/stable/reference/samplers/nsgaii.html.
+
+            If :obj:`None` is specified, the parameter selected for mutation is instead
+            resampled independently using :class:`~optuna.samplers.RandomSampler`.
+
         mutation_prob:
             Probability of mutating each parameter when creating a new individual.
             If :obj:`None` is specified, the value ``1.0 / len(parent_trial.params)`` is used
@@ -120,10 +132,11 @@ class NSGAIISampler(BaseGASampler):
             2. Trial x and y are both infeasible, but trial x has a smaller overall violation.
             3. Trial x and y are feasible and trial x dominates trial y.
 
-            .. note::
-                Added in v2.5.0 as an experimental feature. The interface may change in newer
-                versions without prior notice. See
-                https://github.com/optuna/optuna/releases/tag/v2.5.0.
+            .. warning::
+                Deprecated in v5.0.0. This feature will be removed in the future. The removal of
+                this feature is currently scheduled for v7.0.0, but this schedule is subject to
+                change. Use :meth:`~optuna.trial.Trial.set_constraint` instead.
+                See https://github.com/optuna/optuna/releases/tag/v5.0.0.
 
         elite_population_selection_strategy:
             The selection strategy for determining the individuals to survive from the current
@@ -157,6 +170,7 @@ class NSGAIISampler(BaseGASampler):
         self,
         *,
         population_size: int = 50,
+        mutation: BaseMutation | None = None,
         mutation_prob: float | None = None,
         crossover: BaseCrossover | None = None,
         crossover_prob: float = 0.9,
@@ -180,7 +194,10 @@ class NSGAIISampler(BaseGASampler):
             raise ValueError("`population_size` must be greater than or equal to 2.")
 
         if constraints_func is not None:
-            warn_experimental_argument("constraints_func")
+            msg = _deprecated._DEPRECATION_WARNING_TEMPLATE.format(
+                name="`constraints_func`", d_ver="5.0.0", r_ver="7.0.0"
+            )
+            optuna_warn(f"{msg} Use `optuna.trial.Trial.set_constraint` instead.", FutureWarning)
         if after_trial_strategy is not None:
             warn_experimental_argument("after_trial_strategy")
 
@@ -223,6 +240,7 @@ class NSGAIISampler(BaseGASampler):
             child_generation_strategy
             or NSGAIIChildGenerationStrategy(
                 crossover_prob=crossover_prob,
+                mutation=mutation,
                 mutation_prob=mutation_prob,
                 swapping_prob=swapping_prob,
                 crossover=crossover,

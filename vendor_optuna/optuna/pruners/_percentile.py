@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-from collections.abc import KeysView
 import functools
 import math
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-import optuna
 from optuna.pruners import BasePruner
 from optuna.study._study_direction import StudyDirection
 from optuna.trial._state import TrialState
+
+
+if TYPE_CHECKING:
+    from collections.abc import KeysView
+
+    import optuna
 
 
 def _get_best_intermediate_result_over_steps(
@@ -120,8 +125,9 @@ class PercentilePruner(BasePruner):
         n_startup_trials:
             Pruning is disabled until the given number of trials finish in the same study.
         n_warmup_steps:
-            Pruning is disabled until the trial exceeds the given number of step. Note that
-            this feature assumes that ``step`` starts at zero.
+            Pruning is disabled while the current step is less than ``n_warmup_steps``; the
+            earliest a trial can be pruned is at ``step == n_warmup_steps``. This feature
+            assumes that ``step`` is a non-negative integer.
         interval_steps:
             Interval in number of steps between the pruning checks, offset by the warmup steps.
             If no value has been reported at the time of a pruning check, that particular check

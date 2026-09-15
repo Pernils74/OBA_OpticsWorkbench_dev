@@ -1,5 +1,5 @@
 # orm/strategies.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -65,6 +65,13 @@ if TYPE_CHECKING:
     from .mapper import Mapper
     from .relationships import RelationshipProperty
     from ..sql.elements import ColumnElement
+
+
+# sentinel for _LoadLazyAttribute.extra_criteria indicating that the loader
+# option had no additional criteria.  the attribute is otherwise a single
+# element returned by Load._generate_extra_criteria(), which has no
+# meaningful boolean value of its own.
+_NO_EXTRA_CRITERIA = None
 
 
 def _register_attribute(
@@ -1209,7 +1216,7 @@ class LazyLoader(
                     (
                         loadopt._generate_extra_criteria(context)
                         if loadopt._extra_criteria
-                        else None
+                        else _NO_EXTRA_CRITERIA
                     ),
                 ),
                 key,
@@ -1257,7 +1264,7 @@ class LoadLazyAttribute:
         self.extra_criteria = extra_criteria
 
     def __getstate__(self):
-        if self.extra_criteria is not None:
+        if self.extra_criteria is not _NO_EXTRA_CRITERIA:
             util.warn(
                 "Can't reliably serialize a lazyload() option that "
                 "contains additional criteria; please use eager loading "
@@ -1267,7 +1274,7 @@ class LoadLazyAttribute:
             "key": self.key,
             "strategy_key": self.strategy_key,
             "loadopt": self.loadopt,
-            "extra_criteria": (),
+            "extra_criteria": _NO_EXTRA_CRITERIA,
         }
 
     def __call__(self, state, passive=attributes.PASSIVE_OFF):
@@ -1735,7 +1742,7 @@ class SubqueryLoader(PostLoader):
         loadopt,
     ):
         # note that because the subqueryload object
-        # does not re-use the cached query, instead always making
+        # does not reuse the cached query, instead always making
         # use of the current invoked query, while we have two queries
         # here (orig and context.query), they are both non-cached
         # queries and we can transfer the options as is without
@@ -1746,7 +1753,7 @@ class SubqueryLoader(PostLoader):
         if loadopt and loadopt._extra_criteria:
             new_options += (
                 orm_util.LoaderCriteriaOption(
-                    self.entity,
+                    effective_entity,
                     loadopt._generate_extra_criteria(context),
                 ),
             )
@@ -2020,7 +2027,12 @@ class SubqueryLoader(PostLoader):
         if len(path) == 1:
             if not orm_util._entity_isa(query_entity.entity_zero, self.parent):
                 return
-        elif not orm_util._entity_isa(path[-1], self.parent):
+        elif not orm_util._entity_isa(
+            path[-1], self.parent
+        ) and not self.parent.isa(path[-1].mapper):
+            # second check accommodates a polymorphic entity where
+            # the path has been normalized to the base mapper but
+            # self.parent is a subclass mapper.  Fixes #13209.
             return
 
         subq = self._setup_query_from_rowproc(
@@ -3099,7 +3111,14 @@ class SelectInLoader(PostLoader, util.MemoizedSlots):
         if len(path) == 1:
             if not orm_util._entity_isa(query_entity.entity_zero, self.parent):
                 return
-        elif not orm_util._entity_isa(path[-1], self.parent):
+        elif not orm_util._entity_isa(
+            path[-1], self.parent
+        ) and not self.parent.isa(path[-1].mapper):
+            # second check accommodates a polymorphic entity where
+            # the path has been normalized to the base mapper but
+            # self.parent is a subclass mapper, e.g.
+            # joinedload(A.b.of_type(poly)).selectinload(poly.Sub.rel)
+            # Fixes #13209.
             return
 
         selectin_path = effective_path

@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from optuna._experimental import experimental_func
-from optuna.study import Study
-from optuna.trial import FrozenTrial
 from optuna.visualization._pareto_front import _get_pareto_front_info
 from optuna.visualization._pareto_front import _ParetoFrontInfo
 from optuna.visualization.matplotlib._matplotlib_imports import _imports
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from collections.abc import Sequence
+
+    from optuna.study import Study
+    from optuna.trial import FrozenTrial
 
 
 if _imports.is_successful():
@@ -23,7 +28,6 @@ def plot_pareto_front(
     *,
     target_names: list[str] | None = None,
     include_dominated_trials: bool = True,
-    axis_order: list[int] | None = None,
     constraints_func: Callable[[FrozenTrial], Sequence[float]] | None = None,
     targets: Callable[[FrozenTrial], Sequence[float]] | None = None,
 ) -> "Axes":
@@ -43,14 +47,6 @@ def plot_pareto_front(
             ``target_name`` must be specified.
         include_dominated_trials:
             A flag to include all dominated trial's objective values.
-        axis_order:
-            A list of indices indicating the axis order. If :obj:`None` is specified,
-            default order is used. ``axis_order`` and ``targets`` cannot be used at the same time.
-
-            .. warning::
-                Deprecated in v3.0.0. This feature will be removed in the future. The removal of
-                this feature is currently scheduled for v5.0.0, but this schedule is subject to
-                change. See https://github.com/optuna/optuna/releases/tag/v3.0.0.
         constraints_func:
             An optional function that computes the objective constraints. It must take a
             :class:`~optuna.trial.FrozenTrial` and return the constraints. The return value must
@@ -71,7 +67,6 @@ def plot_pareto_front(
             A function that returns a tuple of target values to display.
             The argument to this function is :class:`~optuna.trial.FrozenTrial`.
             ``targets`` must be :obj:`None` or return 2 or 3 values.
-            ``axis_order`` and ``targets`` cannot be used at the same time.
             If the number of objectives is neither 2 nor 3, ``targets`` must be specified.
 
             .. note::
@@ -86,7 +81,7 @@ def plot_pareto_front(
     _imports.check()
 
     info = _get_pareto_front_info(
-        study, target_names, include_dominated_trials, axis_order, constraints_func, targets
+        study, target_names, include_dominated_trials, constraints_func, targets
     )
     return _get_pareto_front_plot(info)
 

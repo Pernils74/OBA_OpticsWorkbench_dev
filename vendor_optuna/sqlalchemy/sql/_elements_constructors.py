@@ -1,5 +1,5 @@
 # sql/_elements_constructors.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -74,6 +74,12 @@ def all_(expr: _ColumnExpressionArgument[_T]) -> CollectionAggregate[bool]:
         # renders on MySQL:
         # '5 = ALL (SELECT value FROM table)'
         expr = 5 == all_(select(table.c.value))
+
+    When using a Python sequence with PostgreSQL, wrap it with
+    :func:`_sql.literal` to produce a SQL expression.  Whether the sequence
+    can be adapted to an array parameter is DBAPI-specific::
+
+        expr = 5 == all_(literal([1, 2, 3]))
 
     Comparison to NULL may work using ``None``::
 
@@ -257,6 +263,12 @@ def any_(expr: _ColumnExpressionArgument[_T]) -> CollectionAggregate[bool]:
         # renders on MySQL:
         # '5 = ANY (SELECT value FROM table)'
         expr = 5 == any_(select(table.c.value))
+
+    When using a Python sequence with PostgreSQL, wrap it with
+    :func:`_sql.literal` to produce a SQL expression.  Whether the sequence
+    can be adapted to an array parameter is DBAPI-specific::
+
+        expr = 5 == any_(literal([1, 2, 3]))
 
     Comparison to NULL may work using ``None`` or :func:`_sql.null`::
 

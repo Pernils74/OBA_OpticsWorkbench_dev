@@ -10,6 +10,7 @@ from numbers import Real
 import threading
 from typing import Any
 from typing import cast
+from typing import Literal
 from typing import TYPE_CHECKING
 from typing import Union
 
@@ -21,17 +22,14 @@ from optuna import logging
 from optuna import pruners
 from optuna import samplers
 from optuna import storages
-from optuna._convert_positional_args import convert_positional_args
-from optuna._deprecated import deprecated_func
 from optuna._experimental import experimental_func
 from optuna._imports import _LazyImport
-from optuna._typing import JSONSerializable
 from optuna._warnings import optuna_warn
 from optuna.distributions import _convert_old_distribution_to_new_distribution
 from optuna.distributions import BaseDistribution
 from optuna.storages._heartbeat import is_heartbeat_enabled
-from optuna.study._constrained_optimization import _CONSTRAINTS_KEY
 from optuna.study._constrained_optimization import _get_feasible_trials
+from optuna.study._constrained_optimization import _is_constrained_optimization
 from optuna.study._multi_objective import _get_pareto_front_trials
 from optuna.study._optimize import _optimize
 from optuna.study._study_direction import StudyDirection
@@ -45,6 +43,7 @@ from optuna.trial import TrialState
 _dataframe = _LazyImport("optuna.study._dataframe")
 
 if TYPE_CHECKING:
+    from optuna._typing import JSONSerializable
     from optuna.study._dataframe import pd
     from optuna.trial import FrozenTrial
     from optuna.trial import Trial
@@ -145,8 +144,20 @@ class Study:
             If your study is multi-objective,
             use :attr:`~optuna.study.Study.best_trials` instead.
 
+        .. note::
+            In constrained optimization, the best trial is selected from trials that
+            satisfy all constraints. A trial is considered feasible when all of its
+            constraint values are less than or equal to 0.0.
+
         Returns:
             A :class:`~optuna.trial.FrozenTrial` object of the best trial.
+
+        Raises:
+            RuntimeError:
+                If the study is multi-objective.
+            ValueError:
+                If no trials are completed yet, or if no feasible trials exist
+                in a constrained optimization.
 
         .. seealso::
             The :ref:`reuse_best_trial` tutorial provides a detailed example of how to use this
@@ -164,13 +175,27 @@ class Study:
         ``all(v0 <= v1) for v0, v1 in zip(t0.values, t1.values)`` and
         ``any(v0 < v1) for v0, v1 in zip(t0.values, t1.values)`` are held.
 
+        .. note::
+            In constrained optimization, the best trials are selected from trials that
+            satisfy all constraints. A trial is considered feasible when all of its
+            constraint values are less than or equal to 0.0.
+
+        .. note::
+            When optimizing many objectives, a large fraction of trials may become non-dominated
+            in general due to the curse of dimensionality in the objective space. If this makes
+            post-hoc selection difficult, consider modeling some objectives as constraints.
+            Constraints can be set within the objective function using
+            :meth:`~optuna.trial.Trial.set_constraint` method.
+
         Returns:
-            A list of :class:`~optuna.trial.FrozenTrial` objects.
+            A list of :class:`~optuna.trial.FrozenTrial` objects. If no trials are
+            completed or if no feasible trials exist in a constrained optimization,
+            an empty list is returned.
         """
 
         # Check whether the study is constrained optimization.
         trials = self.get_trials(deepcopy=False)
-        is_constrained = any((_CONSTRAINTS_KEY in trial.system_attrs) for trial in trials)
+        is_constrained = _is_constrained_optimization(trials)
 
         return _get_pareto_front_trials(self, consider_constraint=is_constrained)
 
@@ -308,18 +333,16 @@ class Study:
         best_trial = self._storage.get_best_trial(self._study_id)
 
         # If the trial with the best value is infeasible, select the best trial from all feasible
-        # trials. Note that the behavior is undefined when constrained optimization without the
-        # violation value in the best-valued trial.
-        constraints = best_trial.system_attrs.get(_CONSTRAINTS_KEY)
-        if constraints is not None and any([x > 0.0 for x in constraints]):
+        # trials.
+        if any(x > 0.0 for x in best_trial.constraints.values()):
             complete_trials = self.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
             feasible_trials = _get_feasible_trials(complete_trials)
             if len(feasible_trials) == 0:
                 raise ValueError("No feasible trials are completed yet.")
             if self.direction == StudyDirection.MAXIMIZE:
-                best_trial = max(feasible_trials, key=lambda t: cast(float, t.value))
+                best_trial = max(feasible_trials, key=lambda t: cast("float", t.value))
             else:
-                best_trial = min(feasible_trials, key=lambda t: cast(float, t.value))
+                best_trial = min(feasible_trials, key=lambda t: cast("float", t.value))
 
         return copy.deepcopy(best_trial) if deepcopy else best_trial
 
@@ -361,17 +384,6 @@ class Study:
         """
 
         return copy.deepcopy(self._storage.get_study_user_attrs(self._study_id))
-
-    @property
-    @deprecated_func("3.1.0", "5.0.0")
-    def system_attrs(self) -> dict[str, Any]:
-        """Return system attributes.
-
-        Returns:
-            A dictionary containing all system attributes.
-        """
-
-        return copy.deepcopy(self._storage.get_study_system_attrs(self._study_id))
 
     @property
     def metric_names(self) -> list[str] | None:
@@ -721,21 +733,6 @@ class Study:
         """
 
         self._storage.set_study_user_attr(self._study_id, key, value)
-
-    @deprecated_func("3.1.0", "5.0.0")
-    def set_system_attr(self, key: str, value: Any) -> None:
-        """Set a system attribute to the study.
-
-        Note that Optuna internally uses this method to save system messages. Please use
-        :func:`~optuna.study.Study.set_user_attr` to set users' attributes.
-
-        Args:
-            key: A key string of the attribute.
-            value: A value of the attribute. The value should be JSON serializable.
-
-        """
-
-        self._storage.set_study_system_attr(self._study_id, key, value)
 
     def trials_dataframe(
         self,
@@ -1113,8 +1110,7 @@ class Study:
                     continue
 
                 is_repeated = (
-                    np.isnan(float(param_value))
-                    or np.isclose(float(param_value), float(existing_param), atol=0.0)
+                    np.isclose(float(param_value), float(existing_param), atol=0.0, equal_nan=True)
                     if isinstance(param_value, Real)
                     else param_value == existing_param
                 )
@@ -1163,27 +1159,15 @@ class Study:
             assert False, "Should not reach."
 
 
-@convert_positional_args(
-    previous_positional_arg_names=[
-        "storage",
-        "sampler",
-        "pruner",
-        "study_name",
-        "direction",
-        "load_if_exists",
-    ],
-    deprecated_version="3.0.0",
-    removed_version="5.0.0",
-)
 def create_study(
     *,
     storage: str | storages.BaseStorage | None = None,
     sampler: "samplers.BaseSampler" | None = None,
     pruner: pruners.BasePruner | None = None,
     study_name: str | None = None,
-    direction: str | StudyDirection | None = None,
+    direction: Literal["minimize", "maximize"] | StudyDirection | None = None,
     load_if_exists: bool = False,
-    directions: Sequence[str | StudyDirection] | None = None,
+    directions: Sequence[Literal["minimize", "maximize"] | StudyDirection] | None = None,
 ) -> Study:
     """Create a new :class:`~optuna.study.Study`.
 
@@ -1222,9 +1206,8 @@ def create_study(
 
         sampler:
             A sampler object that implements background algorithm for value suggestion.
-            If :obj:`None` is specified, :class:`~optuna.samplers.TPESampler` is used during
-            single-objective optimization and :class:`~optuna.samplers.NSGAIISampler` during
-            multi-objective optimization. See also :class:`~optuna.samplers`.
+            If :obj:`None` is specified, :class:`~optuna.samplers.TPESampler` is used
+            as the default. See also :class:`~optuna.samplers`.
         pruner:
             A pruner object that decides early stopping of unpromising trials. If :obj:`None`
             is specified, :class:`~optuna.pruners.MedianPruner` is used as the default. See
@@ -1300,14 +1283,16 @@ def create_study(
             assert study_name is not None
 
             _logger.info(
-                f"Using an existing study with name '{study_name}' instead of creating a new one."
+                f"Using an existing study with `{study_name=}` instead of creating a new one."
             )
             study_id = storage.get_study_id_from_name(study_name)
         else:
-            raise
-
-    if sampler is None and len(direction_objects) > 1:
-        sampler = samplers.NSGAIISampler()
+            raise exceptions.DuplicatedStudyError(
+                f"Another study with {study_name=} already exists. Please specify a name not in "
+                f"the storage, or reuse the existing one by setting `load_if_exists` (for "
+                "Python API) or `--skip-if-exists` flag (for CLI).\n"
+                "Use `optuna.study.get_all_study_names(storage)` to list all the used names."
+            )
 
     study_name = storage.get_study_name_from_id(study_id)
     study = Study(study_name=study_name, storage=storage, sampler=sampler, pruner=pruner)
@@ -1315,16 +1300,6 @@ def create_study(
     return study
 
 
-@convert_positional_args(
-    previous_positional_arg_names=[
-        "study_name",
-        "storage",
-        "sampler",
-        "pruner",
-    ],
-    deprecated_version="3.0.0",
-    removed_version="5.0.0",
-)
 def load_study(
     *,
     study_name: str | None,
@@ -1391,29 +1366,19 @@ def load_study(
         study_names = get_all_study_names(storage)
         if len(study_names) != 1:
             raise ValueError(
-                f"Could not determine the study name since the storage {storage} does not "
-                "contain exactly 1 study. Specify `study_name`."
+                f"Could not determine the study name since the {storage=} does not contain exactly"
+                f" 1 study. Specify `study_name` from {study_names=}."
             )
         study_name = study_names[0]
         _logger.info(
-            f"Study name was omitted but trying to load '{study_name}' because that was the only "
+            f"Study name was omitted but trying to load `{study_name=}` because that was the only "
             "study found in the storage."
         )
 
     study = Study(study_name=study_name, storage=storage, sampler=sampler, pruner=pruner)
-    if sampler is None and len(study.directions) > 1:
-        study.sampler = samplers.NSGAIISampler()
     return study
 
 
-@convert_positional_args(
-    previous_positional_arg_names=[
-        "study_name",
-        "storage",
-    ],
-    deprecated_version="3.0.0",
-    removed_version="5.0.0",
-)
 def delete_study(
     *,
     study_name: str,
@@ -1466,17 +1431,6 @@ def delete_study(
     storage.delete_study(study_id)
 
 
-@convert_positional_args(
-    previous_positional_arg_names=[
-        "from_study_name",
-        "from_storage",
-        "to_storage",
-        "to_study_name",
-    ],
-    warning_stacklevel=3,
-    deprecated_version="3.0.0",
-    removed_version="5.0.0",
-)
 def copy_study(
     *,
     from_study_name: str,
@@ -1647,9 +1601,9 @@ def get_all_study_summaries(
             directions = None
             if include_best_trial and len(completed_trials) != 0:
                 if direction == StudyDirection.MAXIMIZE:
-                    best_trial = max(completed_trials, key=lambda t: cast(float, t.value))
+                    best_trial = max(completed_trials, key=lambda t: cast("float", t.value))
                 else:
-                    best_trial = min(completed_trials, key=lambda t: cast(float, t.value))
+                    best_trial = min(completed_trials, key=lambda t: cast("float", t.value))
             else:
                 best_trial = None
         else:
@@ -1667,7 +1621,6 @@ def get_all_study_summaries(
                 direction=direction,
                 best_trial=best_trial,
                 user_attrs=s.user_attrs,
-                system_attrs=s.system_attrs,
                 n_trials=n_trials,
                 datetime_start=datetime_start,
                 study_id=s._study_id,

@@ -1,7 +1,7 @@
 """Notations in this Gaussian process implementation
 
 X_train: Observed parameter values with the shape of (len(trials), len(params)).
-y_train: Observed objective values with the shape of (len(trials), ).
+y_train: Observed objective values with the shape of (len(trials), 1).
 x: (Possibly batched) parameter value(s) to evaluate with the shape of (..., len(params)).
 cov_fX_fX: Kernel matrix X = V[f(X)] with the shape of (len(trials), len(trials)).
 cov_fx_fX: Kernel matrix Cov[f(x), f(X)] with the shape of (..., len(trials)).
@@ -15,17 +15,23 @@ sqd: The squared differences of each dimension between two points.
 is_categorical:
     A boolean array with the shape of (len(params), ). If is_categorical[i] is True, the i-th
     parameter is categorical.
+
+Notation for q-batch acquisition functions with running trials:
+
+q-batch: The set consisting of the running trials and one candidate currently being evaluated.
+fantasy_samples: Hypothetical objective values at the running trials for each QMC sample.
+candidate: A new parameter value whose acquisition value is being evaluated.
 """
 
 from __future__ import annotations
 
-import math
 from typing import Any
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from optuna._gp.scipy_blas_thread_patch import single_blas_thread_if_scipy_v1_15_or_newer
+from optuna._gp.qmc import sample_from_normal_sobol
+from optuna._gp.thread_limiting import limit_threads_in_optimization
 from optuna._warnings import optuna_warn
 from optuna.logging import get_logger
 
@@ -58,6 +64,60 @@ def warn_and_convert_inf(values: np.ndarray) -> np.ndarray:
         np.where(is_any_finite, np.min(np.where(is_values_finite, values, np.inf), axis=0), 0.0),
         np.where(is_any_finite, np.max(np.where(is_values_finite, values, -np.inf), axis=0), 0.0),
     )
+
+
+def _solve_cholesky(L: torch.Tensor, B: torch.Tensor, *, left: bool = True) -> torch.Tensor:
+    """
+    This function returns the tensor `X` by solving the linear system `A @ X = B`,
+    where `A = L @ L.T`.
+
+    if ``left=False``, solve `X @ A = B` instead.
+
+    NOTE(nabenabe): torch.cholesky_solve is legacy and slower based on my benchmarking.
+    NOTE(nabenabe): Don't use np.linalg.inv because it is too slow und unstable.
+    cf. https://github.com/optuna/optuna/issues/6230
+    """
+    if left:
+        # L @ L.T @ X = B --> L.T @ X = inv(L) @ B --> X = inv(L.T) @ inv(L) @ B
+        return torch.linalg.solve_triangular(
+            L.T, torch.linalg.solve_triangular(L, B, upper=False), upper=True
+        )
+    else:
+        # X @ L @ L.T = B --> X @ L = B @ inv(L.T) --> X = B @ inv(L.T) @ inv(L)
+        return torch.linalg.solve_triangular(
+            L,
+            torch.linalg.solve_triangular(L.T, B, upper=True, left=False),
+            upper=False,
+            left=False,
+        )
+
+
+def _extend_cholesky(L11: torch.Tensor, K21: torch.Tensor, K22: torch.Tensor) -> torch.Tensor:
+    """
+    This function calculates the Cholesky decompsition L of K=[[K11,K12],[K21,K22]] by
+    extending L11 where K11 = L11 @ L11.T. Note that K12 = K21.T.
+
+    The solution L = chol(K) is calculated as:
+        chol(K) = [[L11, 0], [K21 @ inv(L11).T, chol(K22 - K21 @ inv(K11) @ K21.T)]].
+
+    Denote L21 := K21 @ inv(L11).T.
+    Since inv(L11.T).T = inv(L11), L21 = K21 @ inv(L11.T) --> L21.T = inv(L11) @ K21.T
+    --> Solving L11 @ L21.T = K21.T yields L21.T.
+    Note that L21 = K21 @ inv(L11).T = K21 @ inv(L11.T).
+
+    Since inv(K11) = inv(L11 @ L11.T) = inv(L11.T) @ inv(L11),
+    K21 @ inv(K11) @ K21.T = K21 @ inv(L11.T) @ inv(L11) @ K21.T = L21 @ L21.T.
+    """
+    n1 = L11.shape[-1]
+    n2 = K22.shape[-1]
+    batch_shape = L11.shape[:-2]
+    L = torch.zeros(batch_shape + (n1 + n2, n1 + n2), dtype=torch.float64)
+    L21_T = torch.linalg.solve_triangular(L11, K21.transpose(-1, -2), upper=False)
+    L21 = L21_T.transpose(-1, -2)
+    L[..., :n1, :n1] = L11
+    L[..., n1:, n1:] = torch.linalg.cholesky(K22 - L21 @ L21_T)
+    L[..., n1:, :n1] = L21
+    return L
 
 
 class Matern52Kernel(torch.autograd.Function):
@@ -100,9 +160,12 @@ class GPRegressor:
         kernel_scale: torch.Tensor,  # Scalar
         noise_var: torch.Tensor,  # Scalar
     ) -> None:
+        assert len(X_train.shape) == 2 and len(y_train.shape) == 1
         self._is_categorical = is_categorical
         self._X_train = X_train
-        self._y_train = y_train
+        self._y_train = y_train.unsqueeze(-1)
+        self._X_all = X_train
+        self._y_all = y_train.unsqueeze(-1)
         self._squared_X_diff = (X_train.unsqueeze(-2) - X_train.unsqueeze(-3)).square_()
         if self._is_categorical.any():
             self._squared_X_diff[..., self._is_categorical] = (
@@ -123,28 +186,29 @@ class GPRegressor:
         assert self._cov_Y_Y_chol is None and self._cov_Y_Y_inv_Y is None, (
             "Cannot call cache_matrix more than once."
         )
-        with torch.no_grad():
-            cov_Y_Y = self.kernel().detach().cpu().numpy()
-
-        cov_Y_Y[np.diag_indices(self._X_train.shape[0])] += self.noise_var.item()
-        cov_Y_Y_chol = np.linalg.cholesky(cov_Y_Y)
-        # cov_Y_Y_inv @ y = v --> y = cov_Y_Y @ v --> y = cov_Y_Y_chol @ cov_Y_Y_chol.T @ v
-        # NOTE(nabenabe): Don't use np.linalg.inv because it is too slow und unstable.
-        # cf. https://github.com/optuna/optuna/issues/6230
-        cov_Y_Y_inv_Y = scipy.linalg.solve_triangular(
-            cov_Y_Y_chol.T,
-            scipy.linalg.solve_triangular(cov_Y_Y_chol, self._y_train.cpu().numpy(), lower=True),
-            lower=False,
-        )
-        # NOTE(nabenabe): Here we use NumPy to guarantee the reproducibility from the past.
-        self._cov_Y_Y_chol = torch.from_numpy(cov_Y_Y_chol)
-        self._cov_Y_Y_inv_Y = torch.from_numpy(cov_Y_Y_inv_Y)
         self.inverse_squared_lengthscales = self.inverse_squared_lengthscales.detach()
-        self.inverse_squared_lengthscales.grad = None
         self.kernel_scale = self.kernel_scale.detach()
-        self.kernel_scale.grad = None
         self.noise_var = self.noise_var.detach()
-        self.noise_var.grad = None
+        with torch.no_grad():
+            cov_Y_Y = self.kernel()
+        cov_Y_Y.diagonal().add_(self.noise_var)
+        self._cov_Y_Y_chol = torch.linalg.cholesky(cov_Y_Y)
+        self._cov_Y_Y_inv_Y = _solve_cholesky(self._cov_Y_Y_chol, self._y_train).squeeze(-1)
+
+    def append_running_data(self, X_running: torch.Tensor, y_running: torch.Tensor) -> None:
+        assert self._cov_Y_Y_chol is not None and self._cov_Y_Y_inv_Y is not None, (
+            "Call _cache_matrix before append_running_data"
+        )
+        with torch.no_grad():
+            kernel_running_train = self.kernel(X_running)
+            kernel_running_running = self.kernel(X_running, X_running)
+        self._X_all = torch.cat([self._X_train, X_running], dim=0)
+        self._y_all = torch.cat([self._y_train, y_running.unsqueeze(-1)], dim=0)
+        kernel_running_running.diagonal().add_(self.noise_var)
+        self._cov_Y_Y_chol = _extend_cholesky(
+            L11=self._cov_Y_Y_chol, K21=kernel_running_train, K22=kernel_running_running
+        )
+        self._cov_Y_Y_inv_Y = _solve_cholesky(self._cov_Y_Y_chol, self._y_all).squeeze(-1)
 
     def kernel(
         self, X1: torch.Tensor | None = None, X2: torch.Tensor | None = None
@@ -193,14 +257,9 @@ class GPRegressor:
         )
         is_single_point = x.ndim == 1
         x_ = x if not is_single_point else x.unsqueeze(0)
-        mean = torch.linalg.vecdot(cov_fx_fX := self.kernel(x_), self._cov_Y_Y_inv_Y)
+        mean = torch.linalg.vecdot(cov_fx_fX := self.kernel(x_, self._X_all), self._cov_Y_Y_inv_Y)
         # K @ inv(C) = V --> K = V @ C --> K = V @ L @ L.T
-        V = torch.linalg.solve_triangular(
-            self._cov_Y_Y_chol,
-            torch.linalg.solve_triangular(self._cov_Y_Y_chol.T, cov_fx_fX, upper=True, left=False),
-            upper=False,
-            left=False,
-        )
+        V = _solve_cholesky(self._cov_Y_Y_chol, cov_fx_fX, left=False)
         if joint:
             assert not is_single_point, "Call posterior with joint=False for a single point."
             cov_fx_fx = self.kernel(x_, x_)
@@ -239,14 +298,15 @@ class GPRegressor:
         2/3*N**3 flops, the overall cost for the former is 1/3*N**3+N**2+N flops and that for the
         latter is N**3+2*N**2-N flops.
         """
-        n_points = self._X_train.shape[0]
-        const = -0.5 * n_points * math.log(2 * math.pi)
-        cov_Y_Y = self.kernel() + self.noise_var * torch.eye(n_points, dtype=torch.float64)
+        cov_Y_Y = self.kernel()
+        # NOTE(nabenabe): If we extend it to batch optimization, use diagonal(dim1=-2, dim2=-1).
+        cov_Y_Y.diagonal().add_(self.noise_var)
         L = torch.linalg.cholesky(cov_Y_Y)
         logdet_part = -L.diagonal().log().sum()
-        inv_L_y = torch.linalg.solve_triangular(L, self._y_train[:, None], upper=False)[:, 0]
+        inv_L_y = torch.linalg.solve_triangular(L, self._y_train, upper=False).squeeze(-1)
         quad_part = -0.5 * (inv_L_y @ inv_L_y)
-        return logdet_part + const + quad_part
+        # NOTE(nabe): Omitting the constant does not change the optimum.
+        return logdet_part + quad_part
 
     def _fit_kernel_params(
         self,
@@ -258,7 +318,7 @@ class GPRegressor:
         n_params = self._X_train.shape[1]
 
         # We apply log transform to enforce the positivity of the kernel parameters.
-        # Note that we cannot just use the constraint because of the numerical unstability
+        # Note that we cannot just use the constraint because of the numerical instability
         # of the marginal log likelihood.
         # We also enforce the noise parameter to be greater than `minimum_noise` to avoid
         # pathological behavior of maximum likelihood estimation.
@@ -275,7 +335,7 @@ class GPRegressor:
 
         def loss_func(raw_params: np.ndarray) -> tuple[float, np.ndarray]:
             raw_params_tensor = torch.from_numpy(raw_params).requires_grad_(True)
-            with torch.enable_grad():  # type: ignore[no-untyped-call]
+            with torch.enable_grad():
                 self.inverse_squared_lengthscales = torch.exp(raw_params_tensor[:n_params])
                 self.kernel_scale = torch.exp(raw_params_tensor[n_params])
                 self.noise_var = (
@@ -290,7 +350,7 @@ class GPRegressor:
                 assert not deterministic_objective or raw_noise_var_grad == 0
             return loss.item(), raw_params_tensor.grad.detach().cpu().numpy()  # type: ignore
 
-        with single_blas_thread_if_scipy_v1_15_or_newer():
+        with limit_threads_in_optimization():
             # jac=True means loss_func returns the gradient for gradient descent.
             res = scipy.optimize.minimize(
                 # Too small `gtol` causes instability in loss_func optimization.
@@ -313,6 +373,142 @@ class GPRegressor:
         )
         self._cache_matrix()
         return self
+
+
+class ConditionalGPRegressor:
+    """Gaussian process regressor conditioned on a fixed set of samples.
+
+    We first pre-sample fantasy values at X_running from p(f_Xr | complete trials) and draw
+    conditional samples at new points from p(f_x | f_Xr, complete trials).
+    Note that ``sample_joint_posterior`` is a deterministic operation due to the pre-sampling.
+
+    Considering p(y_a | y_b) = p(y_x | y_Xr), the posterior of this distribution has:
+        mean: mu_a + cov_ab @ inv(cov_bb) @ (y_b - mu_b),
+        cov: cov_aa - cov_ab @ inv(cov_bb) @ cov_ba,
+    where mu_a and mu_b are the posterior means of y_a and y_b, cov_aa and cov_bb are the
+    posterior covariance of y_a and y_b, cov_ab (= cov_ba.T) is the cross-covariance matrix
+    between y_a and y_b. Notice that `cov` here is for posterior not prior. `cov` implies prior
+    covariance elsewhere. We use this formulation to compute the conditional posterior. Replace
+    `a` with `x` and `b` with `r`, then we get the exact formula.
+
+    `gpr` is assumed to contain only completed trials; running trials are handled separately
+    through `X_running`.
+    """
+
+    def __init__(
+        self,
+        gpr: GPRegressor,
+        X_running: torch.Tensor,
+        n_qmc_samples: int,
+        qmc_seed: int,
+        stabilizing_noise: float,
+    ) -> None:
+        self._gpr = gpr
+        self._X_running = X_running
+        # fixed_samples is a standard-normal base samples of shape (n_qmc_samples, n_running + 1),
+        # with the final column (+1 in dim below) reserved for the queried point.
+        fixed_samples = sample_from_normal_sobol(
+            dim=X_running.shape[0] + 1, n_samples=n_qmc_samples, seed=qmc_seed
+        )
+        self._fixed_samples_x = fixed_samples[..., -1]
+        self._stabilizing_noise = stabilizing_noise
+        with torch.no_grad():
+            mean_r, cov_rr_post = gpr.posterior(X_running, joint=True)
+            cov_rr_post.diagonal(dim1=-2, dim2=-1).add_(stabilizing_noise)
+            self._cov_rr_post_chol = torch.linalg.cholesky(cov_rr_post)
+            # fantasy_samples.shape = (n_qmc_samples, n_runnings)
+            self._fantasy_samples = mean_r + fixed_samples[:, :-1].matmul(
+                self._cov_rr_post_chol.transpose(-2, -1)
+            )
+            delta_r = (self._fantasy_samples - mean_r).transpose(-2, -1)
+            self._cov_rr_post_inv_delta_r = _solve_cholesky(self._cov_rr_post_chol, delta_r)
+            cov_fXr_fX = gpr.kernel(X_running)
+            # cov_fx_fXr_post = cov_fx_fXr - cov_fx_fX @ inv(cov_Y_Y) @ cov_fX_fXr
+            # cov_fx_fX @ inv(cov_Y_Y) @ cov_fX_fXr = cov_fx_fX @ V_r
+            cov_Y_Y_chol = gpr._cov_Y_Y_chol
+            assert isinstance(cov_Y_Y_chol, torch.Tensor), "MyPy Redefinition"
+            self._V_r = _solve_cholesky(cov_Y_Y_chol, cov_fXr_fX, left=False).transpose(-2, -1)
+
+    def get_fantasy_samples(self) -> torch.Tensor:
+        return self._fantasy_samples
+
+    def sample_joint_posterior(self, x: torch.Tensor, return_fantasy: bool = True) -> torch.Tensor:
+        """Return conditional joint posterior samples for each query point.
+
+        For batched ``x``, each batch element is treated as a separate query sharing the same
+        running fantasies, rather than as part of a joint posterior over the query points.
+        If ``return_fantasy``, the returned tensor shape is
+        ``(*x.shape[:-1], n_qmc_samples, n_running + 1)``. Otherwise, the returned tensor shape is
+        ``(*x.shape[:-1], n_qmc_samples)``.
+        """
+        x_ = x.unsqueeze(0) if (is_single := x.ndim == 1) else x
+        mu_x, cov_xx_post = self._gpr.posterior(x_)
+        cov_fx_fXr = self._gpr.kernel(x_, self._X_running)
+        cov_fx_fX = self._gpr.kernel(x_)
+        cov_fx_fXr_post = cov_fx_fXr - cov_fx_fX.matmul(self._V_r)
+
+        # mean: mu_x + cov_xr @ inv(cov_rr) @ (y_r - mu_r)
+        cond_mean = mu_x.unsqueeze(-1) + cov_fx_fXr_post.matmul(self._cov_rr_post_inv_delta_r)
+        # cov: cov_xx - cov_xr @ inv(cov_rr) @ cov_rx
+        V = _solve_cholesky(self._cov_rr_post_chol, cov_fx_fXr_post, left=False)
+        cond_cov = (
+            cov_xx_post + self._stabilizing_noise - torch.linalg.vecdot(V, cov_fx_fXr_post)
+        ).clamp_min_(0.0)
+        samples = cond_mean + cond_cov.sqrt().unsqueeze(-1) * self._fixed_samples_x
+        if not return_fantasy:
+            return samples.squeeze(0) if is_single else samples
+        if is_single:
+            return torch.cat([self._fantasy_samples, samples.squeeze(0).unsqueeze(-1)], dim=-1)
+        fantasy = self._fantasy_samples.unsqueeze(0).expand(*x_.shape[:-1], -1, -1)
+        return torch.cat([fantasy, samples.unsqueeze(-1)], dim=-1)
+
+
+class ListConditionalGPRegressor:
+    """A list of conditional GP regressors for each objective, sharing one set of running trials.
+
+    This class is used by q-batch multi-objective acquisition functions. For each QMC sample, it
+    shares the same q-batch structure across objectives: the first ``n_running`` entries are
+    fantasy values at the running trials, and the final q-batch entry is the candidate currently
+    being evaluated.
+
+    ``fantasy_samples`` is shaped ``(n_qmc_samples, n_running, n_objectives)``. It contains the
+    running-trial part of the q-batch, which is used to build the per-sample HVI baseline.
+    ``sample_candidate_posterior`` returns ``(*x.shape[:-1], n_qmc_samples, n_objectives)``.
+    """
+
+    def __init__(
+        self,
+        gpr_list: list[GPRegressor],
+        X_running: torch.Tensor,
+        n_qmc_samples: int,
+        qmc_seed: int,
+        stabilizing_noise: float,
+    ) -> None:
+        self._cond_gpr_list = [
+            ConditionalGPRegressor(
+                gpr=gpr,
+                X_running=X_running,
+                n_qmc_samples=n_qmc_samples,
+                qmc_seed=qmc_seed + i,
+                stabilizing_noise=stabilizing_noise,
+            )
+            for i, gpr in enumerate(gpr_list)
+        ]
+        self._fantasy_samples = torch.stack(
+            [cond_gpr.get_fantasy_samples() for cond_gpr in self._cond_gpr_list], dim=-1
+        )
+
+    def get_fantasy_samples(self) -> torch.Tensor:
+        return self._fantasy_samples
+
+    def sample_candidate_posterior(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.stack(
+            [
+                cond_gpr.sample_joint_posterior(x, return_fantasy=False)
+                for cond_gpr in self._cond_gpr_list
+            ],
+            dim=-1,
+        )
 
 
 def fit_kernel_params(

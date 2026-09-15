@@ -69,6 +69,14 @@ class EvaluationService(QtCore.QObject):
         except Exception as e:
             App.Console.PrintError(f"[Eval] applyBest failed: {e}\n")
 
+    def _get_clusters(self, params):
+        if self.use_ml:
+            pass
+            # return ml_predict_clusters(params)  # placeholder for machine leatning
+        # _trigger_ray_engine(...)
+
+        return aggregate_interaction_clusters(mode="final", min_hits=1)
+
     # -------------------------------------------------------
     # MAIN EVALUATION ENTRY
     # -------------------------------------------------------
@@ -120,6 +128,8 @@ class EvaluationService(QtCore.QObject):
 
             results_1 = dict(result_1.get("results", {}))
             debug_1 = dict(result_1.get("debug", {}))
+            constraints_1 = dict(result_1.get("constraints", {}))
+
             # --------------------------------------------------
             # 2. DELA UPP METRICS
             #
@@ -173,6 +183,8 @@ class EvaluationService(QtCore.QObject):
             # det beräknades.
             # --------------------------------------------------
             final_results = dict(results_1)
+            final_constraints = dict(constraints_1)
+
             final_debug = dict(debug_1)
             score_2 = None
             # --------------------------------------------------
@@ -207,16 +219,17 @@ class EvaluationService(QtCore.QObject):
                 # SCANNER SKALL INTE KÖRAS IGEN.
                 # --------------------------------------------------
                 recheck_results = {}
+                recheck_constraints = {}
                 recheck_pruned = False
                 for m in normal_metrics:
                     metric_name = m.get("name", "?")
                     self.statusChanged.emit(f"Trial {trial_id} → " f"RECHECK {m.get('base_metric')} " f"({m.get('plane', '')})")
-                    value, valid = self._evaluate_metric(
-                        clusters_2,
-                        m,
-                    )
+                    value, valid, constraint = self._evaluate_metric(clusters_2, m)
                     recheck_results[metric_name] = value
-                    if not valid:
+                    recheck_constraints[metric_name] = constraint
+
+                    if constraint > 0:
+                        # if not valid:
                         print(f"[RECHECK PRUNE] " f"metric='{metric_name}' " f"value={value}")
                         recheck_pruned = True
                         break
@@ -227,6 +240,7 @@ class EvaluationService(QtCore.QObject):
                     self.evaluationReady.emit(
                         {
                             "results": results_1,
+                            "constraints": recheck_constraints,
                             "_pruned": True,
                             "unselected_params": unselected_params,
                             "debug": {
@@ -318,6 +332,10 @@ class EvaluationService(QtCore.QObject):
                 self._best_trial_params = dict(params)
                 print(f"[RECHECK] " f"trial={trial_id} " f"score1={score_1:.8f} " f"score2={final_debug['recheck']['score_2']:.8f} " f"final={final_score:.8f} " f"clusters={len(clusters_2)} " f"hits={total_hits_2}")
 
+                for name in final_constraints:
+                    c1 = constraints_1.get(name, 0.0)
+                    c2 = recheck_constraints.get(name, c1)
+                    final_constraints[name] = max(float(c1), float(c2))
             else:
                 # --------------------------------------------------
                 # INGEN RECHECK
@@ -329,10 +347,13 @@ class EvaluationService(QtCore.QObject):
                 if self._best_score is None:
                     self._best_score = score_1
                     self._best_trial_params = dict(params)
+
             # --------------------------------------------------
             # 6. RETURNERA RESULTAT TILL WORKER
             # --------------------------------------------------
-            self.evaluationReady.emit({"results": final_results, "_pruned": False, "unselected_params": unselected_params, "debug": final_debug})
+            self.evaluationReady.emit(
+                {"results": final_results, "constraints": final_constraints, "_pruned": False, "unselected_params": unselected_params, "debug": final_debug},
+            )
 
         except Exception as e:
             App.Console.PrintError(f"[Eval] evaluate failed: {e}\n")
@@ -371,6 +392,7 @@ class EvaluationService(QtCore.QObject):
             "scene_hash": scene_hash,
         }
         results = {}
+        constraints = {}
         # --------------------------------------------------
         # 1. VANLIGA METRICS
         # --------------------------------------------------
@@ -382,15 +404,19 @@ class EvaluationService(QtCore.QObject):
                 continue
 
             self.statusChanged.emit(f"Trial {trial_id} → " f"{m.get('base_metric')} " f"({m.get('plane', '')})")
-            value, valid = self._evaluate_metric(clusters, m)
+            value, valid, constraint = self._evaluate_metric(clusters, m)
             results[m["name"]] = value
+            constraints[m["name"]] = constraint
+
             # --------------------------------------------------
             # EARLY PRUNE
             # --------------------------------------------------
-            if not valid:
+            if constraint > 0:
+                # if not valid:
                 print(f"[PRUNE] " f"metric='{m['name']}' " f"base={m.get('base_metric')} " f"value={value} " f"threshold=" f"{self._debug_threshold_info(m)}")
                 return {
                     "results": results,
+                    "constraints": constraints,
                     "_pruned": True,
                     "unselected_params": unselected_params,
                     "debug": debug_info,
@@ -419,13 +445,14 @@ class EvaluationService(QtCore.QObject):
             value = metric_scanner(m, filtered, m.get("plane", "XY"), {"doc": doc})
 
             results[m["name"]] = value
+            constraints[m["name"]] = 0.0
             self.statusChanged.emit(f"Trial {trial_id} → " f"SCANNER score: " f"({value}) " f"Targets: " f"({targets}) " f"Step_id: " f"{m.get('step_id')}")
 
         # --------------------------------------------------
         # RETURN
         # --------------------------------------------------
 
-        return {"results": results, "_pruned": False, "unselected_params": unselected_params, "debug": debug_info}
+        return {"results": results, "constraints": constraints, "_pruned": False, "unselected_params": unselected_params, "debug": debug_info}
 
     # def _average_result_dicts(self, results_1, results_2):
     #     merged = {}
@@ -448,7 +475,6 @@ class EvaluationService(QtCore.QObject):
     # -------------------------------------------------------
 
     def _project_points(self, points, plane):
-
         if plane == "XY":
             return points[:, [0, 1]]
         elif plane == "XZ":
@@ -488,21 +514,25 @@ class EvaluationService(QtCore.QObject):
             constraint = 0.0
             if metric.get("use_threshold"):
                 threshold = metric.get("percent", 0.0)
-                valid = ratio >= threshold  # 1 metric.get("percent", 0.0)
-                constraint = threshold - ratio
+
+                # valid = ratio >= threshold  # 1 metric.get("percent", 0.0)
+                # constraint = threshold - ratio
+
+                constraint = max(0.0, threshold - ratio)
 
         elif base == "target_cluster_count":
             value, diff = compute_target_cluster_count(filtered, target_names, metric.get("percent", 0.01), metric.get("value", 3))
             if metric.get("use_threshold"):
-
-                valid = diff == 0
+                # valid = diff == 0
+                constraint = float(diff)
 
         elif base == "hit_count":
             value, ratio = compute_hit_count(filtered, target_names)
             if metric.get("use_threshold"):
                 threshold = metric.get("percent", 0.0)
-                valid = ratio >= threshold  # metric.get("percent", 0.0)
-                constraint = threshold - ratio
+                # valid = ratio >= threshold  # metric.get("percent", 0.0)
+                # constraint = threshold - ratio
+                constraint = max(0.0, threshold - ratio)
 
         elif base == "density":
             value = compute_density(filtered, plane, metric.get("bounce", 0))
@@ -580,7 +610,6 @@ def _is_model_valid(doc):
 
 
 def compute_power(clusters, targets=None):
-
     if not clusters:
         return 0.0, 0.0
     current = sum(c.get("power", {}).get("in", 0.0) for c in clusters.values())

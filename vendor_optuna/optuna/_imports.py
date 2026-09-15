@@ -59,15 +59,16 @@ class _DeferredImportExceptionContextManager:
         if isinstance(exc_value, (ImportError, SyntaxError)):
             if isinstance(exc_value, ImportError):
                 message = (
-                    "Tried to import '{}' but failed. Please make sure that the package is "
-                    "installed correctly to use this feature. Actual error: {}."
-                ).format(exc_value.name, exc_value)
+                    f"Tried to import '{exc_value.name}' but failed. Please make sure that the "
+                    "package is installed correctly to use this feature. Actual error: "
+                    f"{exc_value}."
+                )
             elif isinstance(exc_value, SyntaxError):
                 message = (
-                    "Tried to import a package but failed due to a syntax error in {}. Please "
-                    "make sure that the Python version is correct to use this feature. Actual "
-                    "error: {}."
-                ).format(exc_value.filename, exc_value)
+                    f"Tried to import a package but failed due to a syntax error in "
+                    f"{exc_value.filename}. Please make sure that the Python version is correct "
+                    f"to use this feature. Actual error: {exc_value}."
+                )
             else:
                 assert False
 
@@ -115,6 +116,8 @@ class _LazyImport(types.ModuleType):
     dependencies even if not required.
     Within this project's usage, importlib override this module's attribute on the first
     access and the imported submodule is directly accessed from the second access.
+
+    TODO: Eliminate lazy import after Python 3.14 is dropped. https://peps.python.org/pep-0810/
 
     Args:
         name: Name of module to apply lazy import.

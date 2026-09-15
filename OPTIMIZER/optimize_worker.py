@@ -196,12 +196,14 @@ class OptimizationWorker(QtCore.QObject):
                 # RESULTS
                 # --------------------------------------------------
                 results = payload.get("results", {})
+                constraints = payload.get("constraints", {})
                 debug_info = payload.get("debug", {})
                 # --------------------------------------------------
                 # STORE USER ATTRS
                 # --------------------------------------------------
                 trial.set_user_attr("params", params)
                 trial.set_user_attr("metrics", results)
+                trial.set_user_attr("constraints", constraints)  # nytt ifrån optuna v5, är att spara undan utan att hård pruna vid threshold
                 trial.set_user_attr("debug", debug_info)
                 trial.set_user_attr("unselected_params", self.unselected_params)
                 # --------------------------------------------------
@@ -253,191 +255,6 @@ class OptimizationWorker(QtCore.QObject):
             }
             for t in self.study.best_trials
         ]
-        self.finished.emit(best_trials_data)
-
-    # start_old används inte utan bara med som historia
-    def start_old(self, config):
-        self._stop = False
-        self._waiting = False
-        self._last_results = None
-
-        self.param_names = config["params"]
-        self.bounds = config["bounds"]
-        self.unselected_params = config.get("unselected_params", [])
-
-        # ✅ metadata
-        self.all_metrics = config["metrics"]
-        self.metrics = [m for m in config["metrics"] if m.get("active", True)]
-
-        print("ALL METRICS:", [m["name"] for m in self.all_metrics])
-        print("ACTIVE METRICS:", [m["name"] for m in self.metrics])
-
-        study_name = config["study_name"]
-        new_study = config.get("new_study", False)
-
-        multi = config.get("multi_objective", False)
-
-        # ✅ skapa sampler korrekt
-        sampler = self._create_sampler(config)
-
-        print(f"[worker] sampler={sampler.__class__.__name__} multi={multi}")
-
-        # ✅ directions vs direction (Optuna korrekt hantering)
-        if len(self.metrics) == 1:
-            direction = self.metrics[0]["direction"]
-            directions = None
-        else:
-            direction = None
-            directions = [m["direction"] for m in self.metrics]
-
-        # ✅ skapa / ladda study
-        if new_study:
-            print("[worker] NEW study")
-
-            try:
-                optuna.delete_study(
-                    study_name=study_name,
-                    storage=DB_PATH,
-                )
-            except Exception:
-                pass
-
-            self.study = optuna.create_study(
-                study_name=study_name,
-                storage=DB_PATH,
-                load_if_exists=False,
-                sampler=sampler,
-                direction=direction,
-                directions=directions,
-            )
-
-            initial_params = config.get("initial_params")
-            print("[worker] enqueue initial trial:", initial_params)
-
-            if initial_params:
-                self.study.enqueue_trial(initial_params)
-
-            self.study.set_user_attr("metric_names", [m["name"] for m in self.metrics])
-            self.study.set_user_attr("all_metrics", [m["name"] for m in self.all_metrics])
-            self.study.set_user_attr("active_metrics", [m["name"] for m in self.metrics])
-            self.study.set_user_attr("metric_config", self.metrics)
-            self.study.set_user_attr("param_names", self.param_names)
-            self.study.set_user_attr("sampler", config.get("sampler"))
-
-        else:
-            print("[worker] RESUME study")
-            storage = optuna.storages.RDBStorage(
-                url=DB_PATH,
-                engine_kwargs={
-                    "connect_args": {
-                        "timeout": 60,
-                    }
-                },
-            )
-
-            self.study = optuna.create_study(
-                study_name=study_name,
-                storage=storage,
-                # storage=DB_PATH,
-                load_if_exists=True,
-                sampler=sampler,
-                direction=direction,
-                directions=directions,
-            )
-
-        print("[worker] start", config["n_trials"])
-        # ✅ MAIN LOOP
-        n_trials = config["n_trials"]
-        if n_trials < 0:
-            print("[worker] 🚀  running infinite trials")
-            iterator = iter(int, 1)  # endless generator
-        else:
-            print(f"[worker] 🚀  running ({n_trials}) trials")
-            iterator = range(n_trials)
-
-        for _ in iterator:  # range(config["n_trials"]):
-            if self._stop:
-                break
-            trial = self.study.ask()
-            self.current_trial_id = trial.number
-            try:
-                # Local step-limited parameter suggestion (damped search).
-                params = self._suggest(trial)
-                self._last_results = None
-                self._waiting = True
-                self.requestEvaluate.emit(params, self.unselected_params)
-                while self._waiting and not self._stop:
-                    QtCore.QThread.msleep(10)
-
-                if self._stop:
-                    print("[worker] stopped")
-                    break
-
-                if self._last_results is None:
-                    raise RuntimeError("No evaluation result received")
-
-                payload = self._last_results
-
-                # ✅ pruning
-                if payload.get("_pruned"):
-                    print(f"[PRUNE] trial={trial.number} params={params}")
-                    self.study.tell(trial, state=optuna.trial.TrialState.PRUNED)
-                    continue
-
-                results = payload.get("results", {})
-                debug_info = payload.get("debug", {})
-                # ✅ debug storage
-
-                trial.set_user_attr("params", params)
-                trial.set_user_attr("metrics", results)
-                trial.set_user_attr("debug", debug_info)
-                trial.set_user_attr("unselected_params", self.unselected_params)
-
-                # ✅ values (robust + direction handling)
-                values = []
-                for m in self.metrics:
-                    v = results.get(m["name"], 0.0)
-                    # normalize internally if minimize
-                    if m["direction"] == "minimize":
-                        v = -v
-
-                    values.append(v)
-
-                values = tuple(values)
-                self.study.tell(trial, values)
-                if trial.number % 10 == 0:
-                    self.progress.emit(
-                        {
-                            "trial": trial.number,
-                            "values": values,
-                        }
-                    )
-
-            except KeyError as e:
-                print(f"[worker] missing metric: {e}")
-                self.study.tell(trial, state=optuna.trial.TrialState.FAIL)
-
-            except RuntimeError as e:
-                print(f"[worker] runtime error: {e}")
-                trial.set_user_attr("status", "runtime_error")
-                trial.set_user_attr("message", str(e))
-                self.study.tell(trial, state=optuna.trial.TrialState.FAIL)
-
-            except Exception as e:
-                print(f"[worker] hard fail: {e}")
-                self.study.tell(trial, state=optuna.trial.TrialState.FAIL)
-
-        # ✅ best trials
-        best_trials_data = [
-            {
-                "trial": t.number,
-                "params": t.params,
-                "values": t.values,
-                "metrics": t.user_attrs.get("metrics", {}),
-            }
-            for t in self.study.best_trials
-        ]
-
         self.finished.emit(best_trials_data)
 
     def _suggest_utan_dämpning(self, trial):
@@ -529,22 +346,30 @@ class OptimizationWorker(QtCore.QObject):
             # params[name] = trial.suggest_float(name, lo2, hi2)
         return params
 
+    def constraints_func(self, trial):
+        constraints = trial.user_attrs.get("constraints", {})
+        return tuple(float(v) for v in constraints.values())
+
     def _create_sampler(self, config):
         name = config.get("sampler", "TPESampler")
-        constant_liar = config.get("constant_liar", False)
+        constant_liar = config.get("constant_liar", False)  # sätts i dialogen
         multi = config.get("multi_objective", False)  # sätts i dialogen
 
-        # ✅ multi-objective kräver NSGA-II
-        # if multi and name != "NSGAIISampler":
-        if name != "NSGAIISampler":
+        # ✅ multi-objective kan köras på NSGA-II samt TPE
+
+        if name == "NSGAIISampler":
             # print("[WARN] Switching to NSGAIISampler (multi-objective)")
             print("[create_sampler] 🚀 -> ", name, "mulitobjective : ", multi)
-            return NSGAIISampler()
+            return NSGAIISampler(
+                constraints_func=self.constraints_func,
+                seed=42,
+            )
 
-        if name == "TPESampler":
+        elif name == "TPESampler":
             print("[create_sampler] 🚀 -> ", name, "mulitobjective : ", multi)
             return TPESampler(
                 constant_liar=constant_liar,
+                constraints_func=self.constraints_func,
                 multivariate=True,
                 n_startup_trials=20,
                 seed=42,

@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Sequence
-import datetime
 from typing import Any
 from typing import overload
+from typing import TYPE_CHECKING
 
 from optuna._deprecated import deprecated_func
-from optuna.distributions import BaseDistribution
-from optuna.distributions import CategoricalChoiceType
 
 
-_SUGGEST_INT_POSITIONAL_ARGS = ["self", "name", "low", "high", "step", "log"]
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    import datetime
+
+    from optuna.distributions import BaseDistribution
+    from optuna.distributions import CategoricalChoiceType
 
 
 class BaseTrial(abc.ABC):
@@ -97,11 +99,6 @@ class BaseTrial(abc.ABC):
     def set_user_attr(self, key: str, value: Any) -> None:
         raise NotImplementedError
 
-    @abc.abstractmethod
-    @deprecated_func("3.1.0", "5.0.0")
-    def set_system_attr(self, key: str, value: Any) -> None:
-        raise NotImplementedError
-
     @property
     @abc.abstractmethod
     def params(self) -> dict[str, Any]:
@@ -119,14 +116,17 @@ class BaseTrial(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def system_attrs(self) -> dict[str, Any]:
-        raise NotImplementedError
-
-    @property
-    @abc.abstractmethod
     def datetime_start(self) -> datetime.datetime | None:
         raise NotImplementedError
 
     @property
     def number(self) -> int:
+        raise NotImplementedError
+
+    @property
+    def constraints(self) -> dict[str, float]:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def set_constraint(self, key: str, value: float) -> None:
         raise NotImplementedError

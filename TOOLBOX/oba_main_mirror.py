@@ -84,6 +84,9 @@ class OBAMainMirror:
         # obj.setEditorMode("Placement", 1)
 
         install_properties(obj, MAIN_MIRROR_PROPERTIES)
+
+        obj.addProperty("App::PropertyLinkList", "Group", "Base", "Owned children")
+
         if hasattr(obj, "FocusDistance"):
             obj.setEditorMode("FocusDistance", 1)
         make_calculated_length(obj, "Ellipsoid1FocusX", "X position of first ellipsoid focus")
@@ -108,80 +111,29 @@ class OBAMainMirror:
     # Runtime object handling
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _obj_exists(obj):
+    def _get_or_create(self, doc, name, objtype, label):
+        obj = doc.getObject(name)
+
         if obj is None:
-            return False
-        try:
-            return obj.Document is not None and obj.Document.getObject(obj.Name) is obj
-        except Exception:
-            return False
+            obj = doc.addObject(objtype, name)
+            obj.Label = label
+        return obj
 
     def _ensure_features(self, obj):
-        """
-        Find existing construction objects or create them if missing.
-
-        All construction objects live directly in the document.
-        There is deliberately no internal App::Part/container.
-        """
         doc = obj.Document
+        self._cube = self._get_or_create(doc, f"{obj.Name}_Cube", "Part::Box", f"{obj.Label} Cube")
+        self._ellipsoid_Left = self._get_or_create(doc, f"{obj.Name}_Ellipsoid1", "Part::Ellipsoid", f"{obj.Label} Ellipsoid 1")
+        self._ellipsoid_Right = self._get_or_create(doc, f"{obj.Name}_Ellipsoid2", "Part::Ellipsoid", f"{obj.Label} Ellipsoid 2")
+        self._cut1 = self._get_or_create(doc, f"{obj.Name}_Cut1", "Part::Cut", f"{obj.Label} Cut 1")
+        self._cut2 = self._get_or_create(doc, f"{obj.Name}_Cut2", "Part::Cut", f"{obj.Label} Cut 2")
 
-        # --------------------------------------------------------------
-        # Find existing objects
-        # --------------------------------------------------------------
-        if self._cube is None:
-            self._cube = doc.getObject(f"{obj.Name}_Cube")
-        if self._ellipsoid_Left is None:
-            self._ellipsoid_Left = doc.getObject(f"{obj.Name}_Ellipsoid1")
-        if self._ellipsoid_Right is None:
-            self._ellipsoid_Right = doc.getObject(f"{obj.Name}_Ellipsoid2")
-        if self._cut1 is None:
-            self._cut1 = doc.getObject(f"{obj.Name}_Cut1")
-        if self._cut2 is None:
-            self._cut2 = doc.getObject(f"{obj.Name}_Cut2")
-
-        # --------------------------------------------------------------
-        # Validate references
-        # --------------------------------------------------------------
-        if not self._obj_exists(self._cube):
-            self._cube = None
-        if not self._obj_exists(self._ellipsoid_Left):
-            self._ellipsoid_Left = None
-        if not self._obj_exists(self._ellipsoid_Right):
-            self._ellipsoid_Right = None
-        if not self._obj_exists(self._cut1):
-            self._cut1 = None
-        if not self._obj_exists(self._cut2):
-            self._cut2 = None
-        # --------------------------------------------------------------
-        # Create missing objects directly in the document
-        # --------------------------------------------------------------
-
-        if self._cube is None:
-            self._cube = doc.addObject("Part::Box", f"{obj.Name}_Cube")
-            self._cube.Label = f"{obj.Label} Cube"
-
-        if self._ellipsoid_Left is None:
-            self._ellipsoid_Left = doc.addObject("Part::Ellipsoid", f"{obj.Name}_Ellipsoid1")
-            self._ellipsoid_Left.Label = f"{obj.Label} Ellipsoid 1"
-            self._ellipsoid_Left.ViewObject.ShapeColor = (1.0, 0.0, 0.0)
-
-        if self._ellipsoid_Right is None:
-            self._ellipsoid_Right = doc.addObject("Part::Ellipsoid", f"{obj.Name}_Ellipsoid2")
-            self._ellipsoid_Right.Label = f"{obj.Label} Ellipsoid 2"
-            self._ellipsoid_Right.ViewObject.ShapeColor = (0.0, 0.0, 1.0)
-
-        if self._cut1 is None:
-            self._cut1 = doc.addObject("Part::Cut", f"{obj.Name}_Cut1")
-            self._cut1.Label = f"{obj.Label} Cut 1"
-
-        if self._cut2 is None:
-            self._cut2 = doc.addObject("Part::Cut", f"{obj.Name}_Cut2")
-            self._cut2.Label = f"{obj.Label} Cut 2"
-
-        # --------------------------------------------------------------
-        # Reconnect boolean dependencies
-        # --------------------------------------------------------------
+        obj.Group = [
+            self._cube,
+            self._ellipsoid_Left,
+            self._ellipsoid_Right,
+            self._cut1,
+            self._cut2,
+        ]
 
         self._cut1.Base = self._cube
         self._cut1.Tool = self._ellipsoid_Left
@@ -281,6 +233,9 @@ class OBAMainMirror:
                 self._ellipsoid_Left.ViewObject.Visibility = True
                 self._ellipsoid_Right.ViewObject.Visibility = True
 
+                self._ellipsoid_Left.ViewObject.ShapeColor = (1.0, 0.0, 0.0)
+                self._ellipsoid_Right.ViewObject.ShapeColor = (0.0, 0.0, 1.0)
+
                 self._ellipsoid_Left.ViewObject.Transparency = 80
                 self._ellipsoid_Right.ViewObject.Transparency = 80
             else:
@@ -325,13 +280,15 @@ class OBAMainMirror:
 
     def onChanged(self, obj, prop):
 
+        if prop == "Group":
+            return
+
         if self._rebuilding:
             return
         if self._initializing:
             return
 
-        App.Console.PrintMessage(f"onChanged: {prop}\n")
-        # rebuild_properties = {"Width", "Height", "SplitOffset", "A", "B", "UseIndependentRadius3", "B2", "TiltAngle", "ShowDebugEllipsoids"}
+        # App.Console.PrintMessage(f"onChanged: {prop}\n")
 
         if prop in {"Width", "Height", "SplitOffset", "A", "B", "UseIndependentRadius3", "B2", "TiltAngle", "ShowDebugEllipsoids"}:
             try:
@@ -512,27 +469,6 @@ class MainMirrorDialog(OBAToolboxDialogBase):
         finally:
             self._refreshing_ui = False
 
-    def refresh_from_object_old(self):
-        self._refreshing_ui = True
-        try:
-            self.use_b2.setChecked(bool(self.obj.UseIndependentRadius3))
-            self.b2.setEnabled(bool(self.obj.UseIndependentRadius3))
-            self.debug_show.setChecked(bool(self.obj.ShowDebugEllipsoids))
-
-            self.a.setProperty("rawValue", float(self.obj.A))
-            self.b.setProperty("rawValue", float(self.obj.B))
-            self.b2.setProperty("rawValue", float(self.obj.B2))
-
-            self.width.setProperty("rawValue", float(self.obj.Width))
-            self.height.setProperty("rawValue", float(self.obj.Height))
-
-            self.tiltangle.setProperty("rawValue", float(self.obj.TiltAngle))
-
-            self._update_information()
-
-        finally:
-            self._refreshing_ui = False
-
     def _update_information(self):
         width = float(self.obj.Width)
         height = float(self.obj.Height)
@@ -595,53 +531,21 @@ class MainMirrorViewProvider(OBAToolboxViewProviderBase):
     #     return False
 
     def claimChildren(self):
-        """
-        Show all construction objects directly underneath the main
-        Main Mirror object in the tree.
-
-        There is deliberately no internal App::Part.
-        """
         obj = getattr(self, "Object", None)
-
         if obj is None:
             return []
-        proxy = getattr(obj, "Proxy", None)
-        if proxy is None:
-            return []
-
-        children = []
-        for attr_name in getattr(proxy, "CHILD_OBJECTS", ()):
-            child = getattr(proxy, attr_name, None)
-
-            if child is not None:
-                children.append(child)
-
-        return children
+        return list(getattr(obj, "Group", []))
 
     def onDelete(self, vobj, subelements):
-        """
-        Remove all construction objects when the main object is deleted.
-
-        Boolean dependencies are removed first by iterating the
-        CHILD_OBJECTS tuple in reverse order.
-        """
         obj = getattr(self, "Object", None)
         if obj is None:
             return True
-        proxy = getattr(obj, "Proxy", None)
-        if proxy is None:
-            return True
+
         doc = obj.Document
-        child_names = getattr(proxy, "CHILD_OBJECTS", ())
-        for attr_name in reversed(child_names):
-            child = getattr(proxy, attr_name, None)
-            if child is None:
-                continue
-            try:
-                if doc.getObject(child.Name):
-                    doc.removeObject(child.Name)
-            except Exception as exc:
-                App.Console.PrintError("[OBA] Could not remove Main Mirror child " f"{child.Name}: {exc}\n")
+        for child in getattr(obj, "Group", []):
+            if child and doc.getObject(child.Name):
+                doc.removeObject(child.Name)
+
         return True
 
     def doubleClicked(self, vobj):

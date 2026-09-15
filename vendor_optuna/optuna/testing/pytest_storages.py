@@ -8,21 +8,25 @@ import random
 import sys
 from time import sleep
 from typing import Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
 
 import optuna
-from optuna._typing import JSONSerializable
 from optuna.distributions import CategoricalDistribution
 from optuna.distributions import FloatDistribution
 from optuna.exceptions import UpdateFinishedTrialError
-from optuna.storages import BaseStorage
 from optuna.storages._base import DEFAULT_STUDY_NAME_PREFIX
 from optuna.study._frozen import FrozenStudy
 from optuna.study._study_direction import StudyDirection
 from optuna.trial import FrozenTrial
 from optuna.trial import TrialState
+
+
+if TYPE_CHECKING:
+    from optuna._typing import JSONSerializable
+    from optuna.storages import BaseStorage
 
 
 @pytest.fixture
@@ -68,6 +72,11 @@ class StorageTestCase:
 
         with pytest.raises(optuna.exceptions.DuplicatedStudyError):
             storage.create_new_study(directions=[StudyDirection.MINIMIZE], study_name=study_name)
+
+    def test_create_new_study_with_empty_name(self, storage: BaseStorage) -> None:
+        study_id = storage.create_new_study(directions=[StudyDirection.MINIMIZE], study_name="")
+
+        assert storage.get_study_name_from_id(study_id) == ""
 
     def test_delete_study(self, storage: BaseStorage) -> None:
         study_id = storage.create_new_study(directions=[StudyDirection.MINIMIZE])
@@ -353,7 +362,7 @@ class StorageTestCase:
             assert storage.get_trial(trial_id).state == TrialState.RUNNING
             datetime_start_prev = storage.get_trial(trial_id).datetime_start
             storage.set_trial_state_values(
-                trial_id, state=state, values=(0.0,) if state.is_finished() else None
+                trial_id, state=state, values=(0.0,) if state == TrialState.COMPLETE else None
             )
             assert storage.get_trial(trial_id).state == state
             # Repeated state changes to RUNNING should not trigger further datetime_start changes.
@@ -368,12 +377,11 @@ class StorageTestCase:
         with pytest.raises(KeyError):
             non_existent_trial_id = max(trial_ids) + 1
             storage.set_trial_state_values(
-                non_existent_trial_id,
-                state=TrialState.COMPLETE,
+                non_existent_trial_id, state=TrialState.COMPLETE, values=(0.0,)
             )
 
         for state in ALL_STATES:
-            if not state.is_finished():
+            if state != TrialState.COMPLETE:
                 continue
             trial_id = storage.create_new_trial(study_id)
             storage.set_trial_state_values(trial_id, state=state, values=(0.0,))
@@ -492,18 +500,10 @@ class StorageTestCase:
         storage.set_trial_state_values(
             trial_id_3, state=TrialState.COMPLETE, values=(float("inf"),)
         )
-        storage.set_trial_state_values(
-            trial_id_4, state=TrialState.WAITING, values=(0.1, 0.2, 0.3)
-        )
-        storage.set_trial_state_values(
-            trial_id_5, state=TrialState.WAITING, values=[0.1, 0.2, 0.3]
-        )
 
         assert storage.get_trial(trial_id_1).value == 0.5
         assert storage.get_trial(trial_id_2).value is None
         assert storage.get_trial(trial_id_3).value == float("inf")
-        assert storage.get_trial(trial_id_4).values == [0.1, 0.2, 0.3]
-        assert storage.get_trial(trial_id_5).values == [0.1, 0.2, 0.3]
 
         non_existent_trial_id = max(trial_id_1, trial_id_2, trial_id_3, trial_id_4, trial_id_5) + 1
         with pytest.raises(KeyError):
@@ -925,6 +925,28 @@ class StorageTestCase:
 
         with pytest.raises(UpdateFinishedTrialError):
             storage.check_trial_is_updatable(trial_id, TrialState.COMPLETE)
+
+    def test_study_user_attrs_concurrent_write(self, storage: BaseStorage) -> None:
+        study_id = storage.create_new_study([StudyDirection.MINIMIZE], study_name=None)
+        storage.set_study_user_attr(study_id, "key", "value")
+        attrs = storage.get_study_user_attrs(study_id)
+        attrs_iter = iter(attrs)
+        next(attrs_iter)
+
+        # Simulate a reader iterating over the attributes while another worker updates them.
+        storage.set_study_user_attr(study_id, "key2", "value2")
+        list(attrs_iter)
+
+    def test_study_system_attrs_concurrent_write(self, storage: BaseStorage) -> None:
+        study_id = storage.create_new_study([StudyDirection.MINIMIZE], study_name=None)
+        storage.set_study_system_attr(study_id, "key", "value")
+        attrs = storage.get_study_system_attrs(study_id)
+        attrs_iter = iter(attrs)
+        next(attrs_iter)
+
+        # Simulate a reader iterating over the attributes while another worker updates them.
+        storage.set_study_system_attr(study_id, "key2", "value2")
+        list(attrs_iter)
 
 
 ALL_STATES = list(TrialState)

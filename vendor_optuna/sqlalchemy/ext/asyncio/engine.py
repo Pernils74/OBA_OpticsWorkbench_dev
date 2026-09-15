@@ -1,5 +1,5 @@
 # ext/asyncio/engine.py
-# Copyright (C) 2020-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2020-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -187,7 +187,7 @@ class AsyncConnectable:
     ],
 )
 # "Class has incompatible disjoint bases" - no idea
-class AsyncConnection(  # type:ignore[misc]
+class AsyncConnection(  # type: ignore[misc]
     ProxyComparable[Connection],
     StartableContext["AsyncConnection"],
     AsyncConnectable,
@@ -577,7 +577,7 @@ class AsyncConnection(  # type:ignore[misc]
         """
         if not self.dialect.supports_server_side_cursors:
             raise exc.InvalidRequestError(
-                "Cant use `stream` or `stream_scalars` with the current "
+                "Can't use `stream` or `stream_scalars` with the current "
                 "dialect since it does not support server side cursors."
             )
 
@@ -902,7 +902,7 @@ class AsyncConnection(  # type:ignore[misc]
     # statically generated** by tools/generate_proxy_methods.py
 
     @property
-    def closed(self) -> Any:
+    def closed(self) -> bool:
         r"""Return True if this connection is closed.
 
         .. container:: class_bases
@@ -915,7 +915,7 @@ class AsyncConnection(  # type:ignore[misc]
         return self._proxied.closed
 
     @property
-    def invalidated(self) -> Any:
+    def invalidated(self) -> bool:
         r"""Return True if this connection was invalidated.
 
         .. container:: class_bases
@@ -945,7 +945,7 @@ class AsyncConnection(  # type:ignore[misc]
         self._proxied.dialect = attr
 
     @property
-    def default_isolation_level(self) -> Any:
+    def default_isolation_level(self) -> Optional[IsolationLevel]:
         r"""The initial-connection time isolation level associated with the
         :class:`_engine.Dialect` in use.
 
@@ -1258,7 +1258,7 @@ class AsyncEngine(ProxyComparable[Engine], AsyncConnectable):  # type: ignore[mi
         self._proxied.dialect = attr
 
     @property
-    def engine(self) -> Any:
+    def engine(self) -> Engine:
         r"""Returns this :class:`.Engine`.
 
         .. container:: class_bases
@@ -1275,7 +1275,7 @@ class AsyncEngine(ProxyComparable[Engine], AsyncConnectable):  # type: ignore[mi
         return self._proxied.engine
 
     @property
-    def name(self) -> Any:
+    def name(self) -> str:
         r"""String name of the :class:`~sqlalchemy.engine.interfaces.Dialect`
         in use by this :class:`Engine`.
 
@@ -1290,7 +1290,7 @@ class AsyncEngine(ProxyComparable[Engine], AsyncConnectable):  # type: ignore[mi
         return self._proxied.name
 
     @property
-    def driver(self) -> Any:
+    def driver(self) -> str:
         r"""Driver name of the :class:`~sqlalchemy.engine.interfaces.Dialect`
         in use by this :class:`Engine`.
 

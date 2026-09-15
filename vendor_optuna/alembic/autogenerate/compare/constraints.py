@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
+from collections.abc import Mapping
 import logging
 from typing import Any
 from typing import cast
-from typing import Collection
-from typing import Dict
-from typing import Mapping
-from typing import Optional
 from typing import TYPE_CHECKING
 from typing import TypeVar
 from typing import Union
@@ -53,10 +51,10 @@ log = logging.getLogger(__name__)
 def _compare_indexes_and_uniques(
     autogen_context: AutogenContext,
     modify_ops: ModifyTableOps,
-    schema: Optional[str],
-    tname: Union[quoted_name, str],
-    conn_table: Optional[Table],
-    metadata_table: Optional[Table],
+    schema: str | None,
+    tname: quoted_name | str,
+    conn_table: Table | None,
+    metadata_table: Table | None,
 ) -> PriorityDispatchResult:
     inspector = autogen_context.inspector
     is_create_table = conn_table is None
@@ -65,6 +63,7 @@ def _compare_indexes_and_uniques(
 
     # 1a. get raw indexes and unique constraints from metadata ...
     if metadata_table is not None:
+        # unique constraints can't be set on columns, are all table bound.
         metadata_unique_constraints = {
             uq
             for uq in metadata_table.constraints
@@ -203,11 +202,11 @@ def _compare_indexes_and_uniques(
         if c.is_named
     }
 
-    conn_uniques_by_name: Dict[
+    conn_uniques_by_name: dict[
         sqla_compat._ConstraintName,
         _constraint_sig[sa_schema.UniqueConstraint],
     ]
-    conn_indexes_by_name: Dict[
+    conn_indexes_by_name: dict[
         sqla_compat._ConstraintName, _constraint_sig[sa_schema.Index]
     ]
 
@@ -518,12 +517,12 @@ _IndexColumnSortingOps: Mapping[str, Any] = util.immutabledict(
 
 def _make_index(
     impl: DefaultImpl, params: ReflectedIndex, conn_table: Table
-) -> Optional[Index]:
-    exprs: list[Union[Column[Any], TextClause]] = []
+) -> Index | None:
+    exprs: list[Column[Any] | TextClause] = []
     sorting = params.get("column_sorting")
 
     for num, col_name in enumerate(params["column_names"]):
-        item: Union[Column[Any], TextClause]
+        item: Column[Any] | TextClause
         if col_name is None:
             assert "expressions" in params
             name = params["expressions"][num]
@@ -580,6 +579,44 @@ def _make_foreign_key(
         initially=options.get("initially"),
         name=params["name"],
     )
+
+    referred_schema = params["referred_schema"]
+    referred_table = params["referred_table"]
+
+    remote_table_key = sqla_compat._get_table_key(
+        referred_table, referred_schema
+    )
+    if remote_table_key not in conn_table.metadata:
+        # create a placeholder table
+        sa_schema.Table(
+            referred_table,
+            conn_table.metadata,
+            schema=(
+                referred_schema
+                if referred_schema is not None
+                else sa_schema.BLANK_SCHEMA
+            ),
+            *[
+                sa_schema.Column(remote, conn_table.c[local].type)
+                for local, remote in zip(
+                    params["constrained_columns"], params["referred_columns"]
+                )
+            ],
+            info={"alembic_placeholder": True},
+        )
+    elif conn_table.metadata.tables[remote_table_key].info.get(
+        "alembic_placeholder"
+    ):
+        # table exists and is a placeholder; ensure needed columns are present
+        placeholder_table = conn_table.metadata.tables[remote_table_key]
+        for local, remote in zip(
+            params["constrained_columns"], params["referred_columns"]
+        ):
+            if remote not in placeholder_table.c:
+                placeholder_table.append_column(
+                    sa_schema.Column(remote, conn_table.c[local].type)
+                )
+
     # needed by 0.7
     conn_table.append_constraint(const)
     return const
@@ -588,17 +625,20 @@ def _make_foreign_key(
 def _compare_foreign_keys(
     autogen_context: AutogenContext,
     modify_table_ops: ModifyTableOps,
-    schema: Optional[str],
-    tname: Union[quoted_name, str],
+    schema: str | None,
+    tname: quoted_name | str,
     conn_table: Table,
     metadata_table: Table,
 ) -> PriorityDispatchResult:
     # if we're doing CREATE TABLE, all FKs are created
     # inline within the table def
+
     if conn_table is None or metadata_table is None:
         return PriorityDispatchResult.CONTINUE
 
     inspector = autogen_context.inspector
+    # fk constraints can be set on columns, but they appear also on
+    # the table constraint list
     metadata_fks = {
         fk
         for fk in metadata_table.constraints
@@ -714,9 +754,9 @@ def _compare_foreign_keys(
 def _compare_nullable(
     autogen_context: AutogenContext,
     alter_column_op: AlterColumnOp,
-    schema: Optional[str],
-    tname: Union[quoted_name, str],
-    cname: Union[quoted_name, str],
+    schema: str | None,
+    tname: quoted_name | str,
+    cname: quoted_name | str,
     conn_col: Column[Any],
     metadata_col: Column[Any],
 ) -> PriorityDispatchResult:

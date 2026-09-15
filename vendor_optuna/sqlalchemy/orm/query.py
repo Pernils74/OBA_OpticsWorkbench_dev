@@ -1,5 +1,5 @@
 # orm/query.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -18,6 +18,7 @@ ORM session, whereas the ``Select`` construct interacts directly with the
 database to return iterable result sets.
 
 """
+
 from __future__ import annotations
 
 import collections.abc as collections_abc
@@ -93,7 +94,7 @@ from ..sql.selectable import LABEL_STYLE_TABLENAME_PLUS_COL
 from ..sql.selectable import SelectLabelStyle
 from ..util.typing import Literal
 from ..util.typing import Self
-
+from ..util.typing import SupportsIndex
 
 if TYPE_CHECKING:
     from ._typing import _EntityType
@@ -1042,7 +1043,7 @@ class Query(
         ":meth:`_orm.Query.get`",
         alternative="The method is now available as :meth:`_orm.Session.get`",
     )
-    def get(self, ident: _PKIdentityArgument) -> Optional[Any]:
+    def get(self, ident: _PKIdentityArgument) -> Optional[_T]:
         """Return an instance based on the given primary key identifier,
         or ``None`` if not found.
 
@@ -2558,6 +2559,12 @@ class Query(
         self._set_select_from(from_obj, False)
         return self
 
+    @overload
+    def __getitem__(self, item: slice) -> List[_T]: ...
+
+    @overload
+    def __getitem__(self, item: SupportsIndex) -> _T: ...
+
     def __getitem__(self, item: Any) -> Any:
         return orm_util._getitem(
             self,
@@ -2844,7 +2851,7 @@ class Query(
         try:
             yield from result  # type: ignore
         except GeneratorExit:
-            # issue #8710 - direct iteration is not re-usable after
+            # issue #8710 - direct iteration is not reusable after
             # an iterable block is broken, so close the result
             result._soft_close()
             raise

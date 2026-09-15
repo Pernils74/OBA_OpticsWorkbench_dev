@@ -1,5 +1,5 @@
 # util/__init__.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -57,6 +57,7 @@ from .compat import dataclass_fields as dataclass_fields
 from .compat import decode_backslashreplace as decode_backslashreplace
 from .compat import dottedgetter as dottedgetter
 from .compat import freethreading as freethreading
+from .compat import get_annotations as get_annotations
 from .compat import has_refcount_gc as has_refcount_gc
 from .compat import inspect_getfullargspec as inspect_getfullargspec
 from .compat import is64bit as is64bit
@@ -105,11 +106,11 @@ from .langhelpers import duck_type_collection as duck_type_collection
 from .langhelpers import ellipses_string as ellipses_string
 from .langhelpers import EnsureKWArg as EnsureKWArg
 from .langhelpers import FastIntFlag as FastIntFlag
+from .langhelpers import find_matching_paren as find_matching_paren
 from .langhelpers import format_argspec_init as format_argspec_init
 from .langhelpers import format_argspec_plus as format_argspec_plus
 from .langhelpers import generic_fn_descriptor as generic_fn_descriptor
 from .langhelpers import generic_repr as generic_repr
-from .langhelpers import get_annotations as get_annotations
 from .langhelpers import get_callable_argspec as get_callable_argspec
 from .langhelpers import get_cls_kwargs as get_cls_kwargs
 from .langhelpers import get_func_kwargs as get_func_kwargs
@@ -148,6 +149,7 @@ from .langhelpers import rw_hybridproperty as rw_hybridproperty
 from .langhelpers import safe_reraise as safe_reraise
 from .langhelpers import set_creation_order as set_creation_order
 from .langhelpers import string_or_unprintable as string_or_unprintable
+from .langhelpers import strip_outer_parens as strip_outer_parens
 from .langhelpers import symbol as symbol
 from .langhelpers import TypingOnly as TypingOnly
 from .langhelpers import (

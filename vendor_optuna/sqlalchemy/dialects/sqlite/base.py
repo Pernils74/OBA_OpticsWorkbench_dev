@@ -1,5 +1,5 @@
 # dialects/sqlite/base.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -194,7 +194,7 @@ The implications of legacy transaction mode include:
   of the transaction will not rollback elements that were part of a released
   savepoint.
 
-Legacy transaction mode first existed in order to faciliate working around
+Legacy transaction mode first existed in order to facilitate working around
 SQLite's file locks.  Because SQLite relies upon whole-file locks, it is easy to
 get "database is locked" errors, particularly when newer features like "write
 ahead logging" are disabled.   This is a key reason why ``sqlite3``'s legacy
@@ -250,7 +250,7 @@ BEGIN.
 
 * **Using SQLAlchemy to emit BEGIN in lieu of SQLite's transaction control** (all Python versions, sqlite3 and aiosqlite)
 
-  For older versions of ``sqlite3`` or for cross-compatiblity with older and
+  For older versions of ``sqlite3`` or for cross-compatibility with older and
   newer versions, SQLAlchemy can also take over the job of transaction control.
   This is achieved by using the :meth:`.ConnectionEvents.begin` hook
   to emit the "BEGIN" command directly, while also disabling SQLite's control
@@ -847,13 +847,11 @@ The bug, entirely outside of SQLAlchemy, can be illustrated thusly::
     cursor.execute("select x.a, x.b from x")
     assert [c[0] for c in cursor.description] == ["a", "b"]
 
-    cursor.execute(
-        """
+    cursor.execute("""
         select x.a, x.b from x where a=1
         union
         select x.a, x.b from x where a=2
-        """
-    )
+        """)
     assert [c[0] for c in cursor.description] == ["a", "b"], [
         c[0] for c in cursor.description
     ]
@@ -888,13 +886,11 @@ to filter these out::
     result = conn.exec_driver_sql("select x.a, x.b from x")
     assert result.keys() == ["a", "b"]
 
-    result = conn.exec_driver_sql(
-        """
+    result = conn.exec_driver_sql("""
         select x.a, x.b from x where a=1
         union
         select x.a, x.b from x where a=2
-        """
-    )
+        """)
     assert result.keys() == ["a", "b"]
 
 Note that above, even though SQLAlchemy filters out the dots, *both
@@ -953,6 +949,15 @@ dialect in conjunction with the :class:`_schema.Table` construct:
 
   .. versionadded:: 2.0.37
 
+Both options are also reflected, so that a :class:`_schema.Table` which is
+autoloaded from a database that was created using either keyword will render
+that keyword again when the table is recreated.  The reflected values are
+also available directly from
+:meth:`_engine.Inspector.get_table_options`.
+
+.. versionadded:: 2.0.53  Added reflection support for the ``WITHOUT ROWID``
+   and ``STRICT`` table options.
+
 .. seealso::
 
     `SQLite CREATE TABLE options
@@ -987,6 +992,7 @@ passed to methods such as :meth:`_schema.MetaData.reflect` or
     documentation.
 
 '''  # noqa
+
 from __future__ import annotations
 
 import datetime
@@ -1131,7 +1137,7 @@ class DATETIME(_DateTimeMixin, sqltypes.DateTime):
             storage_format=(
                 "%(year)04d/%(month)02d/%(day)02d %(hour)02d:%(minute)02d:%(second)02d"
             ),
-            regexp=r"(\d+)/(\d+)/(\d+) (\d+)-(\d+)-(\d+)",
+            regexp=r"(\d+)/(\d+)/(\d+) (\d+):(\d+):(\d+)",
         )
 
     :param truncate_microseconds: when ``True`` microseconds will be truncated
@@ -1592,11 +1598,15 @@ class SQLiteCompiler(compiler.SQLCompiler):
                 for c in clause.inferred_target_elements
             )
             if clause.inferred_target_whereclause is not None:
-                target_text += " WHERE %s" % self.process(
-                    clause.inferred_target_whereclause,
+                whereclause_kw = dict(kw)
+                whereclause_kw.update(
                     include_table=False,
                     use_schema=False,
                     literal_execute=True,
+                )
+                target_text += " WHERE %s" % self.process(
+                    clause.inferred_target_whereclause,
+                    **whereclause_kw,
                 )
 
         else:
@@ -1624,6 +1634,8 @@ class SQLiteCompiler(compiler.SQLCompiler):
 
         insert_statement = self.stack[-1]["selectable"]
         cols = insert_statement.table.c
+        set_kw = dict(kw)
+        set_kw.update(use_schema=False)
         for c in cols:
             col_key = c.key
 
@@ -1644,7 +1656,9 @@ class SQLiteCompiler(compiler.SQLCompiler):
                 ):
                     value = value._clone()
                     value.type = c.type
-            value_text = self.process(value.self_group(), use_schema=False)
+            value_text = self.process(
+                value.self_group(), is_upsert_set=True, **set_kw
+            )
 
             key_text = self.preparer.quote(c.name)
             action_set_ops.append("%s = %s" % (key_text, value_text))
@@ -1663,18 +1677,21 @@ class SQLiteCompiler(compiler.SQLCompiler):
                 key_text = (
                     self.preparer.quote(k)
                     if isinstance(k, str)
-                    else self.process(k, use_schema=False)
+                    else self.process(k, **set_kw)
                 )
                 value_text = self.process(
                     coercions.expect(roles.ExpressionElementRole, v),
-                    use_schema=False,
+                    is_upsert_set=True,
+                    **set_kw,
                 )
                 action_set_ops.append("%s = %s" % (key_text, value_text))
 
         action_text = ", ".join(action_set_ops)
         if clause.update_whereclause is not None:
+            where_kw = dict(kw)
+            where_kw.update(include_table=True, use_schema=False)
             action_text += " WHERE %s" % self.process(
-                clause.update_whereclause, include_table=True, use_schema=False
+                clause.update_whereclause, **where_kw
             )
 
         return "ON CONFLICT %s DO UPDATE SET %s" % (target_text, action_text)
@@ -2059,6 +2076,37 @@ class SQLiteExecutionContext(default.DefaultExecutionContext):
             return colname, None
 
 
+# regexp that locates a FOREIGN KEY clause within the verbatim CREATE TABLE
+# text that sqlite stores in sqlite_master.  the referred-columns group
+# requires a non-empty separator between column tokens; an earlier form made
+# the separator optional, which turned the repeat into a nested quantifier and
+# let a long word run backtrack exponentially.  kept at module level so it can
+# be exercised directly from the tests.
+FK_PATTERN = re.compile(
+    r'(?:CONSTRAINT\s+(?:"(.+?)"|(\w+))\s+)?'
+    r"FOREIGN\s+KEY\s*\(\s*(.+?)\s*\)\s+"
+    r'REFERENCES\s+(?:(?:"(.+?)")|([a-z0-9_]+))\s*\(\s*((?:"[^"]+"|[a-z0-9_]+)(?:(?:\s*,\s*|\s+)(?:"[^"]+"|[a-z0-9_]+))*\s*)\)\s*'  # noqa: E501
+    r"((?:ON\s+(?:DELETE|UPDATE)\s+"
+    r"(?:SET\s+NULL|SET\s+DEFAULT|CASCADE|RESTRICT|"
+    r"NO\s+ACTION)\s*)*)"
+    r"((?:NOT\s+)?DEFERRABLE)?"
+    r"(?:\s+INITIALLY\s+(DEFERRED|IMMEDIATE))?",
+    re.I,
+)
+
+# regexp that locates the table option keywords which may trail the closing
+# paren of the column list in the verbatim CREATE TABLE text.  the match is
+# anchored at the end of the statement, which makes the closing paren
+# unambiguous, as neither keyword can itself contain one.  the keywords may
+# be given in either order; as each may appear only once, the repeated group
+# leaves one named group per keyword holding the text that was matched.
+TABLE_OPTIONS_PATTERN = re.compile(
+    r"\)(?:\s*,?\s*(?:(?P<without_rowid>WITHOUT\s+ROWID)"
+    r"|(?P<strict>STRICT)))*\s*$",
+    re.I,
+)
+
+
 class SQLiteDialect(default.DefaultDialect):
     name = "sqlite"
     supports_alter = False
@@ -2201,7 +2249,7 @@ class SQLiteDialect(default.DefaultDialect):
                 14,
             )
 
-            if self.dbapi.sqlite_version_info < (3, 35) or util.pypy:
+            if self.dbapi.sqlite_version_info < (3, 35):
                 self.update_returning = self.delete_returning = (
                     self.insert_returning
                 ) = False
@@ -2374,6 +2422,29 @@ class SQLiteDialect(default.DefaultDialect):
             )
 
     @reflection.cache
+    def get_table_options(self, connection, table_name, schema=None, **kw):
+        tablesql = self._get_table_sql(
+            connection, table_name, schema=schema, **kw
+        )
+
+        options = {}
+
+        # tablesql is None for the internal sqlite_ tables, which have no
+        # entry in sqlite_master
+        if tablesql is not None:
+            match = TABLE_OPTIONS_PATTERN.search(tablesql.strip())
+            if match:
+                if match.group("without_rowid"):
+                    options["sqlite_with_rowid"] = False
+                if match.group("strict"):
+                    options["sqlite_strict"] = True
+
+        if options:
+            return options
+        else:
+            return ReflectionDefaults.table_options()
+
+    @reflection.cache
     def get_columns(self, connection, table_name, schema=None, **kw):
         pragma = "table_info"
         # computed columns are threaded as hidden, they require table_xinfo
@@ -2541,7 +2612,7 @@ class SQLiteDialect(default.DefaultDialect):
         constraint_name = None
         table_data = self._get_table_sql(connection, table_name, schema=schema)
         if table_data:
-            PK_PATTERN = r'CONSTRAINT +(?:"(.+?)"|(\w+)) +PRIMARY KEY'
+            PK_PATTERN = r'CONSTRAINT\s+(?:"(.+?)"|(\w+))\s+PRIMARY\s+KEY'
             result = re.search(PK_PATTERN, table_data, re.I)
             if result:
                 constraint_name = result.group(1) or result.group(2)
@@ -2571,7 +2642,7 @@ class SQLiteDialect(default.DefaultDialect):
         fks = {}
 
         for row in pragma_fks:
-            (numerical_id, rtbl, lcol, rcol) = (row[0], row[2], row[3], row[4])
+            numerical_id, rtbl, lcol, rcol = (row[0], row[2], row[3], row[4])
 
             if not rcol:
                 # no referred column, which means it was not named in the
@@ -2645,16 +2716,7 @@ class SQLiteDialect(default.DefaultDialect):
             # FKs, namely the name of the constraint and other options.
             # so parsing the columns is really about matching it up to what
             # we already have.
-            FK_PATTERN = (
-                r'(?:CONSTRAINT +(?:"(.+?)"|(\w+)) +)?'
-                r"FOREIGN KEY *\( *(.+?) *\) +"
-                r'REFERENCES +(?:(?:"(.+?)")|([a-z0-9_]+)) *\( *((?:(?:"[^"]+"|[a-z0-9_]+) *(?:, *)?)+)\) *'  # noqa: E501
-                r"((?:ON (?:DELETE|UPDATE) "
-                r"(?:SET NULL|SET DEFAULT|CASCADE|RESTRICT|NO ACTION) *)*)"
-                r"((?:NOT +)?DEFERRABLE)?"
-                r"(?: +INITIALLY +(DEFERRED|IMMEDIATE))?"
-            )
-            for match in re.finditer(FK_PATTERN, table_data, re.I):
+            for match in FK_PATTERN.finditer(table_data):
                 (
                     constraint_quoted_name,
                     constraint_name,
@@ -2679,7 +2741,13 @@ class SQLiteDialect(default.DefaultDialect):
                 referred_name = referred_quoted_name or referred_name
                 options = {}
 
-                for token in re.split(r" *\bON\b *", onupdatedelete.upper()):
+                # a newline may separate the words of an
+                # ON DELETE / ON UPDATE clause; normalize to single
+                # spaces so the tokens below compare correctly
+                onupdatedelete = re.sub(
+                    r"\s+", " ", onupdatedelete.upper()
+                ).strip()
+                for token in re.split(r" *\bON\b *", onupdatedelete):
                     if token.startswith("DELETE"):
                         ondelete = token[6:].strip()
                         if ondelete and ondelete != "NO ACTION":
@@ -2762,11 +2830,11 @@ class SQLiteDialect(default.DefaultDialect):
             if table_data is None:
                 return
             UNIQUE_PATTERN = (
-                r'(?:CONSTRAINT +(?:"(.+?)"|(\w+)) +)?UNIQUE *\((.+?)\)'
+                r'(?:CONSTRAINT\s+(?:"(.+?)"|(\w+))\s+)?UNIQUE\s*\((.+?)\)'
             )
             INLINE_UNIQUE_PATTERN = (
                 r'(?:(".+?")|(?:[\[`])?([a-z0-9_]+)(?:[\]`])?)[\t ]'
-                r"+[a-z0-9_ ]+?[\t ]+UNIQUE"
+                r"+[a-z0-9_]+(?:[\t ]+[a-z0-9_]+)*?[\t ]+UNIQUE"
             )
 
             for match in re.finditer(UNIQUE_PATTERN, table_data, re.I):
@@ -2857,32 +2925,14 @@ class SQLiteDialect(default.DefaultDialect):
                     flags=re.DOTALL,
                 )
 
-            # Find the matching closing parenthesis by counting balanced parens
-            # Must track string context to ignore parens inside string literals
-            start = match.end()  # Position after 'CHECK ('
-            paren_count = 1
-            in_single_quote = False
-            in_double_quote = False
-
-            for pos, char in enumerate(table_data[start:], start):
-                # Track string literal context
-                if char == "'" and not in_double_quote:
-                    in_single_quote = not in_single_quote
-                elif char == '"' and not in_single_quote:
-                    in_double_quote = not in_double_quote
-                # Only count parens when not inside a string literal
-                elif not in_single_quote and not in_double_quote:
-                    if char == "(":
-                        paren_count += 1
-                    elif char == ")":
-                        paren_count -= 1
-                        if paren_count == 0:
-                            # Successfully found matching closing parenthesis
-                            sqltext = table_data[start:pos].strip()
-                            cks.append(
-                                {"sqltext": sqltext, "name": constraint_name}
-                            )
-                            break
+            # Find the matching closing parenthesis with quote-aware paren
+            # counting. ``match.end() - 1`` is the position of the ``(``
+            # that opened the CHECK clause; ``match.end()`` is the first
+            # character of the constraint body.
+            close = util.find_matching_paren(table_data, match.end() - 1)
+            if close is not None:
+                sqltext = table_data[match.end() : close].strip()
+                cks.append({"sqltext": sqltext, "name": constraint_name})
 
         cks.sort(key=lambda d: d["name"] or "~")  # sort None as last
         if cks:

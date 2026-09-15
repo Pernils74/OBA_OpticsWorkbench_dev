@@ -1,5 +1,5 @@
 # dialects/postgresql/json.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -33,6 +33,7 @@ from ...sql._typing import _T
 if TYPE_CHECKING:
     from ...engine.interfaces import Dialect
     from ...sql.elements import ColumnElement
+    from ...sql.operators import OperatorType
     from ...sql.type_api import _BindProcessorType
     from ...sql.type_api import _LiteralProcessorType
     from ...sql.type_api import TypeEngine
@@ -48,6 +49,9 @@ class JSONPathType(sqltypes.JSON.JSONPathType):
             if isinstance(value, str):
                 # If it's already a string assume that it's in json path
                 # format. This allows using cast with json paths literals
+                # Still need to process through super_proc for proper escaping
+                if super_proc:
+                    value = super_proc(value)
                 return value
             elif value:
                 # If it's already a string assume that it's in json path
@@ -310,6 +314,14 @@ class JSONB(JSON):
     """
 
     __visit_name__ = "JSONB"
+
+    def coerce_compared_value(
+        self, op: Optional[OperatorType], value: Any
+    ) -> TypeEngine[Any]:
+        if op in (PATH_MATCH, PATH_EXISTS):
+            return JSON.JSONPathType()
+        else:
+            return super().coerce_compared_value(op, value)
 
     class Comparator(JSON.Comparator[_T]):
         """Define comparison operations for :class:`_types.JSON`."""

@@ -1,5 +1,5 @@
 # dialects/mysql/base.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -1063,6 +1063,7 @@ output:
     )
 
 """  # noqa
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -1182,6 +1183,7 @@ if TYPE_CHECKING:
     from ...sql.functions import random
     from ...sql.functions import rollup
     from ...sql.functions import sysdate
+    from ...sql.schema import IdentityOptions
     from ...sql.schema import Sequence as Sequence_SchemaItem
     from ...sql.type_api import TypeEngine
     from ...sql.visitors import ExternallyTraversible
@@ -1358,10 +1360,10 @@ class MySQLCompiler(compiler.SQLCompiler):
     def visit_aggregate_strings_func(
         self, fn: aggregate_strings, **kw: Any
     ) -> str:
-        expr, delimeter = (
+        expr, delimiter = (
             elem._compiler_dispatch(self, **kw) for elem in fn.clauses
         )
-        return f"group_concat({expr} SEPARATOR {delimeter})"
+        return f"group_concat({expr} SEPARATOR {delimiter})"
 
     def visit_sequence(self, sequence: sa_schema.Sequence, **kw: Any) -> str:
         return "nextval(%s)" % self.preparer.format_sequence(sequence)
@@ -2103,8 +2105,8 @@ class MySQLDDLCompiler(compiler.DDLCompiler):
             "SUBPARTITION_BY",
         ]
 
-        nonpart_options = set(opts).difference(partition_options)
-        part_options = set(opts).intersection(partition_options)
+        nonpart_options = util.OrderedSet(opts).difference(partition_options)
+        part_options = util.OrderedSet(opts).intersection(partition_options)
 
         for opt in topological.sort(
             [
@@ -2199,7 +2201,7 @@ class MySQLDDLCompiler(compiler.DDLCompiler):
         if index.unique:
             text += "UNIQUE "
 
-        index_prefix = index.kwargs.get("%s_prefix" % self.dialect.name, None)
+        index_prefix = index.get_dialect_option(self.dialect, "prefix")
         if index_prefix:
             text += index_prefix + " "
 
@@ -2208,7 +2210,7 @@ class MySQLDDLCompiler(compiler.DDLCompiler):
             text += "IF NOT EXISTS "
         text += "%s ON %s " % (name, table)
 
-        length = index.dialect_options[self.dialect.name]["length"]
+        length = index.get_dialect_option(self.dialect, "length")
         if length is not None:
             if isinstance(length, dict):
                 # length value can be a (column_name --> integer value)
@@ -2236,11 +2238,15 @@ class MySQLDDLCompiler(compiler.DDLCompiler):
             columns_str = ", ".join(columns)
         text += "(%s)" % columns_str
 
-        parser = index.dialect_options["mysql"]["with_parser"]
+        parser = index.get_dialect_option(
+            self.dialect, "with_parser", deprecated_fallback="mysql"
+        )
         if parser is not None:
             text += " WITH PARSER %s" % (parser,)
 
-        using = index.dialect_options["mysql"]["using"]
+        using = index.get_dialect_option(
+            self.dialect, "using", deprecated_fallback="mysql"
+        )
         if using is not None:
             text += " USING %s" % (preparer.quote(using))
 
@@ -2250,7 +2256,9 @@ class MySQLDDLCompiler(compiler.DDLCompiler):
         self, constraint: sa_schema.PrimaryKeyConstraint, **kw: Any
     ) -> str:
         text = super().visit_primary_key_constraint(constraint)
-        using = constraint.dialect_options["mysql"]["using"]
+        using = constraint.get_dialect_option(
+            self.dialect, "using", deprecated_fallback="mysql"
+        )
         if using:
             text += " USING %s" % (self.preparer.quote(using))
         return text
@@ -2329,6 +2337,15 @@ class MySQLDDLCompiler(compiler.DDLCompiler):
             self.preparer.format_column(create.element),
             self.get_column_specification(create.element),
         )
+
+    def get_identity_options(self, identity_options: IdentityOptions) -> str:
+        """mariadb-specific sequence option; this will move to a
+        mariadb-specific module in 2.1
+
+        """
+        text = super().get_identity_options(identity_options)
+        text = text.replace("NO CYCLE", "NOCYCLE")
+        return text
 
 
 class MySQLTypeCompiler(compiler.GenericTypeCompiler):
@@ -2748,6 +2765,7 @@ class MySQLDialect(default.DefaultDialect):
     # i.e. first connect
     _backslash_escapes = True
     _server_ansiquotes = False
+    _casing = 0
 
     server_version_info: Tuple[int, ...]
     identifier_preparer: MySQLIdentifierPreparer
@@ -3170,9 +3188,9 @@ class MySQLDialect(default.DefaultDialect):
             self._is_mysql and self.server_version_info >= (8, 0, 1)
         )
 
-        self._needs_correct_for_88718_96365 = (
-            not self.is_mariadb and self.server_version_info >= (8,)
-        )
+        self._needs_correct_for_88718_96365 = self.server_version_info >= (
+            8,
+        ) and (self.server_version_info < (8, 0, 14) or self._casing == 2)
 
         self.delete_returning = (
             self.is_mariadb and self.server_version_info >= (10, 0, 5)
@@ -3237,7 +3255,7 @@ class MySQLDialect(default.DefaultDialect):
     def _is_mariadb_102(self) -> bool:
         return (
             self.is_mariadb
-            and self._mariadb_normalized_version_info  # type:ignore[operator]
+            and self._mariadb_normalized_version_info  # type: ignore[operator]
             > (
                 10,
                 2,

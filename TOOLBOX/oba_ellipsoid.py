@@ -22,7 +22,6 @@ from .oba_toolbox_base import (
     install_properties,
     make_calculated_length,
     make_optical_type,
-    remove_objects,
     restore_view_provider,
     validate_ellipsoid,
     ensure_debug_property,
@@ -38,6 +37,7 @@ ELLIPSOID_PROPERTIES = [
     {"name": "B", "type": "App::PropertyLength", "group": "Ellipsoid", "doc": "Semi-minor axis"},
     {"name": "UseIndependentRadius3", "type": "App::PropertyBool", "group": "Ellipsoid", "doc": "Use independent radius in Y direction"},
     {"name": "B2", "type": "App::PropertyLength", "group": "Ellipsoid", "doc": "Independent ellipsoid Y radius"},
+    {"name": "WidthFactor", "type": "App::PropertyFloat", "group": "Ellipsoid", "default": 1.8},
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "doc": "Distance from ellipsoid centre to focus"},
     {"name": "ShowDebugEllipsoid", "type": "App::PropertyBool", "group": "Debug", "doc": "Show ellipsoid for debugging"},
     {"name": "ShowDebugFoci", "type": "App::PropertyBool", "group": "Debug", "doc": "Show focal points"},
@@ -100,6 +100,8 @@ class OBAEllipsoid:
 
         install_properties(obj, ELLIPSOID_PROPERTIES)
 
+        obj.addProperty("App::PropertyLinkList", "Group", "Base", "Owned children")
+
         # ensure_debug_property(obj)
         make_calculated_length(obj, "FocusDistance", "Distance from ellipsoid centre to focus")
 
@@ -135,6 +137,14 @@ class OBAEllipsoid:
     #  E N S U R E   F E A T U R E S
     # ========================================================
 
+    def _get_or_create(self, doc, name, objtype, label):
+        obj = doc.getObject(name)
+
+        if obj is None:
+            obj = doc.addObject(objtype, name)
+            obj.Label = label
+        return obj
+
     def _ensure_features(self, obj):
         """
         Find existing construction objects or create them if missing.
@@ -142,87 +152,49 @@ class OBAEllipsoid:
         Construction objects are created directly in the document.
         They are not placed inside an App::Part.
         """
+
         doc = obj.Document
-        if self._box is None:
-            self._box = doc.getObject(f"{obj.Name}_Box")
-        if self._box_ext is None:
-            self._box_ext = doc.getObject(f"{obj.Name}_BoxExt")
-        if self._box_bound is None:
-            self._box_bound = doc.getObject(f"{obj.Name}_BoxBound")
-
-        if self._fuse is None:
-            self._fuse = doc.getObject(f"{obj.Name}_Fuse")
-        if self._ellipsoid is None:
-            self._ellipsoid = doc.getObject(f"{obj.Name}_Ellipsoid")
-        if self._cut is None:
-            self._cut = doc.getObject(f"{obj.Name}_Cut")
-        if self._focal_surface is None:
-            self._focal_surface = doc.getObject(f"{obj.Name}_FocalSurface")
 
         # --------------------------------------------------------------
-        # Validate existing references
-        # --------------------------------------------------------------
-        if not self._obj_exists(self._box):
-            self._box = None
-        if not self._obj_exists(self._box_ext):
-            self._box_ext = None
-
-        if not self._obj_exists(self._box_bound):
-            self._box_bound = None
-
-        if not self._obj_exists(self._fuse):
-            self._fuse = None
-
-        if not self._obj_exists(self._ellipsoid):
-            self._ellipsoid = None
-
-        if not self._obj_exists(self._cut):
-            self._cut = None
-
-        if not self._obj_exists(self._focal_surface):
-            self._focal_surface = None
-        # --------------------------------------------------------------
-        # Create missing construction objects
+        # Construction geometry
         # --------------------------------------------------------------
 
-        if self._box is None:
-            self._box = doc.addObject("Part::Box", f"{obj.Name}_Box")
-            self._box.Label = f"{obj.Label} Box"
+        self._box = self._get_or_create(doc, f"{obj.Name}_Box", "Part::Box", f"{obj.Label} Box")
+        self._box_ext = self._get_or_create(doc, f"{obj.Name}_BoxExt", "Part::Box", f"{obj.Label} BoxExt")
+        self._box_bound = self._get_or_create(doc, f"{obj.Name}_BoxBound", "Part::Box", f"{obj.Label} BoxBound")
+        self._fuse = self._get_or_create(doc, f"{obj.Name}_Fuse", "Part::Fuse", f"{obj.Label} Fuse")
+        self._ellipsoid = self._get_or_create(doc, f"{obj.Name}_Ellipsoid", "Part::Ellipsoid", f"{obj.Label} Ellipsoid")
+        self._cut = self._get_or_create(doc, f"{obj.Name}_Cut", "Part::Cut", f"{obj.Label} Cut")
+        self._focal_surface = self._get_or_create(doc, f"{obj.Name}_FocalSurface", "Part::Feature", f"{obj.Label} Focal Surface")
 
-        if self._box_ext is None:
-            self._box_ext = doc.addObject("Part::Box", f"{obj.Name}_BoxExt")
-            self._box_ext.Label = f"{obj.Label} Box"
+        self._focus1 = self._get_or_create(doc, f"{obj.Name}_Focus1", "Part::Sphere", f"{obj.Label} Focus1")
+        self._focus2 = self._get_or_create(doc, f"{obj.Name}_Focus2", "Part::Sphere", f"{obj.Label} Focus2")
 
-        if self._fuse is None:
-            self._fuse = doc.addObject("Part::Fuse", f"{obj.Name}_Fuse")
-            self._fuse.Label = f"{obj.Label} Fuse"
+        obj.Group = [
+            self._box,
+            self._box_ext,
+            self._box_bound,
+            self._fuse,
+            self._ellipsoid,
+            self._cut,
+            self._focal_surface,
+            self._focus1,
+            self._focus2,
+        ]
 
-        if self._box_bound is None:
-            self._box_bound = doc.addObject("Part::Box", f"{obj.Name}_BoxBound")
-            self._box_bound.Label = f"{obj.Label} BoxBound"
-            self._box_bound.ViewObject.DisplayMode = "Wireframe"
-            # self._box_bound.ViewObject.ShapeColor = (0.7, 0.8, 1.0)
+        # --------------------------------------------------------------
+        # One-time visual settings
+        # --------------------------------------------------------------
 
-        if self._ellipsoid is None:
-            self._ellipsoid = doc.addObject("Part::Ellipsoid", f"{obj.Name}_Ellipsoid")
-            self._ellipsoid.Label = f"{obj.Label} Ellipsoid"
-            self._ellipsoid.ViewObject.ShapeColor = (0.7, 0.8, 1.0)
-            self._ellipsoid.ViewObject.Transparency = 80
+        self._box_bound.ViewObject.DisplayMode = "Wireframe"
 
-        if self._cut is None:
-            self._cut = doc.addObject("Part::Cut", f"{obj.Name}_Cut")
-            self._cut.Label = f"{obj.Label} Cut"
+        self._ellipsoid.ViewObject.ShapeColor = (0.7, 0.8, 1.0)
+        self._ellipsoid.ViewObject.Transparency = 80
 
-        if self._focal_surface is None:
-            self._focal_surface = doc.addObject("Part::Feature", f"{obj.Name}_FocalSurface")
-            self._focal_surface.Label = f"{obj.Label} Focal_Surface"
-
-            vo = self._focal_surface.ViewObject
-            vo.ShapeColor = (1.0, 1.0, 0.0)
-            vo.Transparency = 50
-            vo.LineWidth = 2
-
-        # return Part.Face(Part.makePolygon([p1, p2, p3, p4, p1]))
+        vo = self._focal_surface.ViewObject
+        vo.ShapeColor = (1.0, 1.0, 0.0)
+        vo.Transparency = 50
+        vo.LineWidth = 2
 
         # --------------------------------------------------------------
         # Boolean relationship
@@ -253,29 +225,17 @@ class OBAEllipsoid:
         return f1, f2
 
     def show_foci(self, obj):
+
         f1, f2 = self.focal_points_world(obj)
-        doc = obj.Document
-        s1 = doc.getObject(f"{obj.Name}_Focus1")
-        if s1 is None:
-            s1 = doc.addObject("Part::Sphere", f"{obj.Name}_Focus1")
-        s2 = doc.getObject(f"{obj.Name}_Focus2")
-        if s2 is None:
-            s2 = doc.addObject("Part::Sphere", f"{obj.Name}_Focus2")
 
-        s1.ViewObject.ShapeColor = (0.0, 1.0, 0.0)  # grön
-        s2.ViewObject.ShapeColor = (1.0, 0.0, 0.0)  # röd
+        self._focus1.Radius = 1
+        self._focus2.Radius = 1
 
-        s1.Label = f"{obj.Label} OriginFocus"
-        s2.Label = f"{obj.Label} Focus 2"
+        self._focus1.Placement.Base = f1
+        self._focus2.Placement.Base = f2
 
-        s1.Radius = 1
-        s2.Radius = 1
-
-        s1.Placement.Base = f1
-        s2.Placement.Base = f2
-
-        self._focus1 = s1
-        self._focus2 = s2
+        self._focus1.ViewObject.ShapeColor = (0.0, 1.0, 0.0)
+        self._focus2.ViewObject.ShapeColor = (1.0, 0.0, 0.0)
 
     def _update_ellipsoid(self, obj):
         self._ensure_features(obj)
@@ -344,10 +304,11 @@ class OBAEllipsoid:
 
     def _update_cubes(self, obj):
 
-        length = float(obj.A * 0.9) + float(obj.A * 0.7) * math.sin(math.radians(obj.RotX))  # är omkastad enligt mitt orienteringssätt
+        # nedan ger skopans längd
+        length = float(obj.A * 0.8) + float(obj.A * 0.5) * math.sin(math.radians(obj.RotX))  # är omkastad enligt mitt orienteringssätt
 
         height = float(obj.B * 1.2)  # är omkastad enligt mitt orienteringssätt
-        width = float(obj.B * 1.8)
+        width = float(obj.B * obj.WidthFactor)  # 1.8)
 
         self._box.Length = width  # length är width, pga box orginal orientering
         self._box.Width = length  # width är length, pga box orginal orientering
@@ -377,7 +338,7 @@ class OBAEllipsoid:
 
         # c = focus_distance(obj.A, obj.B)
         # self._box_ext.Length = float(height * math.sin(math.radians(obj.RotX))) + (float(obj.A) - c) * 2  # lägger till det som fattas ifrån c + lite till
-        self._box_ext.Length = float(obj.B) * 1.5
+        self._box_ext.Length = float(obj.B) * 1.9
         rot_ext_0 = App.Rotation(App.Vector(0, 0, 1), (-90))  # för att Length skall peka i -y
         rot_ext_z = App.Rotation(App.Vector(0, 0, -1), obj.RotZ)
         rot_ext = rot_ext_0.multiply(rot_ext_z)
@@ -507,6 +468,9 @@ class OBAEllipsoid:
         #     pass
         # return
 
+        if prop == "Group":
+            return
+
         if self._rebuilding:
             return
 
@@ -517,13 +481,13 @@ class OBAEllipsoid:
             return
 
         # print("----------------")
-        print(f"onChanged: {prop}, rebuilding={self._rebuilding}, syncing_ori={self._syncing_orientation} , init={self._initializing}")
+        # print(f"onChanged: {prop}, rebuilding={self._rebuilding}, syncing_ori={self._syncing_orientation} , init={self._initializing}")
         # print("value =", getattr(obj, prop))
 
         # ----------------------------------------------------
         # Geometry
         # ----------------------------------------------------
-        if prop in ("A", "B", "UseIndependentRadius3", "B2", "APlaneWidth", "APlaneHeight"):
+        if prop in ("A", "B", "UseIndependentRadius3", "B2", "APlaneWidth", "APlaneHeight", "WidthFactor"):
             try:
                 self._rebuild(obj)
             except Exception as exc:
@@ -628,14 +592,9 @@ class EllipsoidDialog(OBAToolboxDialogBase):
 
         super().__init__(obj, title=title, parent=parent)
 
-        self.obj.Proxy._dialog = self  # registrering av dialogen
+        # self.obj.Proxy._dialog = self  # registrering av dialogen
 
         self._refreshing_ui = False
-
-        # group = QtWidgets.QGroupBox("Aperture Plane")
-        # form = QtWidgets.QFormLayout(group)
-        # self.width = self._add_spin("Width _", "Width", -1_000_000, 1_000_000, "mm", form)
-        # self.height = self._add_spin("Height _", "Height", -1_000_000, 1_000_000, "mm", form)
 
         group = QtWidgets.QGroupBox("Aperture Plane")
         form = QtWidgets.QFormLayout(group)
@@ -656,6 +615,9 @@ class EllipsoidDialog(OBAToolboxDialogBase):
         self.use_b2 = QtWidgets.QCheckBox("Use independent Radius3")
         form.addWidget(self.use_b2)
         self.b2 = self._add_spin("B2", "B2", 0, 1_000_000, "mm", form)
+
+        self.widthfactor = self._add_spin("WidthFactor", "WidthFactor", 0.5, 2, "%", form, 0.1)
+
         self.c = QtWidgets.QLabel()
         form.addRow("Focus distance C", self.c)
 
@@ -686,6 +648,8 @@ class EllipsoidDialog(OBAToolboxDialogBase):
         self.a.valueChanged.connect(lambda value: self._set_property("A", value.Value))
         self.b.valueChanged.connect(lambda value: self._set_property("B", value.Value))
         self.b2.valueChanged.connect(lambda value: self._set_property("B2", value.Value))
+
+        self.widthfactor.valueChanged.connect(lambda value: self._set_property("WidthFactor", value.Value))
 
         self.rot_x.valueChanged.connect(lambda value: self._set_property("RotX", value.Value))
         self.rot_y.valueChanged.connect(lambda value: self._set_property("RotY", value.Value))
@@ -811,6 +775,7 @@ class EllipsoidDialog(OBAToolboxDialogBase):
                 self.b2: self.obj.B2,
                 self.aplane_width: self.obj.APlaneWidth,
                 self.aplane_height: self.obj.APlaneHeight,
+                self.widthfactor: self.obj.WidthFactor,
                 self.rot_x: self.obj.RotX,
                 self.rot_y: self.obj.RotY,
                 self.rot_z: self.obj.RotZ,
@@ -933,34 +898,20 @@ class EllipsoidViewProvider(OBAToolboxViewProviderBase):
 
     def claimChildren(self):
         obj = getattr(self, "Object", None)
-
         if obj is None:
             return []
-        proxy = getattr(obj, "Proxy", None)
-        if proxy is None:
-            return []
-
-        children = []
-        for attr_name in getattr(proxy, "CHILD_OBJECTS", ()):
-            child = getattr(proxy, attr_name, None)
-            if child is not None:
-                children.append(child)
-        return children
+        return list(getattr(obj, "Group", []))
 
     def onDelete(self, vobj, subelements):
         obj = getattr(self, "Object", None)
         if obj is None:
             return True
-        proxy = getattr(obj, "Proxy", None)
-        if proxy is None:
-            return True
+
         doc = obj.Document
-        child_names = getattr(proxy, "CHILD_OBJECTS", ())
-        print("childnames ", child_names)
-        for attr_name in reversed(child_names):
-            child = getattr(proxy, attr_name, None)
+        for child in getattr(obj, "Group", []):
             if child and doc.getObject(child.Name):
                 doc.removeObject(child.Name)
+
         return True
 
 
@@ -972,6 +923,7 @@ def OBA_CreateEllipsoid(
     a=40.0,
     b=20.0,
     b2=None,
+    widthfactor=1.8,
     rot_x=30,
     rot_y=0,
     rot_z=0,
@@ -1003,6 +955,8 @@ def OBA_CreateEllipsoid(
 
     obj.UseIndependentRadius3 = use_b2
     obj.B2 = App.Units.Quantity(f"{b2} mm")
+
+    obj.WidthFactor = float(widthfactor)
 
     obj.RotX = App.Units.Quantity(f"{rot_x} deg")
     obj.RotY = App.Units.Quantity(f"{rot_y} deg")
@@ -1048,6 +1002,7 @@ def create(
     a=40.0,
     b=20.0,
     b2=None,
+    widthfactor=1.8,
     rot_x=0,
     rot_y=0,
     rot_z=0,
@@ -1063,6 +1018,7 @@ def create(
         a=a,
         b=b,
         b2=b2,
+        widthfactor=widthfactor,
         rot_x=rot_x,
         rot_y=rot_y,
         rot_z=rot_z,

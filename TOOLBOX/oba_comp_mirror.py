@@ -72,6 +72,8 @@ class OBACompMirror:
 
         install_properties(obj, COMP_MIRROR_PROPERTIES)
 
+        obj.addProperty("App::PropertyLinkList", "Group", "Base", "Owned children")
+
         if hasattr(obj, "FocusDistance"):
             obj.setEditorMode("FocusDistance", 1)  # sets readonly
 
@@ -81,17 +83,17 @@ class OBACompMirror:
 
         App.Console.PrintMessage(f"[OBA] Proxy attached: {obj.Name}\n")
 
-    def delete(self):
-        doc = self.Object.Document
+    # def delete(self):
+    #     doc = self.Object.Document
 
-        for attr_name in reversed(self.CHILD_OBJECTS):
-            child = getattr(self, attr_name, None)
+    #     for attr_name in reversed(self.CHILD_OBJECTS):
+    #         child = getattr(self, attr_name, None)
 
-            if child and doc.getObject(child.Name):
-                doc.removeObject(child.Name)
+    #         if child and doc.getObject(child.Name):
+    #             doc.removeObject(child.Name)
 
-        if doc.getObject(self.Object.Name):
-            doc.removeObject(self.Object.Name)
+    #     if doc.getObject(self.Object.Name):
+    #         doc.removeObject(self.Object.Name)
 
     # def get_cube(self):
     #     self._ensure_features(self.Object)
@@ -101,57 +103,31 @@ class OBACompMirror:
     # Runtime object handling
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _obj_exists(obj):
-        if obj is None:
-            return False
+    def _get_or_create(self, doc, name, objtype, label):
+        obj = doc.getObject(name)
 
-        try:
-            return obj.Document is not None and obj.Document.getObject(obj.Name) is obj
-        except Exception:
-            return False
+        if obj is None:
+            obj = doc.addObject(objtype, name)
+            obj.Label = label
+        return obj
 
     def _ensure_features(self, obj):
         """
         Find existing construction objects or create them if missing.
-
         Construction objects are created directly in the document.
         They are not placed inside an App::Part.
         """
         doc = obj.Document
-        if self._cube is None:
-            self._cube = doc.getObject(f"{obj.Name}_Cube")
-        if self._ellipsoid is None:
-            self._ellipsoid = doc.getObject(f"{obj.Name}_Ellipsoid")
-        if self._cut is None:
-            self._cut = doc.getObject(f"{obj.Name}_Cut")
 
-        # --------------------------------------------------------------
-        # Validate existing references
-        # --------------------------------------------------------------
-        if not self._obj_exists(self._cube):
-            self._cube = None
-        if not self._obj_exists(self._ellipsoid):
-            self._ellipsoid = None
-        if not self._obj_exists(self._cut):
-            self._cut = None
-        # --------------------------------------------------------------
-        # Create missing construction objects
-        # --------------------------------------------------------------
+        self._cube = self._get_or_create(doc, f"{obj.Name}_Cube", "Part::Box", f"{obj.Label} Cube")
+        self._ellipsoid = self._get_or_create(doc, f"{obj.Name}_Ellipsoid", "Part::Ellipsoid", f"{obj.Label} Ellipsoid")
+        self._cut = self._get_or_create(doc, f"{obj.Name}_Cut", "Part::Cut", f"{obj.Label} Cut")
 
-        if self._cube is None:
-            self._cube = doc.addObject("Part::Box", f"{obj.Name}_Cube")
-            self._cube.Label = f"{obj.Label} Cube"
-
-        if self._ellipsoid is None:
-            self._ellipsoid = doc.addObject("Part::Ellipsoid", f"{obj.Name}_Ellipsoid")
-            self._ellipsoid.Label = f"{obj.Label} Ellipsoid"
-            self._ellipsoid.ViewObject.ShapeColor = (0.0, 0.0, 1.0)
-
-        if self._cut is None:
-            self._cut = doc.addObject("Part::Cut", f"{obj.Name}_Cut")
-
-            self._cut.Label = f"{obj.Label} Cut"
+        obj.Group = [
+            self._cube,
+            self._ellipsoid,
+            self._cut,
+        ]
 
         # --------------------------------------------------------------
         # Boolean relationship
@@ -209,7 +185,7 @@ class OBACompMirror:
             self._cube.ViewObject.Visibility = False
 
             # Resulting geometry.
-            self._cut.ViewObject.Visibility = True
+            # self._cut.ViewObject.Visibility = True
 
             # Construction ellipsoid.
             if debug:
@@ -256,6 +232,8 @@ class OBACompMirror:
 
         # if prop in ("Shape", "Label"):  # Early exits on special props
         #     return
+        if prop == "Group":
+            return
 
         if self._initializing:
             return
@@ -263,7 +241,7 @@ class OBACompMirror:
         if self._rebuilding:
             return
 
-        App.Console.PrintMessage(f"onChanged: {prop}\n")
+        # App.Console.PrintMessage(f"onChanged: {prop}\n")
 
         if prop in {"Width", "Height", "A", "B", "UseIndependentRadius3", "B2", "ShowDebugEllipsoids"}:
             try:
@@ -353,14 +331,6 @@ class CompMirrorDialog(OBAToolboxDialogBase):
         self.debug_show = QtWidgets.QCheckBox("Show ellipsoids (debug)")
         form.addRow(self.debug_show)
         self.custom_layout.addWidget(group)
-
-        # group = QtWidgets.QGroupBox("Placement")
-        # form = QtWidgets.QFormLayout(group)
-        # self.pos_x = self._add_spin("X", "PosX", -1_000_000, 1_000_000, "mm", form)
-        # self.pos_y = self._add_spin("Y", "PosY", -1_000_000, 1_000_000, "mm", form)
-        # self.pos_z = self._add_spin("Z", "PosZ", -1_000_000, 1_000_000, "mm", form)
-        # self.custom_layout.addWidget(group)
-        # self.add_placement_group()
 
         info = QtWidgets.QLabel("The two ellipsoids are mirrored around the centre " "plane of the Main Mirror.\n\n" "TiltAngle is the symmetric tilt of the ellipsoids.")
         info.setWordWrap(True)
@@ -484,30 +454,10 @@ class CompMirrorViewProvider(OBAToolboxViewProviderBase):
     #     return False
 
     def claimChildren(self):
-        """
-        Show the construction objects directly underneath the main
-        Comp Mirror object in the tree.
-
-        No App::Part / _Internal container is used.
-        """
         obj = getattr(self, "Object", None)
         if obj is None:
             return []
-        proxy = getattr(obj, "Proxy", None)
-        if proxy is None:
-            return []
-        children = []
-        cube = getattr(proxy, "_cube", None)
-        ellipsoid = getattr(proxy, "_ellipsoid", None)
-        cut = getattr(proxy, "_cut", None)
-        if cube is not None:
-            children.append(cube)
-        if ellipsoid is not None:
-            children.append(ellipsoid)
-        if cut is not None:
-            children.append(cut)
-
-        return children
+        return list(getattr(obj, "Group", []))
 
     def doubleClicked(self, vobj):
         """
@@ -535,16 +485,12 @@ class CompMirrorViewProvider(OBAToolboxViewProviderBase):
         obj = getattr(self, "Object", None)
         if obj is None:
             return True
-        proxy = getattr(obj, "Proxy", None)
-        if proxy is None:
-            return True
+
         doc = obj.Document
-        child_names = getattr(proxy, "CHILD_OBJECTS", ())
-        print("childnames ", child_names)
-        for attr_name in reversed(child_names):
-            child = getattr(proxy, attr_name, None)
+        for child in getattr(obj, "Group", []):
             if child and doc.getObject(child.Name):
                 doc.removeObject(child.Name)
+
         return True
 
 

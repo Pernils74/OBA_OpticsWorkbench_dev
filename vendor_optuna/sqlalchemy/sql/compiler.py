@@ -1,5 +1,5 @@
 # sql/compiler.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -23,6 +23,7 @@ To generate user-defined SQL strings, see
 :doc:`/ext/compiler`.
 
 """
+
 from __future__ import annotations
 
 import collections
@@ -113,6 +114,7 @@ if typing.TYPE_CHECKING:
     from .schema import Column
     from .schema import Constraint
     from .schema import ForeignKeyConstraint
+    from .schema import IdentityOptions
     from .schema import Index
     from .schema import PrimaryKeyConstraint
     from .schema import Table
@@ -588,6 +590,19 @@ class _InsertManyValues(NamedTuple):
     correlation with the incoming parameter list.
 
     .. versionadded:: 2.0.10
+
+    """
+
+    has_upsert_bound_parameters: bool = False
+    """if True, the upsert SET clause contains bound parameters that will
+    receive their values from the parameters dict (i.e., parametrized
+    bindparams where value is None and callable is None).
+
+    This means we can't batch multiple rows in a single statement, since
+    each row would need different values in the SET clause but there's only
+    one SET clause per statement. See issue #13130.
+
+    .. versionadded:: 2.0.37
 
     """
 
@@ -1801,6 +1816,13 @@ class SQLCompiler(Compiled):
                     ),
                 )
                 for bindparam in self.bind_names
+                # literal_execute parameters are rendered into the SQL string
+                # via their literal_processor and never bound as values, so
+                # they do not need a bind processor.  Skipping them also avoids
+                # invoking bind-processor construction that may require the
+                # DBAPI to be present (see asyncpg, psycopgcffi cases),
+                # facilitating testing.
+                if bindparam not in self.literal_execute_params
             )
             if value is not None
         }
@@ -2115,7 +2137,7 @@ class SQLCompiler(Compiled):
                     leep_res = self._literal_execute_expanding_parameter(
                         escaped_name, parameter, values
                     )
-                    (to_update, replacement_expr) = leep_res
+                    to_update, replacement_expr = leep_res
 
                     to_update_sets[escaped_name] = to_update
                     replacement_expressions[escaped_name] = replacement_expr
@@ -2367,7 +2389,13 @@ class SQLCompiler(Compiled):
         """
         return ""
 
-    def visit_override_binds(self, override_binds, **kw):
+    def visit_override_binds(
+        self,
+        override_binds,
+        add_to_result_map=None,
+        result_map_targets=(),
+        **kw,
+    ):
         """SQL compile the nested element of an _OverrideBinds with
         bindparams swapped out.
 
@@ -2382,6 +2410,16 @@ class SQLCompiler(Compiled):
         so it has to do the right thing at compile time as well.
 
         """
+
+        if add_to_result_map is not None:
+            # the ORM looks up result columns using the objects it placed
+            # into the loader option, which for a cached statement is the
+            # _OverrideBinds wrapper rather than the element inside of it.
+            # make sure the wrapper is present in the result map so that
+            # lookup succeeds.  See #13560
+            result_map_targets += (override_binds,)
+            kw["add_to_result_map"] = add_to_result_map
+            kw["result_map_targets"] = result_map_targets
 
         # get SQL text first
         sqltext = override_binds.element._compiler_dispatch(self, **kw)
@@ -3155,6 +3193,7 @@ class SQLCompiler(Compiled):
         if (
             self.dialect.div_is_floordiv
             and binary.right.type._type_affinity is sqltypes.Integer
+            and binary.left.type._type_affinity is sqltypes.Integer
         ):
             return (
                 self.process(binary.left, **kw)
@@ -3674,8 +3713,19 @@ class SQLCompiler(Compiled):
         skip_bind_expression=False,
         literal_execute=False,
         render_postcompile=False,
+        is_upsert_set=False,
         **kwargs,
     ):
+        # Detect parametrized bindparams in upsert SET clause for issue #13130
+        if (
+            is_upsert_set
+            and bindparam.value is None
+            and bindparam.callable is None
+            and self._insertmanyvalues is not None
+        ):
+            self._insertmanyvalues = self._insertmanyvalues._replace(
+                has_upsert_bound_parameters=True
+            )
 
         if not skip_bind_expression:
             impl = bindparam.type.dialect_impl(self.dialect)
@@ -4544,6 +4594,8 @@ class SQLCompiler(Compiled):
             "_label_select_column is only relevant within "
             "the columns clause of a SELECT or RETURNING"
         )
+        result_expr: Union[elements.Label[Any], _CompileLabel]
+
         if isinstance(column, elements.Label):
             if col_expr is not column:
                 result_expr = _CompileLabel(
@@ -4644,7 +4696,7 @@ class SQLCompiler(Compiled):
                 )
             elif (
                 # general class of expressions that don't have a SQL-column
-                # addressible name.  includes scalar selects, bind parameters,
+                # addressable name.  includes scalar selects, bind parameters,
                 # SQL functions, others
                 not isinstance(column, elements.NamedColumn)
                 # deeper check that indicates there's no natural "name" to
@@ -5539,11 +5591,32 @@ class SQLCompiler(Compiled):
         elif not self.dialect.supports_multivalues_insert or (
             sort_by_parameter_order
             and self._result_columns
-            and (imv.sentinel_columns is None or imv.includes_upsert_behaviors)
+            and (
+                imv.sentinel_columns is None
+                or (
+                    imv.includes_upsert_behaviors
+                    and not imv.embed_values_counter
+                )
+            )
         ):
             # deterministic order was requested and the compiler could
             # not organize sentinel columns for this dialect/statement.
-            # use row at a time
+            # use row at a time.  Note: if embed_values_counter is True,
+            # the counter itself provides the ordering capability we need,
+            # so we can use batch mode even with upsert behaviors.
+            use_row_at_a_time = True
+            downgraded = True
+        elif (
+            imv.has_upsert_bound_parameters
+            and not imv.embed_values_counter
+            and self._result_columns
+        ):
+            # For upsert behaviors (ON CONFLICT DO UPDATE, etc.) with RETURNING
+            # and parametrized bindparams in the SET clause, we must use
+            # row-at-a-time. Batching multiple rows in a single statement
+            # doesn't work when the SET clause contains bound parameters that
+            # will receive different values per row, as there's only one SET
+            # clause per statement. See issue #13130.
             use_row_at_a_time = True
             downgraded = True
         else:
@@ -5670,6 +5743,7 @@ class SQLCompiler(Compiled):
                 key: parameters[0][key]
                 for key in all_keys.difference(keys_to_replace)
             }
+
             executemany_values_w_comma = ""
         else:
             formatted_values_clause = ""
@@ -5889,7 +5963,7 @@ class SQLCompiler(Compiled):
         # likely the least amount of callcounts, though looks clumsy
         if self.positional and visiting_cte is None:
             # if we are inside a CTE, don't count parameters
-            # here since they wont be for insertmanyvalues. keep
+            # here since they won't be for insertmanyvalues. keep
             # visited_bindparam at None so no counting happens.
             # see #9173
             visited_bindparam = []
@@ -5936,7 +6010,7 @@ class SQLCompiler(Compiled):
                 self.implicit_returning or insert_stmt._returning
             ) and insert_stmt._sort_by_parameter_order:
                 raise exc.CompileError(
-                    "RETURNING cannot be determinstically sorted when "
+                    "RETURNING cannot be deterministically sorted when "
                     "using an INSERT which includes multi-row values()."
                 )
             crud_params_single = crud_params_struct.single_params
@@ -6604,6 +6678,9 @@ class StrSQLCompiler(SQLCompiler):
 
     """
 
+    def get_select_precolumns(self, select: Select[Any], **kw: Any) -> str:
+        return "DISTINCT " if select._distinct else ""
+
     def _fallback_column_name(self, column):
         return "<name unknown>"
 
@@ -6983,7 +7060,7 @@ class DDLCompiler(Compiled):
     def visit_drop_constraint_comment(self, drop, **kw):
         raise exc.UnsupportedCompilationError(self, type(drop))
 
-    def get_identity_options(self, identity_options):
+    def get_identity_options(self, identity_options: IdentityOptions) -> str:
         text = []
         if identity_options.increment is not None:
             text.append("INCREMENT BY %d" % identity_options.increment)

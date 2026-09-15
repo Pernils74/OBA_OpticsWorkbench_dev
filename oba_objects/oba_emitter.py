@@ -44,11 +44,11 @@ class OBAEmitter(OBAElementProxy):
             obj.addProperty("App::PropertyFloat", "Wavelength", "Emitter").Wavelength = 585.0
 
         if not hasattr(obj, "MaxRays"):
-            obj.addProperty("App::PropertyInteger", "MaxRays", "Emitter").MaxRays = 100
+            obj.addProperty("App::PropertyInteger", "MaxRays", "Emitter").MaxRays = 50
         if not hasattr(obj, "MaxBounce"):
-            obj.addProperty("App::PropertyInteger", "MaxBounce", "Emitter").MaxBounce = 10
+            obj.addProperty("App::PropertyInteger", "MaxBounce", "Emitter").MaxBounce = 100
         if not hasattr(obj, "MaxRayLength"):
-            obj.addProperty("App::PropertyFloat", "MaxRayLength", "Emitter").MaxRayLength = 1000.0
+            obj.addProperty("App::PropertyFloat", "MaxRayLength", "Emitter").MaxRayLength = 5000.0
         if not hasattr(obj, "FlipNormal"):
             obj.addProperty("App::PropertyBool", "FlipNormal", "NormalSettings", "Invert surface normal for optical computation").FlipNormal = False
 

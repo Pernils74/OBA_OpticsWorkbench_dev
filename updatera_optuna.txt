@@ -1,0 +1,21 @@
+rensa gamla
+
+rm -rf /din_workbench_path/vendor_optuna/optuna
+
+updatera till nya med target 
+pip install optuna==5.0.0 --target /din_workbench_path/vendor_optuna/ --no-deps
+
+
+
+Notera: --no-deps används för att du bara vill ladda ner själva Optuna-källkoden, inte alla dess beroenden (som NumPy eller SQLAlchemy), eftersom de flesta av dessa redan bör hanteras av systemet/FreeCAD eller installeras separat.
+
+
+Om du inte har pip tillgängligt på maskinen kan du:
+
+Gå till Optuna på PyPI.
+
+Ladda ner filen optuna-5.0.0-py3-none-any.whl.
+
+Ändra filändelsen från .whl till .zip och packa upp den.
+
+Kopiera mappen som heter optuna (och strunta i optuna-5.0.0.dist-info) till din /vendor_optuna/-katalog. [1] (https://pypi.org/project/optuna/)
