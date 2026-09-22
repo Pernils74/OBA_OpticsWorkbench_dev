@@ -43,7 +43,8 @@ ELLIPSOID_PROPERTIES = [
     {"name": "ShowDebugFoci", "type": "App::PropertyBool", "group": "Debug", "doc": "Show focal points"},
     {"name": "APlaneWidth", "type": "App::PropertyLength", "group": "Box", "doc": "Aperture plane width"},
     {"name": "APlaneHeight", "type": "App::PropertyLength", "group": "Box", "doc": "Aperture plane height"},
-    {"name": "Depth", "type": "App::PropertyLength", "group": "Box", "doc": "Box depth"},
+    {"name": "APlaneZoffset", "type": "App::PropertyFloat", "group": "Box", "doc": "Additional Z offset from focus point"},
+    {"name": "APlaneYoffset", "type": "App::PropertyFloat", "group": "Box", "doc": "Additional Y offset from focus point"},
     # --------------------------------------------------------
     # Orientation.
     # --------------------------------------------------------
@@ -51,12 +52,12 @@ ELLIPSOID_PROPERTIES = [
     {"name": "RotY", "type": "App::PropertyAngle", "group": "Orientation", "doc": "Optical axis Y rotation"},
     {"name": "RotZ", "type": "App::PropertyAngle", "group": "Orientation", "doc": "Optical axis Z rotation"},
     {"name": "UseAimPoint", "type": "App::PropertyBool", "group": "Orientation", "doc": "Aim the optical axis at a point"},
-    {"name": "AimX", "type": "App::PropertyDistance", "group": "Orientation", "doc": "Target X coordinate"},
-    {"name": "AimY", "type": "App::PropertyDistance", "group": "Orientation", "doc": "Target Y coordinate"},
-    {"name": "AimZ", "type": "App::PropertyDistance", "group": "Orientation", "doc": "Target Z coordinate"},
-    {"name": "PosX", "type": "App::PropertyDistance", "group": "Placement", "doc": "X coordinate"},
-    {"name": "PosY", "type": "App::PropertyDistance", "group": "Placement", "doc": "Y coordinate"},
-    {"name": "PosZ", "type": "App::PropertyDistance", "group": "Placement", "doc": "Z coordinate"},
+    {"name": "AimX", "type": "App::PropertyFloat", "group": "Orientation", "doc": "Target X coordinate"},
+    {"name": "AimY", "type": "App::PropertyFloat", "group": "Orientation", "doc": "Target Y coordinate"},
+    {"name": "AimZ", "type": "App::PropertyFloat", "group": "Orientation", "doc": "Target Z coordinate"},
+    {"name": "PosX", "type": "App::PropertyFloat", "group": "Placement", "doc": "X coordinate"},
+    {"name": "PosY", "type": "App::PropertyFloat", "group": "Placement", "doc": "Y coordinate"},
+    {"name": "PosZ", "type": "App::PropertyFloat", "group": "Placement", "doc": "Z coordinate"},
 ]
 
 
@@ -79,6 +80,7 @@ class OBAEllipsoid:
         self._rebuilding = False
 
         self._syncing_orientation = False
+        self._suppress_onchange = False
 
         self._ellipsoid = None
         self._focus1 = None
@@ -338,7 +340,7 @@ class OBAEllipsoid:
 
         # c = focus_distance(obj.A, obj.B)
         # self._box_ext.Length = float(height * math.sin(math.radians(obj.RotX))) + (float(obj.A) - c) * 2  # lägger till det som fattas ifrån c + lite till
-        self._box_ext.Length = float(obj.B) * 1.9
+        self._box_ext.Length = float(obj.B) * 2.5
         rot_ext_0 = App.Rotation(App.Vector(0, 0, 1), (-90))  # för att Length skall peka i -y
         rot_ext_z = App.Rotation(App.Vector(0, 0, -1), obj.RotZ)
         rot_ext = rot_ext_0.multiply(rot_ext_z)
@@ -371,10 +373,10 @@ class OBAEllipsoid:
         # emitterytan ligger i första fokus
         focus = f1
 
-        p1 = App.Vector(-width / 2, -height / 2, 0)
-        p2 = App.Vector(+width / 2, -height / 2, 0)
-        p3 = App.Vector(+width / 2, +height / 2, 0)
-        p4 = App.Vector(-width / 2, +height / 2, 0)
+        p1 = App.Vector(-width / 2, -height / 2 + obj.APlaneYoffset, obj.APlaneZoffset)
+        p2 = App.Vector(+width / 2, -height / 2 + obj.APlaneYoffset, obj.APlaneZoffset)
+        p3 = App.Vector(+width / 2, +height / 2 + obj.APlaneYoffset, obj.APlaneZoffset)
+        p4 = App.Vector(-width / 2, +height / 2 + obj.APlaneYoffset, obj.APlaneZoffset)
 
         wire = Part.makePolygon([p1, p2, p3, p4, p1])
         face = Part.Face(wire)
@@ -398,7 +400,8 @@ class OBAEllipsoid:
             self._update_focal_surface(obj)
 
             self._update_debug(obj)
-            obj.Document.recompute()
+            if not self._suppress_onchange:
+                obj.Document.recompute()
 
         finally:
             self._rebuilding = False
@@ -406,23 +409,35 @@ class OBAEllipsoid:
     # ========================================================
 
     def _update_debug(self, obj):
-        ellipsoid = getattr(self, "_ellipsoid", None)
-        if ellipsoid is None:
-            return
-        show_debug_focal = bool(obj.ShowDebugEllipsoid)
-        if show_debug_focal:
-            ellipsoid.ViewObject.Visibility = True
+        if self._ellipsoid:
+            self._ellipsoid.ViewObject.Visibility = bool(obj.ShowDebugEllipsoid)
 
         if self._focus1:
-            self._focus1.ViewObject.Visibility = obj.ShowDebugFoci
+            self._focus1.ViewObject.Visibility = bool(obj.ShowDebugFoci)
+
         if self._focus2:
-            self._focus2.ViewObject.Visibility = obj.ShowDebugFoci
+            self._focus2.ViewObject.Visibility = bool(obj.ShowDebugFoci)
+
+    # def _update_debug_old(self, obj):
+    #     ellipsoid = getattr(self, "_ellipsoid", None)
+    #     if ellipsoid is None:
+    #         return
+    #     show_debug_focal = bool(obj.ShowDebugEllipsoid)
+    #     if show_debug_focal:
+    #         ellipsoid.ViewObject.Visibility = True
+    #     else:
+    #         ellipsoid.ViewObject.Visibility = False
+
+    #     if self._focus1:
+    #         self._focus1.ViewObject.Visibility = obj.ShowDebugFoci
+    #     if self._focus2:
+    #         self._focus2.ViewObject.Visibility = obj.ShowDebugFoci
 
     def synchronize_aim_from_rotation(self, obj):
         f1, f2 = self.focal_points_world(obj)
-        obj.AimX = App.Units.Quantity(f"{f2.x} mm")
-        obj.AimY = App.Units.Quantity(f"{f2.y} mm")
-        obj.AimZ = App.Units.Quantity(f"{f2.z} mm")
+        obj.AimX = f2.x  # App.Units.Quantity(f"{f2.x} mm")
+        obj.AimY = f2.y  # App.Units.Quantity(f"{f2.y} mm")
+        obj.AimZ = f2.z  # App.Units.Quantity(f"{f2.z} mm")
 
     def synchronize_rotation_from_aim(self, obj):
         target = App.Vector(float(obj.AimX), float(obj.AimY), float(obj.AimZ))
@@ -454,9 +469,9 @@ class OBAEllipsoid:
         # print(f"Matchad med ellipsoiden -> RotX: {rx:.2f}°, RotY: {ry:.2f}°, RotZ: {rz:.2f}°")
 
         # 4. Tilldela till objektet
-        obj.RotX = App.Units.Quantity(f"{rx} deg")
-        obj.RotY = App.Units.Quantity(f"{ry} deg")
-        obj.RotZ = App.Units.Quantity(f"{rz} deg")
+        obj.RotX = rx  # App.Units.Quantity(f"{rx} deg")
+        obj.RotY = ry  # App.Units.Quantity(f"{ry} deg")
+        obj.RotZ = rz  # App.Units.Quantity(f"{rz} deg")
 
     # ========================================================
     #  C H A N G E D
@@ -480,14 +495,23 @@ class OBAEllipsoid:
         if self._initializing:
             return
 
+        # ----------------------------------------------------
+        # Debug visibility.
+        # ----------------------------------------------------
+        if prop in {"ShowDebugEllipsoid", "ShowDebugFoci"}:
+            self._update_debug(obj)
+
+        if self._suppress_onchange:
+            return
+
         # print("----------------")
-        # print(f"onChanged: {prop}, rebuilding={self._rebuilding}, syncing_ori={self._syncing_orientation} , init={self._initializing}")
+        # print(f"onChanged: {prop}, rebuilding={self._rebuilding}, syncing_ori={self._syncing_orientation} , init={self._initializing}", obj.UseAimPoint)
         # print("value =", getattr(obj, prop))
 
         # ----------------------------------------------------
         # Geometry
         # ----------------------------------------------------
-        if prop in ("A", "B", "UseIndependentRadius3", "B2", "APlaneWidth", "APlaneHeight", "WidthFactor"):
+        if prop in ("A", "B", "UseIndependentRadius3", "B2", "APlaneWidth", "APlaneHeight", "WidthFactor", "APlaneZoffset", "APlaneYoffset"):
             try:
                 self._rebuild(obj)
             except Exception as exc:
@@ -495,24 +519,31 @@ class OBAEllipsoid:
         # ----------------------------------------------------
         # Orientation.
         # ----------------------------------------------------
-        if prop in ("RotX", "RotY", "RotZ"):
+
+        if prop in ("RotX", "RotY", "RotZ") and not obj.UseAimPoint:
             self._syncing_orientation = True
             try:
-                if not obj.UseAimPoint:
-                    self.synchronize_aim_from_rotation(obj)
                 self._rebuild(obj)
+                self.synchronize_aim_from_rotation(obj)
+                # print("Aim coords", obj.AimX, obj.AimY, obj.AimZ)
             finally:
+                dialog = getattr(self, "_dialog", None)
+                if dialog:
+                    dialog.refresh_from_object()
                 self._syncing_orientation = False
 
-        if prop in ("AimX", "AimY", "AimZ"):
-            if not obj.UseAimPoint:
-                return
+        if prop in ("AimX", "AimY", "AimZ") and obj.UseAimPoint:
             self._syncing_orientation = True
             try:
                 self.synchronize_rotation_from_aim(obj)
+                dialog = getattr(self, "_dialog", None)
+                if dialog:
+                    dialog.refresh_from_object()
                 self._rebuild(obj)
-
             finally:
+                # dialog = getattr(self, "_dialog", None)
+                # dialog.refresh_from_object()
+
                 self._syncing_orientation = False
 
         # ----------------------------------------------------
@@ -524,16 +555,9 @@ class OBAEllipsoid:
             except Exception as exc:
                 App.Console.PrintError("[OBA] Ellipsoid placement update failed: " f"{exc}\n")
 
-        # ----------------------------------------------------
-        # Debug visibility.
-        # ----------------------------------------------------
-        if prop in ("ShowDebugEllipsoid", "ShowDebugFoci"):
-            self._update_debug(obj)
-            return
-
-        dialog = getattr(self, "_dialog", None)
-        if dialog:
-            dialog.refresh_from_object()
+        # dialog = getattr(self, "_dialog", None)
+        # if dialog:
+        #     dialog.refresh_from_object()
 
     # ========================================================
     #  R E S T O R E
@@ -592,14 +616,16 @@ class EllipsoidDialog(OBAToolboxDialogBase):
 
         super().__init__(obj, title=title, parent=parent)
 
-        # self.obj.Proxy._dialog = self  # registrering av dialogen
+        self.obj.Proxy._dialog = self  # registrering av dialogen
 
         self._refreshing_ui = False
 
         group = QtWidgets.QGroupBox("Aperture Plane")
         form = QtWidgets.QFormLayout(group)
-        self.aplane_width = self._add_spin("Width", "APlaneWidth", 0, 1000000, "mm", form)
-        self.aplane_height = self._add_spin("Height", "APlaneHeight", 0, 1000000, "mm", form)
+        self.aplane_width = self._add_spin("Width", "APlaneWidth", 0, 100, "mm", form, 0.1)
+        self.aplane_height = self._add_spin("Height", "APlaneHeight", 0, 10, "mm", form, 0.1)
+        self.aplane_Zoffset = self._add_spin("Offset in Z", "APlaneZoffset", -2, 5, "mm", form, 0.1)
+        self.aplane_Yoffset = self._add_spin("Offset in Y", "APlaneYoffset", -2, 5, "mm", form, 0.1)
         self.custom_layout.addWidget(group)
 
         group = QtWidgets.QGroupBox("Ellipsoid")
@@ -644,10 +670,14 @@ class EllipsoidDialog(OBAToolboxDialogBase):
         # ====================================================
         self.aplane_width.valueChanged.connect(lambda value: self._set_property("APlaneWidth", value.Value))
         self.aplane_height.valueChanged.connect(lambda value: self._set_property("APlaneHeight", value.Value))
+        self.aplane_Zoffset.valueChanged.connect(lambda value: self._set_property("APlaneZoffset", value.Value))
+        self.aplane_Yoffset.valueChanged.connect(lambda value: self._set_property("APlaneYoffset", value.Value))
 
         self.a.valueChanged.connect(lambda value: self._set_property("A", value.Value))
         self.b.valueChanged.connect(lambda value: self._set_property("B", value.Value))
         self.b2.valueChanged.connect(lambda value: self._set_property("B2", value.Value))
+
+        self.use_b2.toggled.connect(self._use_b2_changed)
 
         self.widthfactor.valueChanged.connect(lambda value: self._set_property("WidthFactor", value.Value))
 
@@ -680,6 +710,17 @@ class EllipsoidDialog(OBAToolboxDialogBase):
             self._update_information()
         except Exception as exc:
             App.Console.PrintError(f"[OBA] Failed to update {prop}: {exc}\n")
+
+    def _use_b2_changed(self, checked):
+        if self._refreshing_ui:
+            return
+        try:
+            self.obj.UseIndependentRadius3 = checked
+            self.b2.setEnabled(checked)
+            self._update_information()
+
+        except Exception as exc:
+            App.Console.PrintError("[OBA] Failed to update UseIndependentRadius3: " f"{exc}\n")
 
     def _set_property_new(self, prop, value):
         if self._refreshing_ui:
@@ -742,6 +783,7 @@ class EllipsoidDialog(OBAToolboxDialogBase):
 
         self.chkAimPoint.setChecked(bool(self.obj.UseAimPoint))
         self.show_debug_focal.setChecked(bool(self.obj.ShowDebugFoci))
+        self.show_debug_ellipsoid.setChecked(bool(self.obj.ShowDebugEllipsoid))
 
         self.rot_x.setProperty("rawValue", float(self.obj.RotX))
         self.rot_y.setProperty("rawValue", float(self.obj.RotY))
@@ -775,6 +817,8 @@ class EllipsoidDialog(OBAToolboxDialogBase):
                 self.b2: self.obj.B2,
                 self.aplane_width: self.obj.APlaneWidth,
                 self.aplane_height: self.obj.APlaneHeight,
+                self.aplane_Zoffset: self.obj.APlaneZoffset,
+                self.aplane_Yoffset: self.obj.APlaneYoffset,
                 self.widthfactor: self.obj.WidthFactor,
                 self.rot_x: self.obj.RotX,
                 self.rot_y: self.obj.RotY,
@@ -796,6 +840,9 @@ class EllipsoidDialog(OBAToolboxDialogBase):
 
             with QSignalBlocker(self.show_debug_focal):
                 self.show_debug_focal.setChecked(bool(self.obj.ShowDebugFoci))
+
+            with QSignalBlocker(self.show_debug_ellipsoid):
+                self.show_debug_ellipsoid.setChecked(bool(self.obj.ShowDebugEllipsoid))
 
             self.b2.setEnabled(bool(self.obj.UseIndependentRadius3))
 
@@ -918,11 +965,14 @@ class EllipsoidViewProvider(OBAToolboxViewProviderBase):
 def OBA_CreateEllipsoid(
     doc=None,
     label="Ellipsoid",
-    aplanewidth=5,
-    aplaneheight=5,
-    a=40.0,
-    b=20.0,
+    aplanewidth=3,
+    aplaneheight=3,
+    aplaneZoffset=0,
+    aplaneYoffset=0,
+    a=15.0,
+    b=6.0,
     b2=None,
+    use_b2=False,
     widthfactor=1.8,
     rot_x=30,
     rot_y=0,
@@ -930,6 +980,7 @@ def OBA_CreateEllipsoid(
     x=0,
     y=0,
     z=0,
+    suppress_onchange=False,
     show_dialog=True,
 ):
     doc = doc or App.ActiveDocument or App.newDocument()
@@ -938,7 +989,7 @@ def OBA_CreateEllipsoid(
         use_b2 = False
     else:
         use_b2 = True
-    validate_ellipsoid(a, b, b2)
+    # validate_ellipsoid(a, b, b2)
     obj = doc.addObject("Part::FeaturePython", "OBAEllipsoid")
 
     obj.Label = label
@@ -946,27 +997,35 @@ def OBA_CreateEllipsoid(
     proxy = OBAEllipsoid(obj)
 
     proxy._initializing = True
+    proxy._suppress_onchange = suppress_onchange
 
-    obj.APlaneWidth = App.Units.Quantity(f"{aplanewidth} mm")
-    obj.APlaneHeight = App.Units.Quantity(f"{aplaneheight} mm")
+    obj.APlaneWidth = aplanewidth  # App.Units.Quantity(f"{aplanewidth} mm")
+    obj.APlaneHeight = aplaneheight  # App.Units.Quantity(f"{aplaneheight} mm")
 
-    obj.A = App.Units.Quantity(f"{a} mm")
-    obj.B = App.Units.Quantity(f"{b} mm")
+    obj.APlaneZoffset = aplaneZoffset
+    obj.APlaneYoffset = aplaneYoffset
+
+    obj.A = a  # App.Units.Quantity(f"{a} mm")
+    obj.B = b  # App.Units.Quantity(f"{b} mm")
 
     obj.UseIndependentRadius3 = use_b2
-    obj.B2 = App.Units.Quantity(f"{b2} mm")
+    obj.B2 = b2  # App.Units.Quantity(f"{b2} mm")
 
     obj.WidthFactor = float(widthfactor)
 
-    obj.RotX = App.Units.Quantity(f"{rot_x} deg")
-    obj.RotY = App.Units.Quantity(f"{rot_y} deg")
-    obj.RotZ = App.Units.Quantity(f"{rot_z} deg")
+    obj.RotX = rot_x  # App.Units.Quantity(f"{rot_x} deg")
+    obj.RotY = rot_y  # App.Units.Quantity(f"{rot_y} deg")
+    obj.RotZ = rot_z  # App.Units.Quantity(f"{rot_z} deg")
 
     obj.UseAimPoint = False
 
-    obj.AimX = App.Units.Quantity("100 mm")
-    obj.AimY = App.Units.Quantity("0 mm")
-    obj.AimZ = App.Units.Quantity("0 mm")
+    obj.AimX = 0  # App.Units.Quantity("100 mm")
+    obj.AimY = 0  # App.Units.Quantity("0 mm")
+    obj.AimZ = 0  # App.Units.Quantity("0 mm")
+
+    proxy._ensure_features(obj)
+    proxy._update_ellipsoid(obj)
+    proxy.synchronize_aim_from_rotation(obj)  # för att sätta korrekta värden direkt
 
     # obj.ShowDebugEllipsoid = False
     obj.FocusDistance = focus_distance(float(a), float(b))
@@ -999,6 +1058,8 @@ def create(
     label="Ellipsoid",
     aplanewidth=5,
     aplaneheight=5,
+    aplaneZoffset=0,
+    aplaneYoffset=0,
     a=40.0,
     b=20.0,
     b2=None,
@@ -1015,6 +1076,8 @@ def create(
         label=label,
         aplanewidth=aplanewidth,
         aplaneheight=aplaneheight,
+        aplaneZoffset=aplaneZoffset,
+        aplaneYoffset=aplaneYoffset,
         a=a,
         b=b,
         b2=b2,

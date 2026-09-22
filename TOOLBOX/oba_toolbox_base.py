@@ -24,9 +24,13 @@ def focus_distance(a, b):
     """Return C = sqrt(A² - B²), the centre-to-focus distance."""
     if a <= 0 or b <= 0:
         raise ValueError("A and B must be greater than zero.")
-    if a < b:
-        raise ValueError("A must be greater than or equal to B.")
-    return math.sqrt(max(0.0, a * a - b * b))
+    major = max(a, b)
+    minor = min(a, b)
+    return math.sqrt(major * major - minor * minor)
+    # if a < b:
+    #     # raise ValueError(f"A must be greater than or equal to B. A={a}, B={b}")
+    #     return math.sqrt(max(0.0, b * b - a * a))
+    # return math.sqrt(max(0.0, a * a - b * b))
 
 
 def validate_cube(width, height):
@@ -40,7 +44,7 @@ def validate_ellipsoid(a, b, b2=None):
     if a <= 0 or b <= 0:
         raise ValueError("A and B must be greater than zero.")
     if a < b:
-        raise ValueError("A must be greater than or equal to B.")
+        raise ValueError(f"A must be greater than or equal to B. A={a}, B={b}")
     if b2 is not None and b2 <= 0:
         raise ValueError("B2 must be greater than zero.")
 
@@ -56,6 +60,8 @@ def install_properties(obj, specs):
         # OCH om egenskapen är tom/nollställd (så du inte skriver över sparad data)
         if "default" in spec:
             current_value = getattr(obj, spec["name"])
+
+            # print(spec["name"], "current=", current_value, "default=", spec["default"])
 
             # Kollar om värdet är oanvänt (t.ex. 0.0, None eller tom sträng) innan default sätts
             if not current_value or current_value == 0.0:

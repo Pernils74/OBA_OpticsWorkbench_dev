@@ -46,6 +46,8 @@ from .oba_comp_mirror import OBA_CreateCompMirror
 from .oba_main_mirror import OBA_CreateMainMirror
 from .oba_ellipsoid import OBA_CreateEllipsoid
 
+from OPTIMIZER.optimize_worker import is_optimization_running
+
 # ======================================================================
 # P R O P E R T I E S
 # ======================================================================
@@ -61,55 +63,74 @@ WHITE_CELL_PROPERTIES = [
     # ==============================================================
     # MAIN MIRROR
     # ==============================================================
-    {"name": "MainMirrorWidth", "label": "Width", "type": "App::PropertyLength", "group": "Main Mirror", "parent_group": "Mirrors", "default": 100.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "MainMirrorHeight", "label": "Height", "type": "App::PropertyLength", "group": "Main Mirror", "parent_group": "Mirrors", "default": 33.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "MainMirrorSplitOffset", "label": "Split Offset", "type": "App::PropertyLength", "group": "Main Mirror", "parent_group": "Mirrors", "default": 40.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "MainMirrorA", "label": "A", "type": "App::PropertyLength", "group": "Main Mirror", "parent_group": "Mirrors", "default": 40.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "MainMirrorB", "label": "B", "type": "App::PropertyLength", "group": "Main Mirror", "parent_group": "Mirrors", "default": 31.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {
+        "name": "MainMirrorWidth",
+        "label": "Width",
+        "type": "App::PropertyLength",
+        "group": "Main Mirror",
+        "parent_group": "Mirrors",
+        "default": 30.0,
+        "unit": "mm",
+        "min": 0,
+        "max": 1000,
+        "optuna_locked": True,
+        "step": 1,
+    },
+    {"name": "MainMirrorHeight", "label": "Height", "type": "App::PropertyLength", "group": "Main Mirror", "parent_group": "Mirrors", "default": 9.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
+    {"name": "MainMirrorSplitOffset", "label": "Split Offset", "type": "App::PropertyLength", "group": "Main Mirror", "parent_group": "Mirrors", "default": 6.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "MainMirrorA", "label": "A", "type": "App::PropertyLength", "group": "Main Mirror", "parent_group": "Mirrors", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "MainMirrorB", "label": "B", "type": "App::PropertyLength", "group": "Main Mirror", "parent_group": "Mirrors", "default": 19.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "MainMirrorTiltAngle", "label": "Tilt", "type": "App::PropertyAngle", "group": "Main Mirror", "parent_group": "Mirrors", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     # {"name": "MainMirrorX", "label": "X", "type": "App::PropertyDistance", "group": "Main Mirror", "parent_group": "Mirrors","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
-    {"name": "MainMirrorY", "label": "Y", "type": "App::PropertyDistance", "group": "Main Mirror", "parent_group": "Mirrors", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    {"name": "MainMirrorY", "label": "Y", "type": "App::PropertyFloat", "group": "Main Mirror", "parent_group": "Mirrors", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # {"name": "MainMirrorZ", "label": "Z", "type": "App::PropertyDistance", "group": "Main Mirror", "parent_group": "Mirrors","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # ==============================================================
     # COMP MIRROR
     # ==============================================================
     # {"name": "CompMirrorWidth", "label": "Width", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors","default": 100.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     # {"name": "CompMirrorHeight", "label": "Height", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors","default": 30.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "CompMirrorA", "label": "A", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 40.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "CompMirrorB", "label": "B", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "CompMirrorA", "label": "A", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "CompMirrorB", "label": "B", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 19.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     # {"name": "CompMirrorX", "label": "X", "type": "App::PropertyDistance", "group": "Comp Mirror", "parent_group": "Mirrors","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # {"name": "CompMirrorY", "label": "Y", "type": "App::PropertyDistance", "group": "Comp Mirror", "parent_group": "Mirrors","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # {"name": "CompMirrorZ", "label": "Z", "type": "App::PropertyDistance", "group": "Comp Mirror", "parent_group": "Mirrors","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # ==============================================================
     # EMITTER
     # ==============================================================
-    {"name": "EmitterAPlaneWidth", "label": "A-Plane Width", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 5.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "EmitterAPlaneHeight", "label": "A-Plane Height", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 5.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "EmitterA", "label": "A", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 40.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "EmitterB", "label": "B", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "EmitterB2", "label": "B2", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "EmitterWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 1.8, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
-    {"name": "EmitterRotX", "label": "Rot X", "type": "App::PropertyAngle", "group": "Emitter", "parent_group": "Input_Output", "default": 30.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
+    {"name": "EmitterAPlaneWidth", "label": "A-Plane Width", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.2},
+    {"name": "EmitterAPlaneHeight", "label": "A-Plane Height", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.3, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.2},
+    {"name": "EmitterAPlaneZoffset", "label": "A-Plane offset in Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
+    {"name": "EmitterAPlaneYoffset", "label": "A-Plane offset in y", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
+    {"name": "EmitterNormalOffset", "label": "Normal Offset", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.7, "unit": "mm", "min": 0, "max": 20, "optuna_locked": False},
+    {"name": "EmitterA", "label": "A", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "EmitterB", "label": "B", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 6.4, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    # {"name": "EmitterB2", "label": "B2", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "EmitterWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.9, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
+    {"name": "EmitterRotX", "label": "Rot X", "type": "App::PropertyAngle", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     # {"name": "EmitterRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Emitter","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
-    {"name": "EmitterRotZ", "label": "Rot Z", "type": "App::PropertyAngle", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
-    {"name": "EmitterX", "label": "X", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
-    {"name": "EmitterY", "label": "Y", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
-    {"name": "EmitterZ", "label": "Z", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    {"name": "EmitterRotZ", "label": "Rot Z", "type": "App::PropertyAngle", "group": "Emitter", "parent_group": "Input_Output", "default": -3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
+    {"name": "EmitterX", "label": "X", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    # {"name": "EmitterY", "label": "Y", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    # {"name": "EmitterZ", "label": "Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # ==============================================================
     # DETECTOR
     # ==============================================================
-    {"name": "DetectorAPlaneWidth", "label": "A-Plane Width", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 5.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "DetectorAPlaneHeight", "label": "A-Plane Height", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 5.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "DetectorA", "label": "A", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 40.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "DetectorB", "label": "B", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "DetectorB2", "label": "B2", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "DetectorWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 1.8, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
-    {"name": "DetectorRotX", "label": "Rot X", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 30.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
+    {"name": "DetectorAPlaneWidth", "label": "A-Plane Width", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.8, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.2},
+    {"name": "DetectorAPlaneHeight", "label": "A-Plane Height", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.8, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.2},
+    {"name": "DetectorAPlaneZoffset", "label": "A-Plane offset in Z", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
+    {"name": "DetectorAPlaneYoffset", "label": "A-Plane offset in y", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
+    {"name": "DetectorNormalOffset", "label": "Normal Offset", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.7, "unit": "mm", "min": 0, "max": 20, "optuna_locked": False},
+    {"name": "DetectorA", "label": "A", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
+    {"name": "DetectorB", "label": "B", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 6.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
+    # {"name": "DetectorB2", "label": "B2", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "DetectorWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.9, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
+    {"name": "DetectorRotX", "label": "Rot X", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
     # {"name": "DetectorRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Detector","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
-    {"name": "DetectorRotZ", "label": "Rot Z", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
-    {"name": "DetectorX", "label": "X", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
-    {"name": "DetectorY", "label": "Y", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
-    {"name": "DetectorZ", "label": "Z", "type": "App::PropertyDistance", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    {"name": "DetectorRotZ", "label": "Rot Z", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
+    {"name": "DetectorX", "label": "X", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": -6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    # {"name": "DetectorY", "label": "Y", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    # {"name": "DetectorZ", "label": "Z", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    # ** OBS "App::PropertyDistance"  kan hantera negativa tal , "App::PropertyLength" kan inte göra det. Använder istället App::PropertyFloat
 ]
 
 # ======================================================================
@@ -145,6 +166,8 @@ class OBAWhiteCell:
 
     def _init_runtime_state(self):
 
+        self._dirty = False  # används för att rebuilda via optuna
+
         self._initializing = True
         self._rebuilding = False
 
@@ -158,10 +181,6 @@ class OBAWhiteCell:
 
         self._dialog = None
 
-    # ------------------------------------------------------------------
-    # Init
-    # ------------------------------------------------------------------
-
     def __init__(self, obj):
 
         self._init_runtime_state()
@@ -169,7 +188,16 @@ class OBAWhiteCell:
         obj.Proxy = self
         self.Object = obj
 
+        # print("EmitterX before =", obj.EmitterX)
+        # print("DetectorX before =", obj.DetectorX)
+
         install_properties(obj, WHITE_CELL_PROPERTIES)
+
+        print("EmitterX type :", obj.getTypeIdOfProperty("EmitterX"))
+        print("DetectorX type:", obj.getTypeIdOfProperty("DetectorX"))
+
+        # print("EmitterX expr :", obj.getExpression("EmitterX"))
+        # print("DetectorX expr:", obj.getExpression("DetectorX"))
 
         obj.addProperty("App::PropertyLinkList", "Group", "Base", "Owned children")
 
@@ -219,6 +247,7 @@ class OBAWhiteCell:
                 x=0,
                 y=float(obj.MainMirrorY),
                 z=0,
+                suppress_onchange=True,
                 show_dialog=False,
             )
 
@@ -237,6 +266,7 @@ class OBAWhiteCell:
                 x=0,
                 y=0,
                 z=0,
+                suppress_onchange=True,
                 show_dialog=False,
             )
 
@@ -250,15 +280,18 @@ class OBAWhiteCell:
                 label=f"{obj.Label} Emitter",
                 aplanewidth=float(obj.EmitterAPlaneWidth),
                 aplaneheight=float(obj.EmitterAPlaneHeight),
+                aplaneZoffset=float(obj.EmitterAPlaneZoffset),
+                aplaneYoffset=float(obj.EmitterAPlaneYoffset),
                 a=float(obj.EmitterA),
                 b=float(obj.EmitterB),
-                b2=float(obj.EmitterB2),
+                # b2=float(obj.EmitterB2),
                 rot_x=float(obj.EmitterRotX),
                 rot_y=0,  # float(obj.EmitterRotY),
                 rot_z=float(obj.EmitterRotZ),
                 x=float(obj.EmitterX),
-                y=float(obj.EmitterY),
+                y=0,  # float(obj.EmitterY),
                 z=-float(obj.MainMirrorHeight) / 2.0,
+                suppress_onchange=True,
                 show_dialog=False,
             )
 
@@ -272,28 +305,42 @@ class OBAWhiteCell:
                 label=f"{obj.Label} Detector",
                 aplanewidth=float(obj.DetectorAPlaneWidth),
                 aplaneheight=float(obj.DetectorAPlaneHeight),
+                aplaneZoffset=float(obj.DetectorAPlaneZoffset),
+                aplaneYoffset=float(obj.DetectorAPlaneYoffset),
                 a=float(obj.DetectorA),
                 b=float(obj.DetectorB),
-                b2=float(obj.DetectorB2),
+                # b2=float(obj.DetectorB2),
                 rot_x=float(obj.DetectorRotX),
                 rot_y=0,  # float(obj.DetectorRotY),
                 rot_z=float(obj.DetectorRotZ),
                 x=float(obj.DetectorX),
-                y=float(obj.DetectorY),
+                y=0,  # float(obj.DetectorY),
                 z=-float(obj.MainMirrorHeight) / 2.0,
+                suppress_onchange=True,
                 show_dialog=False,
             )
 
         self._cutEmitter = self._get_or_create(doc, f"{obj.Name}_CutEmitter", "Part::Cut", f"{obj.Label} Cut")
 
-        self._cutEmitter.Base = self._compMirror.Proxy._cut
-        self._cutEmitter.Tool = self._emitter.Proxy._box_bound
+        if self._cutEmitter.Base is not self._compMirror.Proxy._cut:
+            self._cutEmitter.Base = self._compMirror.Proxy._cut
+        if self._cutEmitter.Tool is not self._emitter.Proxy._box_bound:
+            self._cutEmitter.Tool = self._emitter.Proxy._box_bound
+        # self._cutEmitter.Base = self._compMirror.Proxy._cut
+        # self._cutEmitter.Tool = self._emitter.Proxy._box_bound
+
         self._compMirror.Proxy._cut.ViewObject.hide()
 
         self._cutDetector = self._get_or_create(doc, f"{obj.Name}_CutDetector", "Part::Cut", f"{obj.Label} Cut")
 
+        if self._cutDetector.Base is not self._cutEmitter:
+            self._cutEmitter.Base = self._cutEmitter
+        if self._cutDetector.Tool is not self._detector.Proxy._box_bound:
+            self._cutDetector.Tool = self._detector.Proxy._box_bound
+
         self._cutDetector.Base = self._cutEmitter
         self._cutDetector.Tool = self._detector.Proxy._box_bound
+
         self._compMirror.Proxy._cut.ViewObject.hide()
 
         # ----------------------------------------------------------
@@ -361,6 +408,7 @@ class OBAWhiteCell:
         try:
             if proxy is not None:
                 proxy._rebuild(mirror)
+                pass
         except Exception as exc:
             App.Console.PrintError("[OBA] Failed to rebuild Main Mirror " f"from White Cell: {exc}\n")
 
@@ -379,8 +427,11 @@ class OBAWhiteCell:
             if proxy is not None:
                 proxy._initializing = True
 
-            _set_quantity(mirror, "Width", obj.MainMirrorWidth, "mm")  # CompMirrorWidth
+            required_width = 2 * max(abs(float(obj.EmitterX)), abs(float(obj.DetectorX)))
+            _set_quantity(mirror, "Width", required_width, "mm")
+            # _set_quantity(mirror, "Width", obj.MainMirrorWidth, "mm")  # CompMirrorWidth
             _set_quantity(mirror, "Height", obj.MainMirrorHeight, "mm")  # CompMirrorHeight
+
             _set_quantity(mirror, "A", obj.CompMirrorA, "mm")
             _set_quantity(mirror, "B", obj.CompMirrorB, "mm")
 
@@ -399,6 +450,8 @@ class OBAWhiteCell:
         try:
             if proxy is not None:
                 proxy._rebuild(mirror)
+                pass
+                print(mirror.Name, mirror.State)
 
         except Exception as exc:
 
@@ -408,21 +461,30 @@ class OBAWhiteCell:
     # U P D A T E   E L L I P S O I D
     # ==================================================================
 
-    def ellipse_point(self, ellipsoid, angle_deg):
-        # use case
-        # p1 = ellipse_point(self._compMirror.Proxy._ellipsoid, 30)
-        # p2 = ellipse_point(self._compMirror.Proxy._ellipsoid, 150)
-
-        # self._emitter.Placement.Base = p1
-        # self._detector.Placement.Base = p2
+    def ellipse_y_point_offset_from_x(self, ellipsoid, x, offset=2.0):
         import math
 
-        v = math.radians(angle_deg)
+        # a = float(ellipsoid.Radius1 * 1.2)
+        # b = float(ellipsoid.Radius2 * 1.2)
 
         a = float(ellipsoid.Radius1)
         b = float(ellipsoid.Radius2)
-        p_local = App.Vector(a * math.cos(v), b * math.sin(v), 0)
-        return ellipsoid.Placement.Base + ellipsoid.Placement.Rotation.multVec(p_local)
+
+        if abs(x) > a:
+            return None
+        y = b * math.sqrt(1.0 - (x * x) / (a * a))
+        nx = x / (a * a)
+        ny = y / (b * b)
+        nlen = math.sqrt(nx * nx + ny * ny)
+        nx /= nlen
+        ny /= nlen
+
+        # print("a =", a)
+        # print("b =", b)
+        # print("x =", x)
+        # print("abs(x)>a =", abs(x) > a)
+
+        return (x + nx * offset, y + ny * offset)
 
     def _update_ellipsoid(self, ellipsoid, prefix, obj):
         # if not self._obj_exists(ellipsoid):
@@ -430,7 +492,8 @@ class OBAWhiteCell:
         proxy = getattr(ellipsoid, "Proxy", None)
         try:
             if proxy is not None:
-                proxy._initializing = True
+                # proxy._initializing = True
+                pass
 
             # ----------------------------------------------------------
             # Geometry
@@ -441,6 +504,12 @@ class OBAWhiteCell:
 
             if hasattr(ellipsoid, "APlaneHeight"):
                 _set_quantity(ellipsoid, "APlaneHeight", getattr(obj, f"{prefix}APlaneHeight"), "mm")
+
+            if hasattr(ellipsoid, "APlaneZoffset"):
+                ellipsoid.APlaneZoffset = float(getattr(obj, f"{prefix}APlaneZoffset"))
+
+            if hasattr(ellipsoid, "APlaneYoffset"):
+                ellipsoid.APlaneYoffset = float(getattr(obj, f"{prefix}APlaneYoffset"))
 
             if hasattr(ellipsoid, "A"):
                 _set_quantity(ellipsoid, "A", getattr(obj, f"{prefix}A"), "mm")
@@ -454,8 +523,8 @@ class OBAWhiteCell:
             # B2
             # ----------------------------------------------------------
 
-            if hasattr(ellipsoid, "B2"):
-                _set_quantity(ellipsoid, "B2", getattr(obj, f"{prefix}B2"), "mm")
+            # if hasattr(ellipsoid, "B2"):
+            #     _set_quantity(ellipsoid, "B2", getattr(obj, f"{prefix}B2"), "mm")
 
             # ----------------------------------------------------------
             # Rotation
@@ -464,9 +533,6 @@ class OBAWhiteCell:
             if hasattr(ellipsoid, "RotX"):
                 _set_quantity(ellipsoid, "RotX", getattr(obj, f"{prefix}RotX"), "deg")
 
-            # if hasattr(ellipsoid, "RotY"):
-            #     _set_quantity(ellipsoid, "RotY", getattr(obj, f"{prefix}RotY"), "deg")
-
             if hasattr(ellipsoid, "RotZ"):
                 _set_quantity(ellipsoid, "RotZ", getattr(obj, f"{prefix}RotZ"), "deg")
 
@@ -474,11 +540,24 @@ class OBAWhiteCell:
             # Placement
             # ----------------------------------------------------------
 
+            x = float(getattr(obj, f"{prefix}X"))
+            comp_ellipsoid = self._compMirror.Proxy._ellipsoid
+            center = comp_ellipsoid.Placement.Base
+            offset = float(getattr(obj, f"{prefix}NormalOffset"))
+
+            # print("CompMirror")
+            # print("A =", comp_ellipsoid.Radius1)
+            # print("B =", comp_ellipsoid.Radius2)
+            # print("X =", x)
+
+            x2, y2 = self.ellipse_y_point_offset_from_x(comp_ellipsoid, x, offset=offset)
             ellipsoid.Placement = App.Placement(
                 App.Vector(
-                    float(getattr(obj, f"{prefix}X")),
-                    float(getattr(obj, f"{prefix}Y")),
-                    float(getattr(obj, f"{prefix}Z")) - float(obj.MainMirrorHeight) / 2,
+                    # center.x + x2,
+                    x,
+                    center.y - y2,
+                    # float(getattr(obj, f"{prefix}Z")) - float(obj.MainMirrorHeight) / 2,
+                    -float(obj.MainMirrorHeight) / 2,
                 ),
                 App.Rotation(),
             )
@@ -493,12 +572,18 @@ class OBAWhiteCell:
         try:
             if proxy is not None:
                 proxy._rebuild(ellipsoid)
+                pass
+
         except Exception as exc:
             App.Console.PrintError(f"[OBA] Failed to rebuild {prefix} " f"from White Cell: {exc}\n")
 
     # ==================================================================
     # R E B U I L D
     # ==================================================================
+
+    def _update_dependent_optics(self, obj):
+        self._update_ellipsoid(self._emitter, "Emitter", obj)
+        self._update_ellipsoid(self._detector, "Detector", obj)
 
     def _rebuild(self, obj):
         if self._rebuilding:
@@ -508,14 +593,23 @@ class OBAWhiteCell:
             self._ensure_children(obj)
             self._update_main_mirror(obj)
             self._update_comp_mirror(obj)
-            self._update_ellipsoid(self._emitter, "Emitter", obj)
-            self._update_ellipsoid(self._detector, "Detector", obj)
+            # nedan finns det depedent_optics
+            self._update_dependent_optics(obj)
+            # self._update_ellipsoid(self._emitter, "Emitter", obj)
+            # self._update_ellipsoid(self._detector, "Detector", obj)
 
             obj.Document.recompute()
         except Exception as exc:
             App.Console.PrintError("[OBA] White Cell rebuild failed: " f"{exc}\n")
         finally:
             self._rebuilding = False
+
+    def rebuild_if_needed(self, obj):
+        # if not self._dirty:
+        #     return
+        print("================================optuna körs ")
+        self._rebuild(obj)
+        self._dirty = False
 
     # ==================================================================
     # C H A N G E D
@@ -529,7 +623,7 @@ class OBAWhiteCell:
         if prop == "Shape":
             return
 
-        print(f"onChanged: {prop}, rebuilding={self._rebuilding},  init={self._initializing}")
+        print(f"onChanged whitecell: {prop}, rebuilding={self._rebuilding},  init={self._initializing}")
 
         main_properties = {
             "MainMirrorWidth",
@@ -541,117 +635,67 @@ class OBAWhiteCell:
             # "MainMirrorX",
             "MainMirrorY",
             # "MainMirrorZ",
-            # comp mirror
+            # --- comp mirror
             "CompMirrorWidth",
             "CompMirrorHeight",
             "CompMirrorA",
             "CompMirrorB",
-        }
-
-        comp_properties = {
-            "CompMirrorWidth",
-            "CompMirrorHeight",
-            "CompMirrorA",
-            "CompMirrorB",
-            # "CompMirrorX",
-            # "CompMirrorY",
-            # "CompMirrorZ",
-        }
-
-        emitter_properties = {
+            # --- Emitter
             "EmitterAPlaneWidth",
             "EmitterAPlaneHeight",
+            "EmitterAPlaneZoffset",
+            "EmitterAPlaneYoffset",
+            "EmitterNormalOffset",
             "EmitterA",
             "EmitterB",
-            "EmitterB2",
+            # "EmitterB2",
             "EmitterWidthFactor",
             "EmitterRotX",
             # "EmitterRotY",
             "EmitterRotZ",
             "EmitterX",
-            "EmitterY",
-            "EmitterZ",
-        }
-
-        detector_properties = {
+            # "EmitterY",
+            # "EmitterZ",
+            # --- Detector
             "DetectorAPlaneWidth",
             "DetectorAPlaneHeight",
+            "DetectorAPlaneZoffset",
+            "DetectorAPlaneYoffset",
+            "DetectorNormalOffset",
             "DetectorA",
             "DetectorB",
-            "DetectorB2",
+            # "DetectorB2",
             "DetectorWidthFactor",
             "DetectorRotX",
             # "DetectorRotY",
             "DetectorRotZ",
             "DetectorX",
-            "DetectorY",
-            "DetectorZ",
+            # "DetectorY",
+            # "DetectorZ",
         }
-
-        # --------------------------------------------------------------
-        # Main Mirror
-        # --------------------------------------------------------------
 
         if prop in main_properties:
             try:
-                self._ensure_children(obj)
-                self._update_main_mirror(obj)
-                self._update_comp_mirror(obj)
 
-                obj.Document.recompute()
+                self._rebuild(obj)
+                # obj.Document.recompute()
+
+                # if not is_optimization_running():  # is_optimization_running är True om optuna körs
+                #     self._rebuild(obj)
+                #     # obj.Document.recompute()
+                # #     # self._refresh_dialog()
+                # else:
+                #     self._dirty = True  # är tänkt att användas för att undertrycka felmedelanden
+
+                # self._ensure_children(obj)
+                # self._update_main_mirror(obj)
+                # self._update_comp_mirror(obj)
+                # pga har emitter/detector elipsoiderna att vara y offset ifrån compM_elippsoiden
+                # self._update_ellipsoid(self._emitter, "Emitter", obj)
+                # self._update_ellipsoid(self._detector, "Detector", obj)
             except Exception as exc:
                 App.Console.PrintError("[OBA] White Cell Main Mirror " f"update failed: {exc}\n")
             self._refresh_dialog()
-            return
-
-        # --------------------------------------------------------------
-        # Comp Mirror
-        # --------------------------------------------------------------
-
-        # if prop in comp_properties:
-        #     try:
-        #         self._ensure_children(obj)
-        #         self._update_comp_mirror(obj)
-        #         obj.Document.recompute()
-
-        #     except Exception as exc:
-        #         App.Console.PrintError("[OBA] White Cell Comp Mirror " f"update failed: {exc}\n")
-        #     self._refresh_dialog()
-
-        #     return
-
-        # --------------------------------------------------------------
-        # Emitter
-        # --------------------------------------------------------------
-
-        if prop in emitter_properties:
-            try:
-                self._ensure_children(obj)
-                self._update_ellipsoid(self._emitter, "Emitter", obj)
-
-                obj.Document.recompute()
-            except Exception as exc:
-                App.Console.PrintError("[OBA] White Cell Emitter " f"update failed: {exc}\n")
-            self._refresh_dialog()
-
-            return
-
-        # --------------------------------------------------------------
-        # Detector
-        # --------------------------------------------------------------
-
-        if prop in detector_properties:
-            try:
-                self._ensure_children(obj)
-                self._update_ellipsoid(self._detector, "Detector", obj)
-                obj.Document.recompute()
-
-            except Exception as exc:
-
-                App.Console.PrintError("[OBA] White Cell Detector " f"update failed: {exc}\n")
-
-            self._refresh_dialog()
-
             return
 
     # ==================================================================
@@ -765,13 +809,27 @@ class WhiteCellDialog(OBAToolboxDialogBase):
 
         self._refreshing_ui = False
 
-        self.export_button = QtWidgets.QPushButton("Export to Spreadsheet")
-        self.export_button.clicked.connect(self._export_to_spreadsheet)
-        self.custom_layout.addWidget(self.export_button)
+        button_layout = QtWidgets.QHBoxLayout()
 
-        self.optuna_button = QtWidgets.QPushButton("Update Optuna Config")
+        self.export_button = QtWidgets.QPushButton("1). Export to Spreadsheet ---> ")
+        self.export_button.clicked.connect(self._export_to_spreadsheet)
+
+        self.optuna_button = QtWidgets.QPushButton("2). Update Optuna Config")
         self.optuna_button.clicked.connect(self._update_optuna_config)
-        self.custom_layout.addWidget(self.optuna_button)
+
+        button_layout.addWidget(self.export_button)
+        button_layout.addWidget(self.optuna_button)
+        # valfritt
+        # button_layout.addStretch(1)
+        self.custom_layout.addLayout(button_layout)
+
+        # self.export_button = QtWidgets.QPushButton("Export to Spreadsheet")
+        # self.export_button.clicked.connect(self._export_to_spreadsheet)
+        # self.custom_layout.addWidget(self.export_button)
+
+        # self.optuna_button = QtWidgets.QPushButton("Update Optuna Config")
+        # self.optuna_button.clicked.connect(self._update_optuna_config)
+        # self.custom_layout.addWidget(self.optuna_button)
 
         self._widgets = {}
         parent_groups = {}
@@ -926,6 +984,7 @@ class WhiteCellDialog(OBAToolboxDialogBase):
             #     continue
             # selected_params.append(prop_def["name"])
         active = data.get("active", "default")
+
         configs = data.setdefault("configs", {})
         cfg = configs.setdefault(active, {})
         cfg["selected_params"] = selected_params
@@ -943,7 +1002,7 @@ class WhiteCellDialog(OBAToolboxDialogBase):
             return
         try:
             setattr(self.obj, prop, value)
-            self.obj.Document.recompute()
+            # self.obj.Document.recompute()
         except Exception as exc:
             App.Console.PrintError(f"[OBA] White Cell dialog failed to update " f"{prop}: {exc}\n")
 
@@ -969,7 +1028,6 @@ class WhiteCellDialog(OBAToolboxDialogBase):
     def closeEvent(self, event):
 
         try:
-
             if self.obj.Proxy._dialog is self:
                 self.obj.Proxy._dialog = None
 
@@ -1089,129 +1147,8 @@ class WhiteCellViewProvider(OBAToolboxViewProviderBase):
 # ======================================================================
 
 
-def OBA_CreateWhiteCell(
-    doc=None,
-    label="White_Cell",
-    # ------------------------------------------------------------------
-    # Main Mirror
-    # ------------------------------------------------------------------
-    main_mirror_width=100.0,
-    main_mirror_height=33.0,
-    main_mirror_split_offset=40.0,
-    main_mirror_a=40.0,
-    main_mirror_b=31.0,
-    main_mirror_tiltangle=0.0,
-    main_mirror_x=0.0,
-    main_mirror_y=0.0,
-    main_mirror_z=0.0,
-    # ------------------------------------------------------------------
-    # Comp Mirror
-    # ------------------------------------------------------------------
-    comp_mirror_width=100.0,
-    comp_mirror_height=30.0,
-    comp_mirror_a=40.0,
-    comp_mirror_b=30.0,
-    comp_mirror_x=0.0,
-    comp_mirror_y=0.0,
-    comp_mirror_z=0.0,
-    # ------------------------------------------------------------------
-    # Emitter
-    # ------------------------------------------------------------------
-    emitter_aplanewidth=5.0,
-    emitter_aplaneheight=3.0,
-    emitter_a=40.0,
-    emitter_b=20.0,
-    emitter_b2=20.0,
-    emitter_rot_x=30.0,
-    emitter_rot_y=0.0,
-    emitter_rot_z=0.0,
-    emitter_x=50.0,
-    emitter_y=0.0,
-    emitter_z=0.0,
-    # ------------------------------------------------------------------
-    # Detector
-    # ------------------------------------------------------------------
-    detector_aplanewidth=7.0,
-    detector_aplaneheight=7.0,
-    detector_a=40.0,
-    detector_b=20.0,
-    detector_b2=20.0,
-    detector_rot_x=30.0,
-    detector_rot_y=0.0,
-    detector_rot_z=0.0,
-    detector_x=-50.0,
-    detector_y=0.0,
-    detector_z=0.0,
-    show_dialog=True,
-):
+def OBA_CreateWhiteCell(doc=None, label="White_Cell", show_dialog=True):
     doc = doc or App.ActiveDocument or App.newDocument()
-
-    # ==================================================================
-    # V A L I D A T E
-    # ==================================================================
-
-    # Main Mirror
-    if main_mirror_width <= 0:
-        raise ValueError("Main Mirror Width must be greater than zero.")
-    if main_mirror_height <= 0:
-        raise ValueError("Main Mirror Height must be greater than zero.")
-    if main_mirror_split_offset < 0 or main_mirror_split_offset > main_mirror_width:
-        raise ValueError("Main Mirror SplitOffset must be between " "zero and Width.")
-    if main_mirror_a <= 0:
-        raise ValueError("Main Mirror A must be greater than zero.")
-    if main_mirror_b <= 0:
-        raise ValueError("Main Mirror B must be greater than zero.")
-    if main_mirror_a < main_mirror_b:
-        raise ValueError("Main Mirror A must be greater than or equal to B.")
-    if main_mirror_b > main_mirror_height:
-        raise ValueError("Main Mirror B must be less than or equal to Height.")
-    # Comp Mirror
-    if comp_mirror_width <= 0:
-        raise ValueError("Comp Mirror Width must be greater than zero.")
-    if comp_mirror_height <= 0:
-        raise ValueError("Comp Mirror Height must be greater than zero.")
-    if comp_mirror_a <= 0:
-        raise ValueError("Comp Mirror A must be greater than zero.")
-    if comp_mirror_b <= 0:
-        raise ValueError("Comp Mirror B must be greater than zero.")
-    if comp_mirror_a < comp_mirror_b:
-        raise ValueError("Comp Mirror A must be greater than or equal to B.")
-    if comp_mirror_b > comp_mirror_height:
-        raise ValueError("Comp Mirror B must be less than or equal to Height.")
-    # Emitter
-    if emitter_aplanewidth <= 0:
-        raise ValueError("Emitter APlaneWidth must be greater than zero.")
-    if emitter_aplaneheight <= 0:
-        raise ValueError("Emitter APlaneHeight must be greater than zero.")
-    if emitter_a <= 0:
-        raise ValueError("Emitter A must be greater than zero.")
-    if emitter_b <= 0:
-        raise ValueError("Emitter B must be greater than zero.")
-    if emitter_b2 <= 0:
-        raise ValueError("Emitter B2 must be greater than zero.")
-    if emitter_a < emitter_b:
-        raise ValueError("Emitter A must be greater than or equal to B.")
-
-    if emitter_x <= 0:
-        raise ValueError("Emitter X must be positive.")
-
-    # Detector
-
-    if detector_aplanewidth <= 0:
-        raise ValueError("Detector APlaneWidth must be greater than zero.")
-    if detector_aplaneheight <= 0:
-        raise ValueError("Detector APlaneHeight must be greater than zero.")
-    if detector_a <= 0:
-        raise ValueError("Detector A must be greater than zero.")
-    if detector_b <= 0:
-        raise ValueError("Detector B must be greater than zero.")
-    if detector_b2 <= 0:
-        raise ValueError("Detector B2 must be greater than zero.")
-    if detector_a < detector_b:
-        raise ValueError("Detector A must be greater than or equal to B.")
-    if detector_x >= 0:
-        raise ValueError("Detector X must be negative.")
-
     # ==================================================================
     # C R E A T E   W H I T E   C E L L
     # ==================================================================
@@ -1220,80 +1157,11 @@ def OBA_CreateWhiteCell(
     obj.Label = label
     proxy = OBAWhiteCell(obj)
     proxy._initializing = True
-
-    # ==================================================================
-    # S T O R E   M A I N   M I R R O R
-    # ==================================================================
-
-    obj.MainMirrorWidth = App.Units.Quantity(f"{main_mirror_width} mm")
-    obj.MainMirrorHeight = App.Units.Quantity(f"{main_mirror_height} mm")
-    obj.MainMirrorSplitOffset = App.Units.Quantity(f"{main_mirror_split_offset} mm")
-    obj.MainMirrorA = App.Units.Quantity(f"{main_mirror_a} mm")
-    obj.MainMirrorB = App.Units.Quantity(f"{main_mirror_b} mm")
-    obj.MainMirrorTiltAngle = App.Units.Quantity(f"{main_mirror_tiltangle} deg")
-    # obj.MainMirrorX = App.Units.Quantity(f"{main_mirror_x} mm")
-    obj.MainMirrorY = App.Units.Quantity(f"{main_mirror_y} mm")
-    # obj.MainMirrorZ = App.Units.Quantity(f"{main_mirror_z} mm")
-
-    # ==================================================================
-    # S T O R E   C O M P   M I R R O R
-    # ==================================================================
-
-    # obj.CompMirrorWidth = App.Units.Quantity(f"{comp_mirror_width} mm")
-    # obj.CompMirrorHeight = App.Units.Quantity(f"{comp_mirror_height} mm")
-    obj.CompMirrorA = App.Units.Quantity(f"{comp_mirror_a} mm")
-    obj.CompMirrorB = App.Units.Quantity(f"{comp_mirror_b} mm")
-    # obj.CompMirrorX = App.Units.Quantity(f"{comp_mirror_x} mm")
-    # obj.CompMirrorY = App.Units.Quantity(f"{comp_mirror_y} mm")
-    # obj.CompMirrorZ = App.Units.Quantity(f"{comp_mirror_z} mm")
-
-    # ==================================================================
-    # S T O R E   E M I T T E R
-    # ==================================================================
-
-    obj.EmitterAPlaneWidth = App.Units.Quantity(f"{emitter_aplanewidth} mm")
-    obj.EmitterAPlaneHeight = App.Units.Quantity(f"{emitter_aplaneheight} mm")
-    obj.EmitterA = App.Units.Quantity(f"{emitter_a} mm")
-    obj.EmitterB = App.Units.Quantity(f"{emitter_b} mm")
-    obj.EmitterB2 = App.Units.Quantity(f"{emitter_b2} mm")
-    obj.EmitterWidthFactor = 1.8
-
-    obj.EmitterRotX = App.Units.Quantity(f"{emitter_rot_x} deg")
-    # obj.EmitterRotY = App.Units.Quantity(f"{emitter_rot_y} deg")
-    obj.EmitterRotZ = App.Units.Quantity(f"{emitter_rot_z} deg")
-
-    obj.EmitterX = App.Units.Quantity(f"{emitter_x} mm")
-    obj.EmitterY = App.Units.Quantity(f"{emitter_y} mm")
-
-    obj.EmitterZ = App.Units.Quantity(f"{emitter_z} mm")
-
-    # ==================================================================
-    # S T O R E   D E T E C T O R
-    # ==================================================================
-
-    obj.DetectorAPlaneWidth = App.Units.Quantity(f"{detector_aplanewidth} mm")
-    obj.DetectorAPlaneHeight = App.Units.Quantity(f"{detector_aplaneheight} mm")
-    obj.DetectorA = App.Units.Quantity(f"{detector_a} mm")
-    obj.DetectorB = App.Units.Quantity(f"{detector_b} mm")
-    obj.DetectorB2 = App.Units.Quantity(f"{detector_b2} mm")
-    obj.DetectorWidthFactor = 1.8
-
-    obj.DetectorRotX = App.Units.Quantity(f"{detector_rot_x} deg")
-    # obj.DetectorRotY = App.Units.Quantity(f"{detector_rot_y} deg")
-    obj.DetectorRotZ = App.Units.Quantity(f"{detector_rot_z} deg")
-
-    obj.DetectorX = App.Units.Quantity(f"{detector_x} mm")
-
-    obj.DetectorY = App.Units.Quantity(f"{detector_y} mm")
-
-    obj.DetectorZ = App.Units.Quantity(f"{detector_z} mm")
-
+    # install_properties(obj, WHITE_CELL_PROPERTIES)
     # ==================================================================
     # C R E A T E   C H I L D R E N
     # ==================================================================
-
     proxy._ensure_children(obj)
-
     proxy._initializing = False
 
     # ==================================================================
@@ -1316,13 +1184,11 @@ def OBA_CreateWhiteCell(
 
     if show_dialog and App.GuiUp:
         dialog = WhiteCellDialog(obj, title="White Cell Settings")
-
         proxy._dialog = dialog
 
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()
-
     return obj
 
 
@@ -1333,114 +1199,3 @@ def OBA_CreateWhiteCell(
 
 def create(**kwargs):
     return OBA_CreateWhiteCell(**kwargs)
-
-
-def create_old(
-    doc=None,
-    label="White_Cell",
-    # ------------------------------------------------------------------
-    # Main Mirror
-    # ------------------------------------------------------------------
-    main_mirror_width=100.0,
-    main_mirror_height=33.0,
-    main_mirror_split_offset=40.0,
-    main_mirror_a=40.0,
-    main_mirror_b=31.0,
-    main_mirror_tiltangle=0.0,
-    main_mirror_x=0.0,
-    main_mirror_y=32.0,
-    main_mirror_z=0.0,
-    # ------------------------------------------------------------------
-    # Comp Mirror
-    # ------------------------------------------------------------------
-    comp_mirror_width=100.0,
-    comp_mirror_height=30.0,
-    comp_mirror_a=40.0,
-    comp_mirror_b=30.0,
-    comp_mirror_x=0.0,
-    comp_mirror_y=0.0,
-    comp_mirror_z=0.0,
-    # ------------------------------------------------------------------
-    # Emitter
-    # ------------------------------------------------------------------
-    emitter_aplanewidth=5.0,
-    emitter_aplaneheight=5.0,
-    emitter_a=40.0,
-    emitter_b=20.0,
-    emitter_b2=20.0,
-    emitter_rot_x=12.0,
-    emitter_rot_y=0.0,
-    emitter_rot_z=0.0,
-    emitter_x=-50.0,
-    emitter_y=0.0,
-    emitter_z=0.0,
-    # ------------------------------------------------------------------
-    # Detector
-    # ------------------------------------------------------------------
-    detector_aplanewidth=5.0,
-    detector_aplaneheight=5.0,
-    detector_a=40.0,
-    detector_b=20.0,
-    detector_b2=20.0,
-    detector_rot_x=15.0,
-    detector_rot_y=0.0,
-    detector_rot_z=0.0,
-    detector_x=50.0,
-    detector_y=0.0,
-    detector_z=0.0,
-):
-
-    return OBA_CreateWhiteCell(
-        doc=doc,
-        label=label,
-        # --------------------------------------------------------------
-        # Main Mirror
-        # --------------------------------------------------------------
-        main_mirror_width=main_mirror_width,
-        main_mirror_height=main_mirror_height,
-        main_mirror_split_offset=main_mirror_split_offset,
-        main_mirror_a=main_mirror_a,
-        main_mirror_b=main_mirror_b,
-        main_mirror_tiltangle=main_mirror_tiltangle,
-        main_mirror_x=main_mirror_x,
-        main_mirror_y=main_mirror_y,
-        main_mirror_z=main_mirror_z,
-        # --------------------------------------------------------------
-        # Comp Mirror
-        # --------------------------------------------------------------
-        comp_mirror_width=comp_mirror_width,
-        comp_mirror_height=comp_mirror_height,
-        comp_mirror_a=comp_mirror_a,
-        comp_mirror_b=comp_mirror_b,
-        comp_mirror_x=comp_mirror_x,
-        comp_mirror_y=comp_mirror_y,
-        comp_mirror_z=comp_mirror_z,
-        # --------------------------------------------------------------
-        # Emitter
-        # --------------------------------------------------------------
-        emitter_aplanewidth=emitter_aplanewidth,
-        emitter_aplaneheight=emitter_aplaneheight,
-        emitter_a=emitter_a,
-        emitter_b=emitter_b,
-        emitter_b2=emitter_b2,
-        emitter_rot_x=emitter_rot_x,
-        emitter_rot_y=emitter_rot_y,
-        emitter_rot_z=emitter_rot_z,
-        emitter_x=emitter_x,
-        emitter_y=emitter_y,
-        emitter_z=emitter_z,
-        # --------------------------------------------------------------
-        # Detector
-        # --------------------------------------------------------------
-        detector_aplanewidth=detector_aplanewidth,
-        detector_aplaneheight=detector_aplaneheight,
-        detector_a=detector_a,
-        detector_b=detector_b,
-        detector_b2=detector_b2,
-        detector_rot_x=detector_rot_x,
-        detector_rot_y=detector_rot_y,
-        detector_rot_z=detector_rot_z,
-        detector_x=detector_x,
-        detector_y=detector_y,
-        detector_z=detector_z,
-    )

@@ -17,6 +17,8 @@ if LIBDIR not in sys.path:
 import optuna
 from optuna.samplers import TPESampler, RandomSampler, CmaEsSampler, NSGAIISampler
 
+OPTIMIZATION_RUNNING = False
+
 # DB_PATH = f"sqlite:///{os.path.join(BASE_DIR, 'optimization.db')}"
 
 
@@ -36,6 +38,10 @@ def get_db_path():
 
 
 DB_PATH = get_db_path()
+
+
+def is_optimization_running():
+    return OPTIMIZATION_RUNNING
 
 
 class OptimizationWorker(QtCore.QObject):
@@ -61,6 +67,7 @@ class OptimizationWorker(QtCore.QObject):
         self._stop = False
         self._waiting = False
         self._last_results = None
+        OPTIMIZATION_RUNNING = True
 
         self.param_names = config["params"]
         self.bounds = config["bounds"]
@@ -185,25 +192,55 @@ class OptimizationWorker(QtCore.QObject):
                     raise RuntimeError("No evaluation result received")
 
                 payload = self._last_results
+                # # --------------------------------------------------
+                # # PRUNED
+                # # --------------------------------------------------
+                # if payload.get("_pruned"):
+                #     print(f"[PRUNE] " f"trial={trial.number} " f"params={params}")
+                #     self.study.tell(trial, state=optuna.trial.TrialState.PRUNED)
+                #     continue
+
                 # --------------------------------------------------
-                # PRUNED
+                # PRUNED / EARLY EXIT (Mjuk hantering i Optuna v5)
                 # --------------------------------------------------
                 if payload.get("_pruned"):
-                    print(f"[PRUNE] " f"trial={trial.number} " f"params={params}")
-                    self.study.tell(trial, state=optuna.trial.TrialState.PRUNED)
+                    print(f"[EARLY EXIT] trial={trial.number} pga brutet tröskelvärde.")
+
+                    # 1. Sätt de villkor vi hann beräkna (där minst ett är > 0)
+                    constraints = payload.get("constraints", {})
+                    for cname, cvalue in constraints.items():
+                        trial.set_constraint(cname, float(cvalue))
+
+                    # 2. Hämta de partiella resultaten
+                    results = payload.get("results", {})
+                    values = []
+                    for m in self.metrics:
+                        values.append(float(results.get(m["name"], 0.0)))
+
+                    # 3. Använd study.tell med värdena. Optuna fattar att det är
+                    # en ogiltig körning pga dina constraints, men sparar datan!
+                    self.study.tell(trial, tuple(values))
                     continue
+
                 # --------------------------------------------------
                 # RESULTS
                 # --------------------------------------------------
                 results = payload.get("results", {})
-                constraints = payload.get("constraints", {})
                 debug_info = payload.get("debug", {})
+
+                # --------------------------------------------------
+                # Constrait for metric with threshold
+                # --------------------------------------------------
+                constraints = payload.get("constraints", {})
+                for cname, cvalue in constraints.items():
+                    trial.set_constraint(cname, float(cvalue))
+                trial.set_user_attr("constraints", constraints)  # Spara i user_attr för historik/dashboard
+
                 # --------------------------------------------------
                 # STORE USER ATTRS
                 # --------------------------------------------------
                 trial.set_user_attr("params", params)
                 trial.set_user_attr("metrics", results)
-                trial.set_user_attr("constraints", constraints)  # nytt ifrån optuna v5, är att spara undan utan att hård pruna vid threshold
                 trial.set_user_attr("debug", debug_info)
                 trial.set_user_attr("unselected_params", self.unselected_params)
                 # --------------------------------------------------
@@ -256,6 +293,7 @@ class OptimizationWorker(QtCore.QObject):
             for t in self.study.best_trials
         ]
         self.finished.emit(best_trials_data)
+        OPTIMIZATION_RUNNING = False
 
     def _suggest_utan_dämpning(self, trial):
         params = {}
@@ -346,10 +384,6 @@ class OptimizationWorker(QtCore.QObject):
             # params[name] = trial.suggest_float(name, lo2, hi2)
         return params
 
-    def constraints_func(self, trial):
-        constraints = trial.user_attrs.get("constraints", {})
-        return tuple(float(v) for v in constraints.values())
-
     def _create_sampler(self, config):
         name = config.get("sampler", "TPESampler")
         constant_liar = config.get("constant_liar", False)  # sätts i dialogen
@@ -361,7 +395,6 @@ class OptimizationWorker(QtCore.QObject):
             # print("[WARN] Switching to NSGAIISampler (multi-objective)")
             print("[create_sampler] 🚀 -> ", name, "mulitobjective : ", multi)
             return NSGAIISampler(
-                constraints_func=self.constraints_func,
                 seed=42,
             )
 
@@ -369,7 +402,6 @@ class OptimizationWorker(QtCore.QObject):
             print("[create_sampler] 🚀 -> ", name, "mulitobjective : ", multi)
             return TPESampler(
                 constant_liar=constant_liar,
-                constraints_func=self.constraints_func,
                 multivariate=True,
                 n_startup_trials=20,
                 seed=42,

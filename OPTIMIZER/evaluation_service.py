@@ -63,6 +63,11 @@ class EvaluationService(QtCore.QObject):
             return
         try:
             apply_cad_params(params)
+            white_cell = doc.getObject("OBA_WhiteCell")
+            if white_cell and hasattr(white_cell, "Proxy"):
+                white_cell.Proxy.rebuild_if_needed(white_cell)
+
+            #
             # recompute_doc(doc, restore_view=False)
             App.Console.PrintMessage("[Eval] Applied best parameters.\n")
 
@@ -197,12 +202,20 @@ class EvaluationService(QtCore.QObject):
                 # --------------------------------------------------
                 if self._start_cad_params:
                     apply_cad_params(self._start_cad_params)
-                    doc.recompute(None)
+                    # white_cell = doc.getObject("OBA_WhiteCell")
+                    # if white_cell:  # and hasattr(white_cell, "Proxy"):
+                    #     white_cell.Proxy.rebuild_if_needed(white_cell)
+                    doc.recompute()
+                    # doc.recompute(None)
                 # --------------------------------------------------
                 # 5B. APPLICERA AKTUELL TRIAL
                 # --------------------------------------------------
                 apply_cad_params(params)
-                doc.recompute(None)
+                # white_cell = doc.getObject("OBA_WhiteCell")
+                # if white_cell:  # and hasattr(white_cell, "Proxy"):
+                #     white_cell.Proxy.rebuild_if_needed(white_cell)
+                doc.recompute()
+                # doc.recompute(None)
                 # --------------------------------------------------
                 # 5C. RAYTRACE
                 # --------------------------------------------------
@@ -357,11 +370,9 @@ class EvaluationService(QtCore.QObject):
 
         except Exception as e:
             App.Console.PrintError(f"[Eval] evaluate failed: {e}\n")
-
             import traceback
 
             App.Console.PrintError(traceback.format_exc() + "\n")
-
             self.evaluationReady.emit({"results": {}, "_pruned": True, "error": str(e)})
         finally:
             self._busy = False
@@ -372,7 +383,12 @@ class EvaluationService(QtCore.QObject):
         # APPLY CAD PARAMS
         # --------------------------------------------------
         apply_cad_params(params)
-        doc.recompute(None)
+        # white_cell = doc.getObject("OBA_WhiteCell")
+        # if white_cell:
+        #     white_cell.Proxy.rebuild_if_needed(white_cell)
+        doc.recompute()
+
+        # doc.recompute(None)
         # --------------------------------------------------
         # RAYTRACE
         # --------------------------------------------------
@@ -448,10 +464,6 @@ class EvaluationService(QtCore.QObject):
             constraints[m["name"]] = 0.0
             self.statusChanged.emit(f"Trial {trial_id} → " f"SCANNER score: " f"({value}) " f"Targets: " f"({targets}) " f"Step_id: " f"{m.get('step_id')}")
 
-        # --------------------------------------------------
-        # RETURN
-        # --------------------------------------------------
-
         return {"results": results, "constraints": constraints, "_pruned": False, "unselected_params": unselected_params, "debug": debug_info}
 
     # def _average_result_dicts(self, results_1, results_2):
@@ -514,11 +526,9 @@ class EvaluationService(QtCore.QObject):
             constraint = 0.0
             if metric.get("use_threshold"):
                 threshold = metric.get("percent", 0.0)
-
                 # valid = ratio >= threshold  # 1 metric.get("percent", 0.0)
                 # constraint = threshold - ratio
-
-                constraint = max(0.0, threshold - ratio)
+                constraint = threshold - ratio
 
         elif base == "target_cluster_count":
             value, diff = compute_target_cluster_count(filtered, target_names, metric.get("percent", 0.01), metric.get("value", 3))
@@ -532,7 +542,7 @@ class EvaluationService(QtCore.QObject):
                 threshold = metric.get("percent", 0.0)
                 # valid = ratio >= threshold  # metric.get("percent", 0.0)
                 # constraint = threshold - ratio
-                constraint = max(0.0, threshold - ratio)
+                constraint = threshold - ratio
 
         elif base == "density":
             value = compute_density(filtered, plane, metric.get("bounce", 0))
@@ -697,21 +707,16 @@ def compute_target_cluster_count(clusters, targets, min_percent, target):
 
 
 def compute_distance(clusters, plane):
-
     if not clusters:
         return 0.0
-
     vals = []
-
     for c in clusters.values():
-
         if plane == "3D":
             r = c.get("spread", {}).get("3D", {}).get("radius")
         else:
             cov = c.get("spread", {}).get(plane, {}).get("cov")
             if cov is None:
                 continue
-
             try:
                 import numpy as np
 
@@ -719,7 +724,6 @@ def compute_distance(clusters, plane):
                 r = float(max(eig)) ** 0.5
             except:
                 continue
-
         if r is None:
             continue
 

@@ -39,9 +39,9 @@ COMP_MIRROR_PROPERTIES = [
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 26.4575131106, "doc": "Distance from ellipsoid centre to focus"},
     # {"name": "TiltAngle", "type": "App::PropertyAngle", "group": "Ellipsoid", "default": 0.0, "doc": "Tilt angle of the ellipsoids around the Z axis"},
     {"name": "ShowDebugEllipsoids", "type": "App::PropertyBool", "group": "Debug", "default": False, "doc": "Show ellipsoids for debugging"},
-    {"name": "PosX", "type": "App::PropertyDistance", "group": "Placement", "doc": "X coordinate"},
-    {"name": "PosY", "type": "App::PropertyDistance", "group": "Placement", "doc": "Y coordinate"},
-    {"name": "PosZ", "type": "App::PropertyDistance", "group": "Placement", "doc": "Z coordinate"},
+    {"name": "PosX", "type": "App::PropertyFloat", "group": "Placement", "doc": "X coordinate"},
+    {"name": "PosY", "type": "App::PropertyFloat", "group": "Placement", "doc": "Y coordinate"},
+    {"name": "PosZ", "type": "App::PropertyFloat", "group": "Placement", "doc": "Z coordinate"},
 ]
 
 
@@ -57,6 +57,8 @@ class OBACompMirror:
         self._initializing = True
 
         self._rebuilding = False
+
+        self._suppress_onchange = False
 
         self._cube = None
         self._ellipsoid = None
@@ -82,22 +84,6 @@ class OBACompMirror:
         self._initializing = False
 
         App.Console.PrintMessage(f"[OBA] Proxy attached: {obj.Name}\n")
-
-    # def delete(self):
-    #     doc = self.Object.Document
-
-    #     for attr_name in reversed(self.CHILD_OBJECTS):
-    #         child = getattr(self, attr_name, None)
-
-    #         if child and doc.getObject(child.Name):
-    #             doc.removeObject(child.Name)
-
-    #     if doc.getObject(self.Object.Name):
-    #         doc.removeObject(self.Object.Name)
-
-    # def get_cube(self):
-    #     self._ensure_features(self.Object)
-    #     return self._cube
 
     # ------------------------------------------------------------------
     # Runtime object handling
@@ -209,6 +195,7 @@ class OBACompMirror:
             return
 
         self._rebuilding = True
+
         try:
 
             self._update_cube(obj)
@@ -219,9 +206,11 @@ class OBACompMirror:
             c = focus_distance(float(obj.A), float(obj.B))
             obj.FocusDistance = c
 
-            obj.Document.recompute()
-        finally:
+            if not self._suppress_onchange:
+                obj.Document.recompute()
+                pass
 
+        finally:
             self._rebuilding = False
 
     # ------------------------------------------------------------------
@@ -239,6 +228,12 @@ class OBACompMirror:
             return
 
         if self._rebuilding:
+            return
+
+        if prop in {"ShowDebugEllipsoids"}:
+            self._update_debug_visibility(obj)
+
+        if self._suppress_onchange:
             return
 
         # App.Console.PrintMessage(f"onChanged: {prop}\n")
@@ -510,6 +505,7 @@ def OBA_CreateCompMirror(
     x=0.0,
     y=0.0,
     z=0.0,
+    suppress_onchange=False,
     show_dialog=True,
 ):
     doc = doc or App.ActiveDocument or App.newDocument()
@@ -527,8 +523,8 @@ def OBA_CreateCompMirror(
         raise ValueError("B must be greater than zero.")
     if a < b:
         raise ValueError("A must be greater than or equal to B.")
-    if b > height:
-        raise ValueError("B must be less than or equal to Height.")
+    # if b > height:
+    #     raise ValueError("B must be less than or equal to Height.")
 
     # --------------------------------------------------------------
     # Main FeaturePython object
@@ -540,11 +536,12 @@ def OBA_CreateCompMirror(
 
     proxy = OBACompMirror(obj)
     proxy._initializing = True
+    proxy._suppress_onchange = suppress_onchange
 
-    obj.Width = App.Units.Quantity(f"{width} mm")
-    obj.Height = App.Units.Quantity(f"{height} mm")
-    obj.A = App.Units.Quantity(f"{a} mm")
-    obj.B = App.Units.Quantity(f"{b} mm")
+    obj.Width = width  # App.Units.Quantity(f"{width} mm")
+    obj.Height = height  # App.Units.Quantity(f"{height} mm")
+    obj.A = a  # App.Units.Quantity(f"{a} mm")
+    obj.B = b  # App.Units.Quantity(f"{b} mm")
     # obj.TiltAngle = App.Units.Quantity(f"{tiltangle} deg")
 
     proxy._ensure_features(obj)
@@ -556,7 +553,7 @@ def OBA_CreateCompMirror(
     if App.GuiUp:
         CompMirrorViewProvider(obj.ViewObject)
 
-    doc.recompute()
+    obj.Document.recompute()
 
     if show_dialog:
         dialog = CompMirrorDialog(obj)

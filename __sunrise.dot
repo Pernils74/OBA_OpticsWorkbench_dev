@@ -1,0 +1,318 @@
+digraph G {
+    // Inställningar för snyggare utseende
+    node [shape = box; fontname = "Arial"; style = "filled"; fillcolor = "#f9f9f9"; width = 2;];
+    
+    
+    rankdir = TB;
+    // Top to Bottom layout
+    nodesep = 0.6;
+    // Ökat horisontellt avstånd mellan noder på samma nivå
+    ranksep = 1.8;
+    // Ökat vertikalt avstånd mellan olika nivåer
+    // Top to Bottom layout
+    
+    
+    
+    "Sunlight" -> {"006-1-0101" "006-1-0102" "006-1-0103" "006-1-0104" "006-1-0105" "006-1-0106" "006-1-0202" "009-4-0001" "009-4-0002" "009-4-0003" "009-4-0004" "009-4-0007"};
+    
+    subgraph {
+        rank = same;
+        "Sunlight";
+        "Sunrise";
+    }
+    
+    
+    // 006-1
+    // "006-1-0101" [label = "Art: 006-1-0101\nSenseair Sunlight CO2 PH - 13,46";fillcolor = "#fffacd";];
+    // "006-1-0102" [label = "Art: 006-1-0102\nSenseair Sunlight CO2 PH - 8,51";fillcolor = "#fffacd";];
+    // "006-1-0103" [label = "Art: 006-1-0103\nSenseair Sunlight CO2 PH ";fillcolor = "#fffacd";];
+    // "006-1-0104" [label = "Art: 006-1-0104\nSenseair Sunlight 2% CO2 PH - 8,51";fillcolor = "#fffacd";];
+    // "006-1-0105" [label = "Art: 006-1-0105\nSenseair Sunlight 2% CO2 PH - 10,92";fillcolor = "#fffacd";];
+    // "006-1-0106" [label = "Art: 006-1-0106\nSenseair Sunlight CO2 2% ";fillcolor = "#fffacd";];
+    // "006-1-0202" [label = "Art: 006-1-0202\nSenseair Sunlight CO2 1% PH - 8,51";fillcolor = "#fffacd";];
+    // "009-4-0001" [label = "Art: 009-4-0001\nSenseair Sunlight R32";fillcolor = "#fffacd";];
+    // "009-4-0002" [label = "Art: 009-4-0001\nSenseair Sunlight R290";fillcolor = "#fffacd";];
+    // "009-4-0003" [label = "Art: 009-4-0001\nSenseair Sunlight Methane";fillcolor = "#fffacd";];
+    // "009-4-0004" [label = "Art: 009-4-0001\nSenseair Sunlight R32 & R54 A/B/C CS";fillcolor = "#fffacd";];
+    
+    
+    // PBASC
+    "833-00167" [label = "Art: 833-00167\nPBASC K107-CF";fillcolor = "#dbffcd";];
+    "833-00192" [label = "Art: 833-00192\nPBASC K107-CF 2%";fillcolor = "#dbffcd";];
+    "833-00166" [label = "Art: 833-00166\nPBASC K107-H";fillcolor = "#dbffcd";];
+    "833-00187" [label = "Art: 833-00187\nPBASC K107-H R290";fillcolor = "#dbffcd";];
+    "833-00196" [label = "Art: 833-00196\nPBASC K107-H Methane";fillcolor = "#dbffcd";];
+    "833-00139" [label = "Art: 833-00139\nPBASC K108SC R32";fillcolor = "#dbffcd";];
+    "833-00176" [label = "Art: 833-00176\nPBASC K108SC R290";fillcolor = "#dbffcd";];
+    "833-00189" [label = "Art: 833-00189\nPBASC K108SC R290 Short";fillcolor = "#dbffcd";];
+    // sunrise
+    "833-00138" [label = "Art: 833-00138\nPBASC K102-F";fillcolor = "#dbffcd";];
+    "833-00163" [label = "Art: 833-00163\nPBASC K103-F";fillcolor = "#dbffcd";];
+    "833-00168" [label = "Art: 833-00168\nPBASC K102-F";fillcolor = "#dbffcd";];
+    "833-00200" [label = "Art: 833-00200\nPBASC K103-F ABC Off";fillcolor = "#dbffcd";];
+    
+    "833-00201" [label = "Art: 833-00201\nPBASC K103-F ABC Off PH - 8.51";fillcolor = "#dbffcd";];
+    "833-00202" [label = "Art: 833-00202\nPBASC K103-F ABC Off PH - 5.90";fillcolor = "#dbffcd";];
+    
+    
+    // PBAS
+    "833-00162" [label = "Art: 833-00162\nPBAS K70";fillcolor = "#dbffcd";];
+    "833-00161" [label = "Art: 833-00161\nPBAS K70 10000ppm";fillcolor = "#dbffcd";];
+    "832-00161" [label = "Art: 832-00161\nPBAS K107-H";fillcolor = "#dbffcd";];
+    "832-00133" [label = "Art: 832-00133\nPBAS K108SC R32";fillcolor = "#dbffcd";];
+    
+    "832-00174" [label = "Art: 832-00174\nPBAS K107-H Short";fillcolor = "#dbffcd";];
+    // sunrise
+    "832-00132" [label = "Art: 832-00132\nPBAS K102-F";fillcolor = "#dbffcd";];
+    "832-00157" [label = "Art: 832-00157\nPBAS K103-F";fillcolor = "#dbffcd";];
+    "832-00165" [label = "Art: 832-00165\nPBAS K102-F";fillcolor = "#dbffcd";];
+    "832-00182" [label = "Art: 832-00182\nPBAS K103-F PH - 8.51";fillcolor = "#dbffcd";];
+    "832-00183" [label = "Art: 832-00183\nPBAS K103-F PH - 5.51";fillcolor = "#dbffcd";];
+    
+    
+    
+    // PBA
+    "831-00321" [label = "Art: 831-00321\nPBA K108SC-F";fillcolor = "#dbffcd";];
+    "831-00306" [label = "Art: 831-00306\nPBA K107-CF";fillcolor = "#dbffcd";];
+    "831-00401" [label = "Art: 831-00401\nPBA K107-HS";fillcolor = "#dbffcd";];
+    "831-00308" [label = "Art: 831-00308\nPBA K107-HF";fillcolor = "#dbffcd";];
+    // sunrise
+    "831-00275" [label = "Art: 831-00275\nPBA K102-F";fillcolor = "#dbffcd";];
+    "831-00295" [label = "Art: 831-00275\nPBA K103-F";fillcolor = "#dbffcd";];
+    
+    
+    // External
+    "792-00013" [label = "Art: 792-00013\nReconfiguration of Sunlight with pin headers";fillcolor = "#fff3cd";];
+    
+    
+    "740-00600" [label = "Art: 740-00600\nSenseair Sunlight External";fillcolor = "#fff3cd";];
+    "740-00993" [label = "Art: 740-00600\nSenseair Sunlight External";fillcolor = "#fff3cd";];
+    "740-01963" [label = "Art: 740-01963\nSenseair Sunlight CO2 PH";fillcolor = "#fff3cd";];
+    "740-01964" [label = "Art: 740-01964\nSenseair Sunlight CO2 PH";fillcolor = "#fff3cd";];
+    "740-01926" [label = "Art: 740-01926\nSenseair Sunlight CO2 PH - 10,92";fillcolor = "#fff3cd";];
+    // sunrise
+    "740-01550" [label = "Art: 740-01550\nSunrise PH";fillcolor = "#fff3cd";];
+    
+    
+    subgraph cluster_sunlight {
+        label = "Sunlight";
+        color = white;
+        "Sunlight";
+        
+        // --- SUNLIGHT BOM ---
+        "006-1-0100" [label = "Art: 006-1-0100\nSenseair Sunlight CO2";fillcolor = "#fffacd";];
+        "006-1-0100" -> {"740-00600" "833-00167"};
+        "833-00167" -> {"833-00162"};
+        "833-00162" -> {"740-00993" "831-00306"};
+        
+        
+        
+        "006-1-0101" [label = "Art: 006-1-0101\nSenseair Sunlight CO2 PH - 13,46";fillcolor = "#fffacd";];
+        "006-1-0101" -> {"740-01963" "792-00013" "833-00167"};
+        
+        
+        
+        "006-1-0102" [label = "Art: 006-1-0102\nSenseair Sunlight CO2 PH - 8,51";fillcolor = "#fffacd";];
+        "006-1-0102" -> {"740-01964" "792-00013" "833-00167"};
+        
+        
+        "006-1-0103" [label = "Art: 006-1-0103\nSenseair Sunlight CO2 PH ";fillcolor = "#fffacd";];
+        "006-1-0103" -> {"792-00013" "833-00167"};
+        
+        "006-1-0104" [label = "Art: 006-1-0104\nSenseair Sunlight 2% CO2 PH - 8,51";fillcolor = "#fffacd";];
+        "006-1-0104" -> {"740-01964" "792-00013" "833-00192"};
+        "833-00192" -> {"833-00162"};
+        
+        "006-1-0105" [label = "Art: 006-1-0105\nSenseair Sunlight 2% CO2 PH - 10,92";fillcolor = "#fffacd";];
+        "006-1-0105" -> {"740-01926" "792-00013" "833-00167"};
+        
+        "006-1-0106" [label = "Art: 006-1-0106\nSenseair Sunlight CO2 2% ";fillcolor = "#fffacd";];
+        "006-1-0106" -> {"740-00600" "833-00192"};
+        
+        "006-1-0202" [label = "Art: 006-1-0202\nSenseair Sunlight CO2 1% PH - 8,51";fillcolor = "#fffacd";];
+        "006-1-0202" -> {"740-01964" "792-00013" "833-00167"};
+        
+        "009-4-0001" [label = "Art: 009-4-0001\nSenseair Sunlight R32";fillcolor = "#fffacd";];
+        "009-4-0001" -> {"740-00600" "833-00166"};
+        "833-00166" -> {"833-00161"};
+        
+        "009-4-0002" [label = "Art: 009-4-0002\nSenseair Sunlight R290";fillcolor = "#fffacd";];
+        "009-4-0002" -> {"833-00187"};
+        "833-00187" -> {"832-00161"};
+        
+        "009-4-0003" [label = "Art: 009-4-0003\nSenseair Sunlight Methane";fillcolor = "#fffacd";];
+        "009-4-0003" -> {"740-00993" "833-00196"};
+        "833-00196" -> {"832-00161"};
+        
+        "009-4-0004" [label = "Art: 009-4-0004\nSenseair Sunlight R32 & R54 A/B/C CS";fillcolor = "#fffacd";];
+        "009-4-0004" -> {"740-00600" "833-00139"};
+        "833-00139" -> {"832-00133"};
+        "832-00133" -> {"831-00321"};
+        
+        
+        "009-4-0005" [label = "Art: 009-4-0005\nSenseair Sunlight R290 CS";fillcolor = "#fffacd";];
+        "009-4-0005" -> {"740-00993" "833-00176"};
+        "833-00176" -> {"832-00133"};
+        "832-00133" -> {"831-00321"};
+        
+        
+        "009-4-0006" [label = "Art: 009-4-0006\nSenseair Sunlight R290 PH - 10,92";fillcolor = "#fffacd";];
+        "009-4-0006" -> {"792-00013" "833-00187"};
+        "833-00187" -> {"832-00161"};
+        "832-00161" -> {"831-00308"};
+        
+        "009-4-0007" [label = "Art: 009-4-0007\nSenseair Sunlight R290 Short";fillcolor = "#fffacd";];
+        "009-4-0007" -> {"833-00189"};
+        "833-00189" -> {"832-00174"};
+        "832-00174" -> {"831-00401"};
+        
+        
+        "009-4-0008" [label = "Art: 009-4-0008\nSenseair Sunlight R32 PH - 8.51";fillcolor = "#fffacd";];
+        "009-4-0008" -> {"740-01964" "833-00166"};
+        "833-00166" -> {"832-00161"};
+        "832-00161" -> {"831-00308"};
+        
+        "009-4-0009" [label = "Art: 009-4-0009\nSenseair Sunlight R290 PH - 8.51";fillcolor = "#fffacd";];
+        "009-4-0009" -> {"740-01964" "792-00013" "833-00187"};
+        "833-00187" -> {"832-00161"};
+        "832-00161" -> {"831-00308"};
+        
+        "009-4-0010" [label = "Art: 009-4-0010\nSenseair Sunlight R32 PH - 10.92";fillcolor = "#fffacd";];
+        "009-4-0010" -> {"740-01926" "792-00013" "833-00166"};
+        "833-00166" -> {"832-00161"};
+        "832-00161" -> {"831-00308"};
+        
+        "009-4-0208" [label = "Art: 009-4-0208\nSenseair Sunlight R32 PH MSR - 8.51";fillcolor = "#fffacd";];
+        "009-4-0208" -> {"740-01964" "792-00013" "833-00166"};
+        "833-00166" -> {"832-00161"};
+        "832-00161" -> {"831-00308"};
+        
+        
+        "009-4-0209" [label = "Art: 009-4-0209\nSenseair Sunlight R290 PH - 8.51";fillcolor = "#fffacd";];
+        "009-4-0209" -> {"740-01964" "792-00013" "833-00187"};
+        "833-00187" -> {"832-00161"};
+        "832-00161" -> {"831-00308"};
+    }
+    // 
+    // SUNRISE
+    // 
+    
+    subgraph cluster_sunlight {
+        label = "Sunlight";
+        color = white;
+        "Sunlight";
+        
+        
+        "Sunrise" -> {"006-4-0007" "006-4-0008" "006-4-0010" "006-4-0011" "006-4-0020" "006-4-0021" "006-4-0220"};
+        
+        
+        "006-4-0007" [label = "Art: 006-4-0007\nSenseair Sunrise";fillcolor = "#dacdff";];
+        "006-4-0007" -> {"740-00993" "833-00138"};
+        "833-00138" -> {"832-00132"};
+        "832-00132" -> {"831-00275"};
+        
+        
+        "006-4-0008" [label = "Art: 006-4-0008\nSenseair Sunrise";fillcolor = "#dacdff";];
+        "006-4-0008" -> {"740-00993" "833-00163"};
+        "833-00163" -> {"832-00157"};
+        "832-00157" -> {"831-00295"};
+        
+        
+        "006-4-0010" [label = "Art: 006-4-0010\nSenseair Sunrise PH";fillcolor = "#dacdff";];
+        "006-4-0010" -> {"740-01550" "833-00168"};
+        "833-00168" -> {"832-00165"};
+        "832-00165" -> {"740-01550" "831-00275"};
+        
+        
+        "006-4-0011" [label = "Art: 006-4-0011\nSenseair Sunrise CO2 PH - 13.46";fillcolor = "#dacdff";];
+        "006-4-0011" -> {"740-00993" "833-00163"};
+        "833-00163" -> {"832-00157"};
+        "832-00157" -> {"831-00295"};
+        
+        
+        
+        "006-4-0020" [label = "Art: 006-4-0020\nSenseair Sunrise DT";fillcolor = "#dacdff";];
+        "006-4-0020" -> {"740-00993" "833-00200"};
+        "833-00200" -> {"832-00157"};
+        "832-00157" -> {"831-00295"};
+        
+        "006-4-0021" [label = "Art: 006-4-0021\nSenseair Sunrise DT PH - 8.51";fillcolor = "#dacdff";];
+        "006-4-0021" -> {"740-00993" "833-00201"};
+        "833-00201" -> {"832-00182"};
+        "832-00182" -> {"831-00295"};
+        
+        
+        "006-4-0220" [label = "Art: 006-4-0220\nSenseair Sunrise DT PH - 5.90";fillcolor = "#dacdff";];
+        "006-4-0220" -> {"740-01550" "833-00202"};
+        "833-00202" -> {"832-00183"};
+        "832-00183" -> {"831-00295"};
+    }
+    
+    
+    
+    // ritningar
+    "795-00336" [label = "Art: 795-00336\nparticle filter";fillcolor = "#c1d82e";];
+    "795-00337" [label = "Art: 795-00337\nOBA 17-2G OBA Assembly";fillcolor = "#c1d82e";];
+    "795-00339" [label = "Art: 795-01722\nOBA 17-2G Tube";fillcolor = "#c1d82e";];
+    "795-00340" [label = "Art: 795-00340\nOBA 17-2G Collimator mirror Metallized";fillcolor = "#c1d82e";];
+    "795-00343" [label = "Art: 795-00343\nOBA 17-2G Main Mirror Metallized";fillcolor = "#c1d82e";];
+    
+    
+    
+    
+    // "795-02166" [label = "Art: 795-02166\nPin Header";fillcolor = "#c1d82e";];
+    // "795-02165" [label = "Art: 795-02165\nPin Header";fillcolor = "#c1d82e";];
+    
+    "795-01265" [label = "Art: 795-01265\nPBA K102-F-2G";fillcolor = "#c1d82e";];
+    "795-01266" [label = "Art: 795-01266\nPBAS K102-F-2G";fillcolor = "#c1d82e";];
+    
+    "795-02158" [label = "Art: 795-02158\nSunlight with Pinheader";fillcolor = "#c1d82e";];
+    "795-02159" [label = "Art: 795-01259\nPinheader MTSW-105-08-G-S-300";fillcolor = "#c1d82e";];
+    "795-02160" [label = "Art: 795-01260\nPinheader MTSW-104-08-G-S-300";fillcolor = "#c1d82e";];
+    "795-01789" [label = "Art: 795-01789\nPin Header Siemens Sunrise 5pin";fillcolor = "#c1d82e";];
+    
+    
+    
+    "795-01788" [label = "Art: 795-01788\nSunrise";fillcolor = "#c1d82e";];
+    
+    "795-01722" [label = "Art: 795-01722\nPin Header Siemens";fillcolor = "#c1d82e";];
+    
+    
+    "795-02150" [label = "Art: 795-02150\nSunlight Upside Down Pin Header";fillcolor = "#c1d82e";];
+    "795-02163" [label = "Art: 795-02163\nSunlight With Pin Header";fillcolor = "#c1d82e";];
+    
+    
+    "120-00452" [label = "Art: 795-00452\nConnector Samtec Header Rec Male 2.54Pitch 1Row 4Pos Straight THT";fillcolor = "#c1d82e";];
+    "120-00453" [label = "Art: 795-00453\nConnector Samtec Header Rec Male 2.54Pitch 1Row 5Pos Straight THT";fillcolor = "#c1d82e";];
+    
+    
+    
+    "740-01963" -> {"795-02158"};
+    "795-02158" -> {"795-01266" "795-02159" "795-02160"};
+    "795-01266" -> {"795-00336" "795-00337" "795-01265"};
+    "795-00337" -> {"795-00339" "795-00340" "795-00343"};
+    
+    "740-01964" -> {"795-02163"};
+    "795-02163" -> {"120-00452" "120-00453" "795-01266"};
+    
+    
+    "740-01550" -> {"795-01788"};
+    "795-01788" -> {"795-00336" "795-00337" "795-01265" "795-01722" "795-01789"};
+    
+    "740-00993" -> {"795-01266"};
+    "795-01266" -> {"795-00336" "795-00337" "795-00337" "795-01265"};
+    
+    "740-01926" -> {"795-02150"};
+    "795-02150" -> {"795-01266" "795-01265" "795-01266"};
+    
+    "740-00600" -> {"795-01266"};
+    "795-01266" -> {"795-00336" "795-00337" "795-01265"};
+    
+    
+    // PH configuration
+    // "792-00013" [label = "Art: 792-00013\nReconfiguration of Sunlight with pin headers";fillcolor = "#fffacd";];
+    
+    
+    
+    // "740-01926" "740-00600"
+}

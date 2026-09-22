@@ -48,9 +48,9 @@ MAIN_MIRROR_PROPERTIES = [
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 26.4575131106, "doc": "Distance from ellipsoid centre to focus"},
     {"name": "TiltAngle", "type": "App::PropertyAngle", "group": "Ellipsoid", "default": 0.0, "doc": "Tilt angle of the ellipsoids around the Z axis"},
     {"name": "ShowDebugEllipsoids", "type": "App::PropertyBool", "group": "Debug", "default": False, "doc": "Show ellipsoids for debugging"},
-    {"name": "PosX", "type": "App::PropertyDistance", "group": "Placement", "doc": "X coordinate"},
-    {"name": "PosY", "type": "App::PropertyDistance", "group": "Placement", "doc": "Y coordinate"},
-    {"name": "PosZ", "type": "App::PropertyDistance", "group": "Placement", "doc": "Z coordinate"},
+    {"name": "PosX", "type": "App::PropertyFloat", "group": "Placement", "doc": "X coordinate"},
+    {"name": "PosY", "type": "App::PropertyFloat", "group": "Placement", "doc": "Y coordinate"},
+    {"name": "PosZ", "type": "App::PropertyFloat", "group": "Placement", "doc": "Z coordinate"},
 ]
 
 
@@ -67,6 +67,8 @@ class OBAMainMirror:
     def _init_runtime_state(self):
         self._initializing = True
         self._rebuilding = False
+
+        self._suppress_onchange = False
 
         self._cube = None
         self._ellipsoid_Left = None
@@ -197,7 +199,7 @@ class OBAMainMirror:
 
         left_local = App.Placement()
 
-        left_local.Base = App.Vector(-split / 2.0, b, 0.0)
+        left_local.Base = App.Vector(-split / 2.0, b / 2, 0.0)
         rot1 = App.Rotation(App.Vector(1, 0, 0), 90)
 
         rot2 = App.Rotation(App.Vector(0, 0, 1), 270 + tilt)
@@ -214,7 +216,7 @@ class OBAMainMirror:
 
         right_local = App.Placement()
 
-        right_local.Base = App.Vector(split / 2.0, b, 0.0)
+        right_local.Base = App.Vector(split / 2.0, b / 2, 0.0)
         rot1 = App.Rotation(App.Vector(1, 0, 0), 90)
         rot2 = App.Rotation(App.Vector(0, 0, 1), 270 - tilt)
         right_local.Rotation = rot2.multiply(rot1)
@@ -256,8 +258,8 @@ class OBAMainMirror:
         if self._rebuilding:
             return
         self._rebuilding = True
-        try:
 
+        try:
             self._update_ellipsoids(obj)
             self._update_cube(obj)
 
@@ -270,7 +272,8 @@ class OBAMainMirror:
             obj.Ellipsoid2FocusX = float(obj.SplitOffset) / 2.0
             obj.MirrorPlaneX = 0.0
 
-            obj.Document.recompute()
+            if not self._suppress_onchange:
+                obj.Document.recompute()
         finally:
             self._rebuilding = False
 
@@ -282,10 +285,15 @@ class OBAMainMirror:
 
         if prop == "Group":
             return
-
         if self._rebuilding:
             return
         if self._initializing:
+            return
+
+        if prop in {"ShowDebugEllipsoids"}:
+            self._update_debug_visibility(obj)
+
+        if self._suppress_onchange:
             return
 
         # App.Console.PrintMessage(f"onChanged: {prop}\n")
@@ -588,6 +596,7 @@ def OBA_CreateMainMirror(
     x=0.0,
     y=0.0,
     z=0.0,
+    suppress_onchange=False,
     show_dialog=True,
 ):
     doc = doc or App.ActiveDocument or App.newDocument()
@@ -608,8 +617,8 @@ def OBA_CreateMainMirror(
         raise ValueError("B must be greater than zero.")
     if a < b:
         raise ValueError("A must be greater than or equal to B.")
-    if b > height:
-        raise ValueError("B must be less than or equal to Height.")
+    # if b > height:
+    #     raise ValueError("B must be less than or equal to Height.")
 
     # --------------------------------------------------------------
     # Main FeaturePython object
@@ -619,13 +628,14 @@ def OBA_CreateMainMirror(
     obj.Label = label
     proxy = OBAMainMirror(obj)
     proxy._initializing = True
+    proxy._suppress_onchange = suppress_onchange
 
-    obj.Width = App.Units.Quantity(f"{width} mm")
-    obj.Height = App.Units.Quantity(f"{height} mm")
-    obj.SplitOffset = App.Units.Quantity(f"{split_offset} mm")
-    obj.A = App.Units.Quantity(f"{a} mm")
-    obj.B = App.Units.Quantity(f"{b} mm")
-    obj.TiltAngle = App.Units.Quantity(f"{tiltangle} deg")
+    obj.Width = width  # App.Units.Quantity(f"{width} mm")
+    obj.Height = height  # App.Units.Quantity(f"{height} mm")
+    obj.SplitOffset = split_offset  # App.Units.Quantity(f"{split_offset} mm")
+    obj.A = a  # App.Units.Quantity(f"{a} mm")
+    obj.B = b  # App.Units.Quantity(f"{b} mm")
+    obj.TiltAngle = tiltangle  # App.Units.Quantity(f"{tiltangle} deg")
 
     obj.Placement = App.Placement(App.Vector(x, y, z), App.Rotation())
 
