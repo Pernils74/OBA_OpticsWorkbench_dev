@@ -40,6 +40,7 @@ from .oba_toolbox_base import (
     install_properties,
     make_optical_type,
     restore_view_provider,
+    _set_quantity_if_changed,
 )
 
 from .oba_comp_mirror import OBA_CreateCompMirror
@@ -56,10 +57,10 @@ WHITE_CELL_PROPERTIES = [
     # ==============================================================
     # CHILD OBJECTS
     # ==============================================================
-    {"name": "MainMirror", "type": "App::PropertyLink", "group": "Mirrors", "visible": False, "doc": "Main Mirror belonging to this White Cell"},
-    {"name": "CompMirror", "type": "App::PropertyLink", "group": "Mirrors", "visible": False, "doc": "Comp Mirror belonging to this White Cell"},
-    {"name": "Emitter", "type": "App::PropertyLink", "group": "Ellipsoids", "visible": False, "doc": "Emitter ellipsoid belonging to this White Cell"},
-    {"name": "Detector", "type": "App::PropertyLink", "group": "Ellipsoids", "visible": False, "doc": "Detector ellipsoid belonging to this White Cell"},
+    {"name": "MainMirror", "type": "App::PropertyLink", "group": "Child objects", "visible": False, "doc": "Main Mirror belonging to this White Cell"},
+    {"name": "CompMirror", "type": "App::PropertyLink", "group": "Child objects", "visible": False, "doc": "Comp Mirror belonging to this White Cell"},
+    {"name": "Emitter", "type": "App::PropertyLink", "group": "Child objects", "visible": False, "doc": "Emitter ellipsoid belonging to this White Cell"},
+    {"name": "Detector", "type": "App::PropertyLink", "group": "Child objects", "visible": False, "doc": "Detector ellipsoid belonging to this White Cell"},
     # ==============================================================
     # MAIN MIRROR
     # ==============================================================
@@ -106,9 +107,9 @@ WHITE_CELL_PROPERTIES = [
     {"name": "EmitterB", "label": "B", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 6.4, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     # {"name": "EmitterB2", "label": "B2", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "EmitterWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.9, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
-    {"name": "EmitterRotX", "label": "Rot X", "type": "App::PropertyAngle", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
+    {"name": "EmitterRotX", "label": "Rot X", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     # {"name": "EmitterRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Emitter","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
-    {"name": "EmitterRotZ", "label": "Rot Z", "type": "App::PropertyAngle", "group": "Emitter", "parent_group": "Input_Output", "default": -3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
+    {"name": "EmitterRotZ", "label": "Rot Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": -3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     {"name": "EmitterX", "label": "X", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # {"name": "EmitterY", "label": "Y", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # {"name": "EmitterZ", "label": "Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
@@ -138,11 +139,25 @@ WHITE_CELL_PROPERTIES = [
 # ======================================================================
 
 
-def _set_quantity(obj, name, value, unit):
-    """
-    Safely assign a FreeCAD quantity property.
-    """
-    setattr(obj, name, App.Units.Quantity(f"{float(value)} {unit}"))
+def _set_property_if_changed(obj, name, value):
+    current = getattr(obj, name)
+
+    if current == value:
+        return False
+
+    setattr(obj, name, value)
+    return True
+
+
+def _set_float_if_changed(obj, name, value, tol=1e-9):
+    current = float(getattr(obj, name))
+    new = float(value)
+
+    if abs(current - new) < tol:
+        return False
+
+    setattr(obj, name, new)
+    return True
 
 
 def _obj_exists(obj):
@@ -155,6 +170,14 @@ def _obj_exists(obj):
         return obj.Document is not None and obj.Document.getObject(obj.Name) is obj
     except Exception:
         return False
+
+
+def _set_link_if_changed(obj, prop, target):
+    if getattr(obj, prop) is target:
+        return False
+
+    setattr(obj, prop, target)
+    return True
 
 
 # ======================================================================
@@ -180,6 +203,9 @@ class OBAWhiteCell:
         self._cutDetector = None
 
         self._dialog = None
+        # self._dialog_is_open = False
+
+        self._rebuild_count = 0
 
     def __init__(self, obj):
 
@@ -320,27 +346,26 @@ class OBAWhiteCell:
                 show_dialog=False,
             )
 
-        self._cutEmitter = self._get_or_create(doc, f"{obj.Name}_CutEmitter", "Part::Cut", f"{obj.Label} Cut")
+        # ----------------------------------------------------------
+        # Cut emitter
+        # ----------------------------------------------------------
 
-        if self._cutEmitter.Base is not self._compMirror.Proxy._cut:
-            self._cutEmitter.Base = self._compMirror.Proxy._cut
-        if self._cutEmitter.Tool is not self._emitter.Proxy._box_bound:
-            self._cutEmitter.Tool = self._emitter.Proxy._box_bound
-        # self._cutEmitter.Base = self._compMirror.Proxy._cut
-        # self._cutEmitter.Tool = self._emitter.Proxy._box_bound
+        self._cutEmitter = self._get_or_create(doc, f"{obj.Name}_CutEmitter", "Part::Cut", f"{obj.Label} {self._compMirror.Label} Cut")
+        changed = False
+        changed |= _set_link_if_changed(self._cutEmitter, "Base", self._compMirror.Proxy._cut)
+        changed |= _set_link_if_changed(self._cutEmitter, "Tool", self._emitter.Proxy._box_bound)
 
-        self._compMirror.Proxy._cut.ViewObject.hide()
+        # ----------------------------------------------------------
+        # Cut detector
+        # ----------------------------------------------------------
+        # self._cutDetector = self._get_or_create(doc, f"{obj.Name}_CutDetector", "Part::Cut", f"{obj.Label} {self._compMirror.Label} Cut")
+        self._cutDetector = self._get_or_create(doc, f"{obj.Name}_CutDetector", "Part::Cut", f"{obj.Label}  Cut CompMirror")
+        changed |= _set_link_if_changed(self._cutDetector, "Base", self._cutEmitter)
+        changed |= _set_link_if_changed(self._cutDetector, "Tool", self._detector.Proxy._box_bound)
 
-        self._cutDetector = self._get_or_create(doc, f"{obj.Name}_CutDetector", "Part::Cut", f"{obj.Label} Cut")
-
-        if self._cutDetector.Base is not self._cutEmitter:
-            self._cutEmitter.Base = self._cutEmitter
-        if self._cutDetector.Tool is not self._detector.Proxy._box_bound:
-            self._cutDetector.Tool = self._detector.Proxy._box_bound
-
-        self._cutDetector.Base = self._cutEmitter
-        self._cutDetector.Tool = self._detector.Proxy._box_bound
-
+        # ----------------------------------------------------------
+        # Visibility
+        # ----------------------------------------------------------
         self._compMirror.Proxy._cut.ViewObject.hide()
 
         # ----------------------------------------------------------
@@ -383,30 +408,31 @@ class OBAWhiteCell:
         # if not self._obj_exists(mirror):
         #     return
         proxy = getattr(mirror, "Proxy", None)
+        changed = False
         try:
             if proxy is not None:
                 proxy._initializing = True
 
-            _set_quantity(mirror, "Width", obj.MainMirrorWidth, "mm")
-            _set_quantity(mirror, "Height", obj.MainMirrorHeight, "mm")
-            _set_quantity(mirror, "SplitOffset", obj.MainMirrorSplitOffset, "mm")
-            _set_quantity(mirror, "A", obj.MainMirrorA, "mm")
-            _set_quantity(mirror, "B", obj.MainMirrorB, "mm")
-            _set_quantity(mirror, "TiltAngle", obj.MainMirrorTiltAngle, "deg")
+            changed |= _set_quantity_if_changed(mirror, "Width", obj.MainMirrorWidth, "mm")
+            changed |= _set_quantity_if_changed(mirror, "Height", obj.MainMirrorHeight, "mm")
+            changed |= _set_quantity_if_changed(mirror, "SplitOffset", obj.MainMirrorSplitOffset, "mm")
+            changed |= _set_quantity_if_changed(mirror, "A", obj.MainMirrorA, "mm")
+            changed |= _set_quantity_if_changed(mirror, "B", obj.MainMirrorB, "mm")
+            changed |= _set_quantity_if_changed(mirror, "TiltAngle", obj.MainMirrorTiltAngle, "deg")
 
-            mirror.Placement = App.Placement(
-                App.Vector(
-                    0,  # float(obj.MainMirrorX),
-                    float(obj.MainMirrorY),
-                    0,  # float(obj.MainMirrorZ),
-                ),
-                App.Rotation(),
-            )
+            # mirror.Placement = App.Placement(
+            #     App.Vector(
+            #         0,  # float(obj.MainMirrorX),
+            #         float(obj.MainMirrorY),
+            #         0,  # float(obj.MainMirrorZ),
+            #     ),
+            #     App.Rotation(),
+            # )
         finally:
             if proxy is not None:
                 proxy._initializing = False
         try:
-            if proxy is not None:
+            if proxy is not None and changed:
                 proxy._rebuild(mirror)
                 pass
         except Exception as exc:
@@ -422,36 +448,36 @@ class OBAWhiteCell:
         # if not self._obj_exists(mirror):
         #     return
         proxy = getattr(mirror, "Proxy", None)
-
+        changed = False
         try:
             if proxy is not None:
                 proxy._initializing = True
 
             required_width = 2 * max(abs(float(obj.EmitterX)), abs(float(obj.DetectorX)))
-            _set_quantity(mirror, "Width", required_width, "mm")
-            # _set_quantity(mirror, "Width", obj.MainMirrorWidth, "mm")  # CompMirrorWidth
-            _set_quantity(mirror, "Height", obj.MainMirrorHeight, "mm")  # CompMirrorHeight
+            changed |= _set_quantity_if_changed(mirror, "Width", required_width, "mm")
+            changed |= _set_quantity_if_changed(mirror, "Height", obj.MainMirrorHeight, "mm")  # CompMirrorHeightchanged |=
 
-            _set_quantity(mirror, "A", obj.CompMirrorA, "mm")
-            _set_quantity(mirror, "B", obj.CompMirrorB, "mm")
+            changed |= _set_quantity_if_changed(mirror, "A", obj.CompMirrorA, "mm")
+            changed |= _set_quantity_if_changed(mirror, "B", obj.CompMirrorB, "mm")
+            # _set_quantity_if_changed(mirror, "Width", obj.MainMirrorWidth, "mm")  # CompMirrorWidth
 
-            mirror.Placement = App.Placement(
-                App.Vector(
-                    0,  # float(obj.CompMirrorX),
-                    0,  #  float(obj.CompMirrorY),
-                    0,  #  float(obj.CompMirrorZ),
-                ),
-                App.Rotation(),
-            )
+            # mirror.Placement = App.Placement(
+            #         App.Vector(
+            #             0,  # float(obj.CompMirrorX),
+            #             0,  #  float(obj.CompMirrorY),
+            #             0,  #  float(obj.CompMirrorZ),
+            #         ),
+            #         App.Rotation(),
+            #     )
 
         finally:
             if proxy is not None:
                 proxy._initializing = False
         try:
-            if proxy is not None:
+            if proxy is not None and changed:
                 proxy._rebuild(mirror)
                 pass
-                print(mirror.Name, mirror.State)
+                # print(mirror.Name, mirror.State)
 
         except Exception as exc:
 
@@ -490,51 +516,60 @@ class OBAWhiteCell:
         # if not self._obj_exists(ellipsoid):
         #     return
         proxy = getattr(ellipsoid, "Proxy", None)
+        changed = False
         try:
             if proxy is not None:
-                # proxy._initializing = True
-                pass
+                proxy._initializing = True
 
             # ----------------------------------------------------------
             # Geometry
             # ----------------------------------------------------------
 
             if hasattr(ellipsoid, "APlaneWidth"):
-                _set_quantity(ellipsoid, "APlaneWidth", getattr(obj, f"{prefix}APlaneWidth"), "mm")
+                changed |= _set_quantity_if_changed(ellipsoid, "APlaneWidth", getattr(obj, f"{prefix}APlaneWidth"), "mm")
 
             if hasattr(ellipsoid, "APlaneHeight"):
-                _set_quantity(ellipsoid, "APlaneHeight", getattr(obj, f"{prefix}APlaneHeight"), "mm")
+                changed |= _set_quantity_if_changed(ellipsoid, "APlaneHeight", getattr(obj, f"{prefix}APlaneHeight"), "mm")
+
+            # if hasattr(ellipsoid, "APlaneZoffset"):
+            #     ellipsoid.APlaneZoffset = float(getattr(obj, f"{prefix}APlaneZoffset"))
+
+            # if hasattr(ellipsoid, "APlaneYoffset"):
+            #     ellipsoid.APlaneYoffset = float(getattr(obj, f"{prefix}APlaneYoffset"))
 
             if hasattr(ellipsoid, "APlaneZoffset"):
-                ellipsoid.APlaneZoffset = float(getattr(obj, f"{prefix}APlaneZoffset"))
+                changed |= _set_float_if_changed(ellipsoid, "APlaneZoffset", getattr(obj, f"{prefix}APlaneZoffset"))
 
             if hasattr(ellipsoid, "APlaneYoffset"):
-                ellipsoid.APlaneYoffset = float(getattr(obj, f"{prefix}APlaneYoffset"))
-
-            if hasattr(ellipsoid, "A"):
-                _set_quantity(ellipsoid, "A", getattr(obj, f"{prefix}A"), "mm")
-
-            if hasattr(ellipsoid, "B"):
-                _set_quantity(ellipsoid, "B", getattr(obj, f"{prefix}B"), "mm")
+                changed |= _set_float_if_changed(ellipsoid, "APlaneYoffset", getattr(obj, f"{prefix}APlaneYoffset"))
 
             if hasattr(ellipsoid, "WidthFactor"):
-                setattr(ellipsoid, "WidthFactor", float(getattr(obj, f"{prefix}WidthFactor")))
+                changed |= _set_float_if_changed(ellipsoid, "WidthFactor", getattr(obj, f"{prefix}WidthFactor"))
+
+            if hasattr(ellipsoid, "A"):
+                changed |= _set_quantity_if_changed(ellipsoid, "A", getattr(obj, f"{prefix}A"), "mm")
+
+            if hasattr(ellipsoid, "B"):
+                changed |= _set_quantity_if_changed(ellipsoid, "B", getattr(obj, f"{prefix}B"), "mm")
+
+            # if hasattr(ellipsoid, "WidthFactor"):
+            #     setattr(ellipsoid, "WidthFactor", float(getattr(obj, f"{prefix}WidthFactor")))
             # ----------------------------------------------------------
             # B2
             # ----------------------------------------------------------
 
             # if hasattr(ellipsoid, "B2"):
-            #     _set_quantity(ellipsoid, "B2", getattr(obj, f"{prefix}B2"), "mm")
+            #     _set_quantity_if_changed(ellipsoid, "B2", getattr(obj, f"{prefix}B2"), "mm")
 
             # ----------------------------------------------------------
             # Rotation
             # ----------------------------------------------------------
 
             if hasattr(ellipsoid, "RotX"):
-                _set_quantity(ellipsoid, "RotX", getattr(obj, f"{prefix}RotX"), "deg")
+                changed |= _set_quantity_if_changed(ellipsoid, "RotX", getattr(obj, f"{prefix}RotX"), "deg")
 
             if hasattr(ellipsoid, "RotZ"):
-                _set_quantity(ellipsoid, "RotZ", getattr(obj, f"{prefix}RotZ"), "deg")
+                changed |= _set_quantity_if_changed(ellipsoid, "RotZ", getattr(obj, f"{prefix}RotZ"), "deg")
 
             # ----------------------------------------------------------
             # Placement
@@ -551,7 +586,8 @@ class OBAWhiteCell:
             # print("X =", x)
 
             x2, y2 = self.ellipse_y_point_offset_from_x(comp_ellipsoid, x, offset=offset)
-            ellipsoid.Placement = App.Placement(
+            # ellipsoid.Placement = App.Placement(
+            new_placement = App.Placement(
                 App.Vector(
                     # center.x + x2,
                     x,
@@ -561,6 +597,9 @@ class OBAWhiteCell:
                 ),
                 App.Rotation(),
             )
+            if ellipsoid.Placement != new_placement:
+                ellipsoid.Placement = new_placement
+                changed = True
 
         finally:
             if proxy is not None:
@@ -570,7 +609,7 @@ class OBAWhiteCell:
         # Rebuild
         # --------------------------------------------------------------
         try:
-            if proxy is not None:
+            if proxy is not None and changed:
                 proxy._rebuild(ellipsoid)
                 pass
 
@@ -581,49 +620,97 @@ class OBAWhiteCell:
     # R E B U I L D
     # ==================================================================
 
+    def execute(self, obj):
+        # print("=== WHITECELL EXECUTE ===")
+
+        if self._initializing:
+            # print("  skip: initializing")
+            return
+
+        if self._rebuilding:
+            # print("  skip: rebuilding")
+            return
+
+        # print("  dirty =", self._dirty)
+
+        # for objekt in ("_emitter", "_detector", "_mainMirror", "_compMirror"):
+        #     print(f"---- {objekt} suppress onchange:", getattr(getattr(self, objekt).Proxy, "_suppress_onchange", None))
+
+        if not self._dirty:
+            # print("  skip: not dirty")
+            return
+
+        # print("  rebuilding...")
+        self._rebuild(obj)
+        self._dirty = False
+        # print("  rebuild done")
+
     def _update_dependent_optics(self, obj):
         self._update_ellipsoid(self._emitter, "Emitter", obj)
         self._update_ellipsoid(self._detector, "Detector", obj)
 
+    def _is_dialog_open(self):
+        dlg = getattr(self, "_dialog", None)
+        if dlg is None:
+            return False
+        try:
+            return dlg.isVisible()
+        except Exception:
+            self._dialog = None
+            return False
+
     def _rebuild(self, obj):
+
+        # self._rebuild_count += 1
+        # print(f"{obj.Label} rebuild #{self._rebuild_count}")
+
         if self._rebuilding:
             return
         self._rebuilding = True
         try:
-            self._ensure_children(obj)
+            # self._ensure_children(obj)
             self._update_main_mirror(obj)
             self._update_comp_mirror(obj)
             # nedan finns det depedent_optics
             self._update_dependent_optics(obj)
+
+            # for child in obj.Group:
+            #     print("*** från white cell rebuild ", child.Name, child.State)
+
             # self._update_ellipsoid(self._emitter, "Emitter", obj)
             # self._update_ellipsoid(self._detector, "Detector", obj)
-
-            obj.Document.recompute()
+            # obj.Document.recompute()
         except Exception as exc:
             App.Console.PrintError("[OBA] White Cell rebuild failed: " f"{exc}\n")
         finally:
             self._rebuilding = False
 
-    def rebuild_if_needed(self, obj):
-        # if not self._dirty:
-        #     return
-        print("================================optuna körs ")
-        self._rebuild(obj)
-        self._dirty = False
+        if self._is_dialog_open():
+            # print("hdkfhkjhdkfhdkjhfkdjhkfjhdkjfhk")
+            obj.Document.recompute()
+
+        # if not is_optimization_running():
+        #     # print("  optimering körs inte ---------------")
+        #     obj.Document.recompute()
+        #     pass
 
     # ==================================================================
     # C H A N G E D
     # ==================================================================
 
     def onChanged(self, obj, prop):
+
+        IGNORE = {"Group", "MainMirror", "CompMirror", "Emitter", "Detector", "Label", "Proxy", "Shape"}
+        if prop in IGNORE:
+            # print("//// WHITECELL IGNORE:", prop)
+            return
+
+        # print("WHITECELL onChanged:", prop)
+
         if self._initializing:
             return
         if self._rebuilding:
             return
-        if prop == "Shape":
-            return
-
-        print(f"onChanged whitecell: {prop}, rebuilding={self._rebuilding},  init={self._initializing}")
 
         main_properties = {
             "MainMirrorWidth",
@@ -675,26 +762,18 @@ class OBAWhiteCell:
         }
 
         if prop in main_properties:
-            try:
+            # Expression Engine changes can arrive during recompute.  Only
+            # mark the object dirty here; execute() performs one coalesced
+            # rebuild in the current recompute pass.
+            if is_optimization_running():
+                # print("== optimisering körs ==")
+                self._dirty = True
+                # return
 
-                self._rebuild(obj)
-                # obj.Document.recompute()
+            self._rebuild(obj)
 
-                # if not is_optimization_running():  # is_optimization_running är True om optuna körs
-                #     self._rebuild(obj)
-                #     # obj.Document.recompute()
-                # #     # self._refresh_dialog()
-                # else:
-                #     self._dirty = True  # är tänkt att användas för att undertrycka felmedelanden
-
-                # self._ensure_children(obj)
-                # self._update_main_mirror(obj)
-                # self._update_comp_mirror(obj)
-                # pga har emitter/detector elipsoiderna att vara y offset ifrån compM_elippsoiden
-                # self._update_ellipsoid(self._emitter, "Emitter", obj)
-                # self._update_ellipsoid(self._detector, "Detector", obj)
-            except Exception as exc:
-                App.Console.PrintError("[OBA] White Cell Main Mirror " f"update failed: {exc}\n")
+            # self._dirty = True
+            # obj.touch()
             self._refresh_dialog()
             return
 
@@ -703,12 +782,7 @@ class OBAWhiteCell:
     # ==================================================================
 
     def _refresh_dialog(self):
-
-        dialog = getattr(
-            self,
-            "_dialog",
-            None,
-        )
+        dialog = getattr(self, "_dialog", None)
 
         if dialog is not None:
 
@@ -823,14 +897,6 @@ class WhiteCellDialog(OBAToolboxDialogBase):
         # button_layout.addStretch(1)
         self.custom_layout.addLayout(button_layout)
 
-        # self.export_button = QtWidgets.QPushButton("Export to Spreadsheet")
-        # self.export_button.clicked.connect(self._export_to_spreadsheet)
-        # self.custom_layout.addWidget(self.export_button)
-
-        # self.optuna_button = QtWidgets.QPushButton("Update Optuna Config")
-        # self.optuna_button.clicked.connect(self._update_optuna_config)
-        # self.custom_layout.addWidget(self.optuna_button)
-
         self._widgets = {}
         parent_groups = {}
         groups = {}
@@ -936,6 +1002,11 @@ class WhiteCellDialog(OBAToolboxDialogBase):
                 value = getattr(obj, prop)
                 sheet.set(f"A{row}", prop)
                 # sheet.set(f"A{row}", prop_def.get("label", prop))
+                # unit = prop_def.get("unit", "")
+                # if unit:
+                #     sheet.set(f"B{row}", f"{float(value)} {unit}")
+                # else:
+                #     sheet.set(f"B{row}", str(value))
                 sheet.set(f"B{row}", str(value))
 
                 sheet.setAlias(f"B{row}", prop)
@@ -954,7 +1025,7 @@ class WhiteCellDialog(OBAToolboxDialogBase):
             except Exception as exc:
                 App.Console.PrintError(f"Spreadsheet export failed: {exc}\n")
             sheet.set(f"A{row}", "END")
-
+        # obj.Proxy._refresh_dialog()
         doc.recompute()
 
     def _update_optuna_config(self):
@@ -997,7 +1068,7 @@ class WhiteCellDialog(OBAToolboxDialogBase):
     # ==================================================================
 
     def _set_property(self, prop, value):
-
+        # print("SET", prop, value)
         if self._refreshing_ui:
             return
         try:
@@ -1026,15 +1097,23 @@ class WhiteCellDialog(OBAToolboxDialogBase):
     # ==================================================================
 
     def closeEvent(self, event):
-
         try:
+            # self.obj.Proxy._dialog_is_open = False
+
             if self.obj.Proxy._dialog is self:
                 self.obj.Proxy._dialog = None
-
         except Exception:
             pass
 
         super().closeEvent(event)
+
+    # def closeEvent_old(self, event):
+    #     try:
+    #         if self.obj.Proxy._dialog is self:
+    #             self.obj.Proxy._dialog = None
+    #     except Exception:
+    #         pass
+    #     super().closeEvent(event)
 
 
 # ======================================================================
@@ -1047,14 +1126,9 @@ class WhiteCellViewProvider(OBAToolboxViewProviderBase):
     dialog_class = WhiteCellDialog
 
     def __init__(self, vobj):
-
-        super().__init__(
-            vobj,
-            WhiteCellDialog,
-        )
+        super().__init__(vobj, WhiteCellDialog)
 
     def attach(self, vobj):
-
         self.ViewObject = vobj
         self.Object = vobj.Object
 
@@ -1101,7 +1175,7 @@ class WhiteCellViewProvider(OBAToolboxViewProviderBase):
                 obj,
                 title="White Cell Settings",
             )
-
+            # obj.Proxy._dialog_is_open = True
             self._dialog = dialog
 
             try:
@@ -1185,6 +1259,7 @@ def OBA_CreateWhiteCell(doc=None, label="White_Cell", show_dialog=True):
     if show_dialog and App.GuiUp:
         dialog = WhiteCellDialog(obj, title="White Cell Settings")
         proxy._dialog = dialog
+        # proxy._dialog_is_open = True
 
         dialog.show()
         dialog.raise_()

@@ -17,7 +17,7 @@ if LIBDIR not in sys.path:
 import optuna
 from optuna.samplers import TPESampler, RandomSampler, CmaEsSampler, NSGAIISampler
 
-OPTIMIZATION_RUNNING = False
+RUNNING = False
 
 # DB_PATH = f"sqlite:///{os.path.join(BASE_DIR, 'optimization.db')}"
 
@@ -41,13 +41,14 @@ DB_PATH = get_db_path()
 
 
 def is_optimization_running():
-    return OPTIMIZATION_RUNNING
+    return OptimizationWorker.RUNNING
 
 
 class OptimizationWorker(QtCore.QObject):
     requestEvaluate = QtCore.Signal(dict, dict)
     progress = QtCore.Signal(dict)
     finished = QtCore.Signal(object)
+    RUNNING = False
 
     def __init__(self):
         super().__init__()
@@ -67,7 +68,7 @@ class OptimizationWorker(QtCore.QObject):
         self._stop = False
         self._waiting = False
         self._last_results = None
-        OPTIMIZATION_RUNNING = True
+        OptimizationWorker.RUNNING = True
 
         self.param_names = config["params"]
         self.bounds = config["bounds"]
@@ -293,7 +294,7 @@ class OptimizationWorker(QtCore.QObject):
             for t in self.study.best_trials
         ]
         self.finished.emit(best_trials_data)
-        OPTIMIZATION_RUNNING = False
+        OptimizationWorker.RUNNING = False
 
     def _suggest_utan_dämpning(self, trial):
         params = {}

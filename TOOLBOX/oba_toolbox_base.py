@@ -20,6 +20,17 @@ from oba_objects.oba_base import (
 BASE_PATH = os.path.dirname(__file__)
 
 
+def _set_quantity_if_changed(obj, name, value, unit):
+    current = float(getattr(obj, name))
+    new = float(value)
+
+    if abs(current - new) < 1e-9:
+        return False
+
+    setattr(obj, name, App.Units.Quantity(f"{new} {unit}"))
+    return True
+
+
 def focus_distance(a, b):
     """Return C = sqrt(A² - B²), the centre-to-focus distance."""
     if a <= 0 or b <= 0:
@@ -51,6 +62,36 @@ def validate_ellipsoid(a, b, b2=None):
 
 def install_properties(obj, specs):
     for spec in specs:
+        name = spec["name"]
+        created = False
+        # ----------------------------------------------------------
+        # Create property if missing
+        # ----------------------------------------------------------
+        if not hasattr(obj, name):
+            obj.addProperty(spec["type"], name, spec["group"], spec.get("doc", ""))
+            created = True
+        # ----------------------------------------------------------
+        # Set default only for newly created properties
+        # ----------------------------------------------------------
+        if created and "default" in spec:
+            setattr(obj, name, spec["default"])
+        # ----------------------------------------------------------
+        # Optuna lock property
+        # ----------------------------------------------------------
+        if "optuna_locked" in spec:
+            lock_name = f"{name}_OptunaLocked"
+            lock_created = False
+
+            if not hasattr(obj, lock_name):
+                obj.addProperty("App::PropertyBool", lock_name, "Optimization", "Locked from Optuna")
+                lock_created = True
+
+            if lock_created:
+                setattr(obj, lock_name, spec.get("optuna_locked", False))
+
+
+def install_properties_old(obj, specs):
+    for spec in specs:
 
         # 1. Guard: Skapa bara egenskapen om den inte redan finns
         if not hasattr(obj, spec["name"]):
@@ -68,9 +109,17 @@ def install_properties(obj, specs):
                 setattr(obj, spec["name"], spec["default"])
 
         if "optuna_locked" in spec:
+
             lock_name = f'{spec["name"]}_OptunaLocked'
-            obj.addProperty("App::PropertyBool", lock_name, "Optimization", "Locked from Optuna")
-            setattr(obj, lock_name, spec.get("optuna_locked", False))
+            if not hasattr(obj, lock_name):
+                obj.addProperty("App::PropertyBool", lock_name, "Optimization", "Locked from Optuna")
+            if getattr(obj, lock_name) is None:
+                setattr(obj, lock_name, spec.get("optuna_locked", False))
+
+        # if "optuna_locked" in spec:
+        #     lock_name = f'{spec["name"]}_OptunaLocked'
+        #     obj.addProperty("App::PropertyBool", lock_name, "Optimization", "Locked from Optuna")
+        #     setattr(obj, lock_name, spec.get("optuna_locked", False))
 
 
 def make_calculated_length(obj, name, doc):

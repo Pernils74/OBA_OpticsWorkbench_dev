@@ -404,13 +404,15 @@ class EvaluationService(QtCore.QObject):
             # --------------------------------------------------
             if self._start_cad_params:
                 apply_cad_params(self._start_cad_params)
-                doc.recompute(None)
+                # doc.recompute(None)
+                doc.recompute()
 
             # --------------------------------------------------
             # B. APPLICERA AKTUELL TRIAL
             # --------------------------------------------------
             apply_cad_params(params)
-            doc.recompute(None)
+            # doc.recompute(None)
+            doc.recompute()
 
             # --------------------------------------------------
             # C. RAYTRACE
@@ -561,7 +563,8 @@ class EvaluationService(QtCore.QObject):
         # APPLY CAD PARAMS
         # --------------------------------------------------
         apply_cad_params(params)
-        doc.recompute(None)
+        # doc.recompute(None)
+        doc.recompute()
         # --------------------------------------------------
         # RAYTRACE
         # --------------------------------------------------

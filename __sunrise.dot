@@ -3,7 +3,8 @@ digraph G {
     node [shape = box; fontname = "Arial"; style = "filled"; fillcolor = "#f9f9f9"; width = 2;];
     
     
-    rankdir = TB;
+    rankdir = LB;
+    // LR
     // Top to Bottom layout
     nodesep = 0.6;
     // Ökat horisontellt avstånd mellan noder på samma nivå
@@ -67,7 +68,10 @@ digraph G {
     "832-00157" [label = "Art: 832-00157\nPBAS K103-F";fillcolor = "#dbffcd";];
     "832-00165" [label = "Art: 832-00165\nPBAS K102-F";fillcolor = "#dbffcd";];
     "832-00182" [label = "Art: 832-00182\nPBAS K103-F PH - 8.51";fillcolor = "#dbffcd";];
+    "832-00182" -> {"120-00452" "120-00453"};
     "832-00183" [label = "Art: 832-00183\nPBAS K103-F PH - 5.51";fillcolor = "#dbffcd";];
+    
+    "832-00183" -> {"120-00360" "120-00361"};
     
     
     
@@ -79,6 +83,17 @@ digraph G {
     // sunrise
     "831-00275" [label = "Art: 831-00275\nPBA K102-F";fillcolor = "#dbffcd";];
     "831-00295" [label = "Art: 831-00275\nPBA K103-F";fillcolor = "#dbffcd";];
+    
+    
+    // Pin headers
+    "120-00423" [label = "Art: 120-00423\nConnector Samtec Header Rec Male 2.54Pitch 1Row 4Pos Straight THT";fillcolor = "#5de129";];
+    "120-00424" [label = "Art: 120-00424\nConnector Samtec Header Rec Male 2.54Pitch 1Row 5Pos Straight THT";fillcolor = "#5de129";];
+    "120-00452" [label = "Art: 120-00452\nConnector Samtec Header Rec Male 2.54Pitch 1Row 4Pos Straight THT";fillcolor = "#5de129";];
+    "120-00453" [label = "Art: 120-00453\nConnector Samtec Header Rec Male 2.54Pitch 1Row 5Pos Straight THT";fillcolor = "#5de129";];
+    "120-00360" [label = "Art: 120-00360\nPin header low profile 5-pin";fillcolor = "#5de129";];
+    "120-00361" [label = "Art: 120-00361\nPin header low profile 4-pin";fillcolor = "#5de129";];
+    "120-00455" [label = "Art: 120-00455\nConnector Samtec Header Rec Male 2.54Pitch 1Row 4Pos Straight THT";fillcolor = "#5de129";];
+    "120-00456" [label = "Art: 120-00455\nConnector Samtec Header Rec Male 2.54Pitch 1Row 5Pos Straight THT";fillcolor = "#5de129";];
     
     
     // External
@@ -108,29 +123,34 @@ digraph G {
         
         
         "006-1-0101" [label = "Art: 006-1-0101\nSenseair Sunlight CO2 PH - 13,46";fillcolor = "#fffacd";];
-        "006-1-0101" -> {"740-01963" "792-00013" "833-00167"};
+        "006-1-0101" -> {"740-01963" "792-00013" "833-00167" "120-00423" "120-00424"};
         
         
         
         "006-1-0102" [label = "Art: 006-1-0102\nSenseair Sunlight CO2 PH - 8,51";fillcolor = "#fffacd";];
-        "006-1-0102" -> {"740-01964" "792-00013" "833-00167"};
+        "006-1-0102" -> {"740-01964" "792-00013" "833-00167" "120-00452" "120-00453"};
         
         
         "006-1-0103" [label = "Art: 006-1-0103\nSenseair Sunlight CO2 PH ";fillcolor = "#fffacd";];
-        "006-1-0103" -> {"792-00013" "833-00167"};
+        "006-1-0103" -> {"792-00013" "833-00167" "120-00360" "120-00361"};
+        
         
         "006-1-0104" [label = "Art: 006-1-0104\nSenseair Sunlight 2% CO2 PH - 8,51";fillcolor = "#fffacd";];
-        "006-1-0104" -> {"740-01964" "792-00013" "833-00192"};
+        "006-1-0104" -> {"740-01964" "792-00013" "833-00192" "120-00452" "120-00453"};
         "833-00192" -> {"833-00162"};
         
+        
         "006-1-0105" [label = "Art: 006-1-0105\nSenseair Sunlight 2% CO2 PH - 10,92";fillcolor = "#fffacd";];
-        "006-1-0105" -> {"740-01926" "792-00013" "833-00167"};
+        "006-1-0105" -> {"740-01926" "792-00013" "833-00167" "120-00455" "120-00456"};
+        
         
         "006-1-0106" [label = "Art: 006-1-0106\nSenseair Sunlight CO2 2% ";fillcolor = "#fffacd";];
         "006-1-0106" -> {"740-00600" "833-00192"};
         
+        
         "006-1-0202" [label = "Art: 006-1-0202\nSenseair Sunlight CO2 1% PH - 8,51";fillcolor = "#fffacd";];
-        "006-1-0202" -> {"740-01964" "792-00013" "833-00167"};
+        "006-1-0202" -> {"740-01964" "792-00013" "833-00167" "120-00452" "120-00453"};
+        
         
         "009-4-0001" [label = "Art: 009-4-0001\nSenseair Sunlight R32";fillcolor = "#fffacd";];
         "009-4-0001" -> {"740-00600" "833-00166"};
@@ -157,7 +177,7 @@ digraph G {
         
         
         "009-4-0006" [label = "Art: 009-4-0006\nSenseair Sunlight R290 PH - 10,92";fillcolor = "#fffacd";];
-        "009-4-0006" -> {"792-00013" "833-00187"};
+        "009-4-0006" -> {"792-00013" "833-00187" "120-00455" "120-00456"};
         "833-00187" -> {"832-00161"};
         "832-00161" -> {"831-00308"};
         
@@ -168,28 +188,28 @@ digraph G {
         
         
         "009-4-0008" [label = "Art: 009-4-0008\nSenseair Sunlight R32 PH - 8.51";fillcolor = "#fffacd";];
-        "009-4-0008" -> {"740-01964" "833-00166"};
+        "009-4-0008" -> {"740-01964" "833-00166" "120-00452" "120-00453"};
         "833-00166" -> {"832-00161"};
         "832-00161" -> {"831-00308"};
         
         "009-4-0009" [label = "Art: 009-4-0009\nSenseair Sunlight R290 PH - 8.51";fillcolor = "#fffacd";];
-        "009-4-0009" -> {"740-01964" "792-00013" "833-00187"};
+        "009-4-0009" -> {"740-01964" "792-00013" "833-00187" "120-00452" "120-00453"};
         "833-00187" -> {"832-00161"};
         "832-00161" -> {"831-00308"};
         
         "009-4-0010" [label = "Art: 009-4-0010\nSenseair Sunlight R32 PH - 10.92";fillcolor = "#fffacd";];
-        "009-4-0010" -> {"740-01926" "792-00013" "833-00166"};
+        "009-4-0010" -> {"740-01926" "792-00013" "833-00166" "120-00455" "120-00456"};
         "833-00166" -> {"832-00161"};
         "832-00161" -> {"831-00308"};
         
         "009-4-0208" [label = "Art: 009-4-0208\nSenseair Sunlight R32 PH MSR - 8.51";fillcolor = "#fffacd";];
-        "009-4-0208" -> {"740-01964" "792-00013" "833-00166"};
+        "009-4-0208" -> {"740-01964" "792-00013" "833-00166" "120-00452" "120-00453"};
         "833-00166" -> {"832-00161"};
         "832-00161" -> {"831-00308"};
         
         
         "009-4-0209" [label = "Art: 009-4-0209\nSenseair Sunlight R290 PH - 8.51";fillcolor = "#fffacd";];
-        "009-4-0209" -> {"740-01964" "792-00013" "833-00187"};
+        "009-4-0209" -> {"740-01964" "792-00013" "833-00187" "120-00452" "120-00453"};
         "833-00187" -> {"832-00161"};
         "832-00161" -> {"831-00308"};
     }
@@ -203,47 +223,47 @@ digraph G {
         "Sunlight";
         
         
-        "Sunrise" -> {"006-4-0007" "006-4-0008" "006-4-0010" "006-4-0011" "006-4-0020" "006-4-0021" "006-4-0220"};
+        "Sunrise" -> {"006-0-0007" "006-0-0008" "006-0-0010" "006-0-0011" "006-0-0020" "006-0-0021" "006-0-0220"};
         
         
-        "006-4-0007" [label = "Art: 006-4-0007\nSenseair Sunrise";fillcolor = "#dacdff";];
-        "006-4-0007" -> {"740-00993" "833-00138"};
+        "006-0-0007" [label = "Art: 006-0-0007\nSenseair Sunrise";fillcolor = "#dacdff";];
+        "006-0-0007" -> {"740-00993" "833-00138"};
         "833-00138" -> {"832-00132"};
         "832-00132" -> {"831-00275"};
         
         
-        "006-4-0008" [label = "Art: 006-4-0008\nSenseair Sunrise";fillcolor = "#dacdff";];
-        "006-4-0008" -> {"740-00993" "833-00163"};
+        "006-0-0008" [label = "Art: 006-0-0008\nSenseair Sunrise";fillcolor = "#dacdff";];
+        "006-0-0008" -> {"740-00993" "833-00163"};
         "833-00163" -> {"832-00157"};
         "832-00157" -> {"831-00295"};
         
         
-        "006-4-0010" [label = "Art: 006-4-0010\nSenseair Sunrise PH";fillcolor = "#dacdff";];
-        "006-4-0010" -> {"740-01550" "833-00168"};
+        "006-0-0010" [label = "Art: 006-0-0010\nSenseair Sunrise PH";fillcolor = "#dacdff";];
+        "006-0-0010" -> {"740-01550" "833-00168"};
         "833-00168" -> {"832-00165"};
         "832-00165" -> {"740-01550" "831-00275"};
         
         
-        "006-4-0011" [label = "Art: 006-4-0011\nSenseair Sunrise CO2 PH - 13.46";fillcolor = "#dacdff";];
-        "006-4-0011" -> {"740-00993" "833-00163"};
+        "006-0-0011" [label = "Art: 006-0-0011\nSenseair Sunrise CO2 PH - 13.46";fillcolor = "#dacdff";];
+        "006-0-0011" -> {"740-00993" "833-00163" "120-00423" "120-00424"};
         "833-00163" -> {"832-00157"};
         "832-00157" -> {"831-00295"};
         
         
         
-        "006-4-0020" [label = "Art: 006-4-0020\nSenseair Sunrise DT";fillcolor = "#dacdff";];
-        "006-4-0020" -> {"740-00993" "833-00200"};
+        "006-0-0020" [label = "Art: 006-0-0020\nSenseair Sunrise DT";fillcolor = "#dacdff";];
+        "006-0-0020" -> {"740-00993" "833-00200"};
         "833-00200" -> {"832-00157"};
         "832-00157" -> {"831-00295"};
         
-        "006-4-0021" [label = "Art: 006-4-0021\nSenseair Sunrise DT PH - 8.51";fillcolor = "#dacdff";];
-        "006-4-0021" -> {"740-00993" "833-00201"};
+        "006-0-0021" [label = "Art: 006-0-0021\nSenseair Sunrise DT PH - 8.51";fillcolor = "#dacdff";];
+        "006-0-0021" -> {"740-00993" "833-00201"};
         "833-00201" -> {"832-00182"};
         "832-00182" -> {"831-00295"};
         
         
-        "006-4-0220" [label = "Art: 006-4-0220\nSenseair Sunrise DT PH - 5.90";fillcolor = "#dacdff";];
-        "006-4-0220" -> {"740-01550" "833-00202"};
+        "006-0-0220" [label = "Art: 006-0-0220\nSenseair Sunrise DT PH - 5.90";fillcolor = "#dacdff";];
+        "006-0-0220" -> {"740-01550" "833-00202"};
         "833-00202" -> {"832-00183"};
         "832-00183" -> {"831-00295"};
     }
@@ -282,8 +302,6 @@ digraph G {
     "795-02163" [label = "Art: 795-02163\nSunlight With Pin Header";fillcolor = "#c1d82e";];
     
     
-    "120-00452" [label = "Art: 795-00452\nConnector Samtec Header Rec Male 2.54Pitch 1Row 4Pos Straight THT";fillcolor = "#c1d82e";];
-    "120-00453" [label = "Art: 795-00453\nConnector Samtec Header Rec Male 2.54Pitch 1Row 5Pos Straight THT";fillcolor = "#c1d82e";];
     
     
     

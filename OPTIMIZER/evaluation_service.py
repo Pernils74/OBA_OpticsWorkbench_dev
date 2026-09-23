@@ -63,9 +63,6 @@ class EvaluationService(QtCore.QObject):
             return
         try:
             apply_cad_params(params)
-            white_cell = doc.getObject("OBA_WhiteCell")
-            if white_cell and hasattr(white_cell, "Proxy"):
-                white_cell.Proxy.rebuild_if_needed(white_cell)
 
             #
             # recompute_doc(doc, restore_view=False)
@@ -202,18 +199,12 @@ class EvaluationService(QtCore.QObject):
                 # --------------------------------------------------
                 if self._start_cad_params:
                     apply_cad_params(self._start_cad_params)
-                    # white_cell = doc.getObject("OBA_WhiteCell")
-                    # if white_cell:  # and hasattr(white_cell, "Proxy"):
-                    #     white_cell.Proxy.rebuild_if_needed(white_cell)
                     doc.recompute()
                     # doc.recompute(None)
                 # --------------------------------------------------
                 # 5B. APPLICERA AKTUELL TRIAL
                 # --------------------------------------------------
                 apply_cad_params(params)
-                # white_cell = doc.getObject("OBA_WhiteCell")
-                # if white_cell:  # and hasattr(white_cell, "Proxy"):
-                #     white_cell.Proxy.rebuild_if_needed(white_cell)
                 doc.recompute()
                 # doc.recompute(None)
                 # --------------------------------------------------
@@ -383,9 +374,7 @@ class EvaluationService(QtCore.QObject):
         # APPLY CAD PARAMS
         # --------------------------------------------------
         apply_cad_params(params)
-        # white_cell = doc.getObject("OBA_WhiteCell")
-        # if white_cell:
-        #     white_cell.Proxy.rebuild_if_needed(white_cell)
+
         doc.recompute()
 
         # doc.recompute(None)

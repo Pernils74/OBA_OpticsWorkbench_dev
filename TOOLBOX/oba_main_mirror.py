@@ -25,7 +25,7 @@ import FreeCAD as App
 import FreeCADGui as Gui
 from PySide import QtWidgets
 
-from oba_objects.oba_base import OBAElementProxy
+# from oba_objects.oba_base import OBAElementProxy
 
 from .oba_toolbox_base import (
     OBAToolboxDialogBase,
@@ -274,6 +274,8 @@ class OBAMainMirror:
 
             if not self._suppress_onchange:
                 obj.Document.recompute()
+                pass
+
         finally:
             self._rebuilding = False
 
@@ -283,8 +285,16 @@ class OBAMainMirror:
 
     def onChanged(self, obj, prop):
 
-        if prop == "Group":
+        # print("MainMirror onChanged:", prop)
+
+        IGNORE = {
+            "Group",
+            "Shape",
+        }
+
+        if prop in IGNORE:
             return
+
         if self._rebuilding:
             return
         if self._initializing:

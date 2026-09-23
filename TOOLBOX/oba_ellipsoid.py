@@ -13,7 +13,7 @@ from PySide import QtWidgets
 
 from PySide.QtCore import QSignalBlocker
 
-from oba_objects.oba_base import OBAElementProxy
+# from oba_objects.oba_base import OBAElementProxy
 
 from .oba_toolbox_base import (
     OBAToolboxDialogBase,
@@ -167,7 +167,7 @@ class OBAEllipsoid:
         self._fuse = self._get_or_create(doc, f"{obj.Name}_Fuse", "Part::Fuse", f"{obj.Label} Fuse")
         self._ellipsoid = self._get_or_create(doc, f"{obj.Name}_Ellipsoid", "Part::Ellipsoid", f"{obj.Label} Ellipsoid")
         self._cut = self._get_or_create(doc, f"{obj.Name}_Cut", "Part::Cut", f"{obj.Label} Cut")
-        self._focal_surface = self._get_or_create(doc, f"{obj.Name}_FocalSurface", "Part::Feature", f"{obj.Label} Focal Surface")
+        self._focal_surface = self._get_or_create(doc, f"{obj.Name}_FocalSurface", "Part::Feature", f"{obj.Label} FOCAL--SURFACE")
 
         self._focus1 = self._get_or_create(doc, f"{obj.Name}_Focus1", "Part::Sphere", f"{obj.Label} Focus1")
         self._focus2 = self._get_or_create(doc, f"{obj.Name}_Focus2", "Part::Sphere", f"{obj.Label} Focus2")
@@ -400,8 +400,10 @@ class OBAEllipsoid:
             self._update_focal_surface(obj)
 
             self._update_debug(obj)
+
             if not self._suppress_onchange:
                 obj.Document.recompute()
+                pass
 
         finally:
             self._rebuilding = False
@@ -479,9 +481,10 @@ class OBAEllipsoid:
 
     def onChanged(self, obj, prop):
 
-        # if prop in ("Shape", "Label"):  # , "FocusDistance"):
-        #     pass
-        # return
+        # print("MainMirror onChanged:", prop)
+
+        if prop == "Shape":
+            return
 
         if prop == "Group":
             return
@@ -564,34 +567,23 @@ class OBAEllipsoid:
     # ========================================================
 
     def onDocumentRestored(self, obj):
-        """
-        Restore Python runtime state and reconnect to the existing
-        FreeCAD construction objects.
-        """
         self._init_runtime_state()
-
         obj.Proxy = self
         self.Object = obj
-
         install_properties(obj, ELLIPSOID_PROPERTIES)
         ensure_debug_property(obj)
-
         make_calculated_length(obj, "FocusDistance", "Distance from ellipsoid centre to focus")
-
-        # make_optical_type(obj, "Ellipsoid")
-
         self._initializing = False
         self._ensure_features(obj)
         try:
-            self.synchronize_direction(obj)
-        finally:
-            pass
-        try:
+            if obj.UseAimPoint:
+                self.synchronize_rotation_from_aim(obj)
+            else:
+                self.synchronize_aim_from_rotation(obj)
             self._rebuild(obj)
         except Exception as exc:
-            App.Console.PrintError("[OBA] Ellipsoid restore rebuild failed: " f"{exc}\n")
-
-        restore_view_provider(obj, EllipsoidViewProvider, EllipsoidDialog)
+            App.Console.PrintError(f"[OBA] Ellipsoid restore rebuild failed: {exc}\n")
+        restore_view_provider(obj, EllipsoidViewProvider)
 
     # ========================================================
     #  S T A T E
@@ -601,7 +593,8 @@ class OBAEllipsoid:
         return None
 
     def __setstate__(self, state):
-        return None
+        self._init_runtime_state()
+        # return None
 
 
 # ============================================================

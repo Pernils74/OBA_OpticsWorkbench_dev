@@ -17,7 +17,7 @@ import FreeCAD as App
 import FreeCADGui as Gui
 from PySide import QtWidgets
 
-from oba_objects.oba_base import OBAElementProxy
+# from oba_objects.oba_base import OBAElementProxy
 
 from .oba_toolbox_base import (
     OBAToolboxDialogBase,
@@ -27,6 +27,7 @@ from .oba_toolbox_base import (
     make_calculated_length,
     make_optical_type,
     restore_view_provider,
+    _set_quantity_if_changed,
 )
 
 COMP_MIRROR_PROPERTIES = [
@@ -79,7 +80,7 @@ class OBACompMirror:
         if hasattr(obj, "FocusDistance"):
             obj.setEditorMode("FocusDistance", 1)  # sets readonly
 
-        # make_optical_type(obj, "MainMirror")
+        make_optical_type(obj, "CompMirror")
 
         self._initializing = False
 
@@ -144,6 +145,29 @@ class OBACompMirror:
         self._cube.Placement = base.multiply(cube_local)
 
     def _update_ellipsoid(self, obj):
+        changed = False
+
+        changed |= _set_quantity_if_changed(self._ellipsoid, "Radius1", obj.A, "mm")
+        changed |= _set_quantity_if_changed(self._ellipsoid, "Radius2", obj.B, "mm")
+        b2 = float(obj.B2) if obj.UseIndependentRadius3 else float(obj.B)
+        changed |= _set_quantity_if_changed(self._ellipsoid, "Radius3", b2, "mm")
+
+        rot_z = App.Rotation(App.Vector(0, 0, 1), 90)
+        rot_x = App.Rotation(App.Vector(1, 0, 0), -90)
+
+        ell_local = App.Placement()
+        ell_local.Base = App.Vector(0, float(obj.B), 0)
+        ell_local.Rotation = rot_z.multiply(rot_x)
+
+        new_placement = obj.Placement.multiply(ell_local)
+
+        if self._ellipsoid.Placement != new_placement:
+            self._ellipsoid.Placement = new_placement
+            changed = True
+
+        return changed
+
+    def _update_ellipsoid_old(self, obj):
         a = float(obj.A)
         b = float(obj.B)
 
@@ -191,13 +215,16 @@ class OBACompMirror:
         """
         Rebuild the complete Comp Mirror geometry immediately.
         """
+
+        # if not hasattr(self, "_initializing"):
+        #     self._init_runtime_state()
+
         if self._rebuilding:
             return
 
         self._rebuilding = True
 
         try:
-
             self._update_cube(obj)
             self._update_ellipsoid(obj)
 
@@ -207,6 +234,7 @@ class OBACompMirror:
             obj.FocusDistance = c
 
             if not self._suppress_onchange:
+                # print("---------------------------------  skall inte ske ---------------------------")
                 obj.Document.recompute()
                 pass
 
@@ -219,8 +247,17 @@ class OBACompMirror:
 
     def onChanged(self, obj, prop):
 
+        # if not hasattr(self, "_initializing"):
+        #     self._init_runtime_state()
+
         # if prop in ("Shape", "Label"):  # Early exits on special props
         #     return
+
+        # print("CompMirror onChanged:", prop)
+
+        if prop == "Shape":
+            return
+
         if prop == "Group":
             return
 
@@ -290,7 +327,8 @@ class OBACompMirror:
         return None
 
     def __setstate__(self, state):
-        return None
+        self._init_runtime_state()
+        # return None
 
 
 # ======================================================================
@@ -365,6 +403,10 @@ class CompMirrorDialog(OBAToolboxDialogBase):
             self._update_information()
         except Exception as exc:
             App.Console.PrintError(f"[OBA] Failed to update {prop}: {exc}\n")
+
+    def set_if_changed(obj, prop, value):
+        if getattr(obj, prop) != value:
+            setattr(obj, prop, value)
 
     def _use_b2_changed(self, checked):
         if self._refreshing_ui:

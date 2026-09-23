@@ -509,6 +509,29 @@ class OBAElementProxy:
 # ============================================================
 
 
+def get_optical_icon_path(obj):
+    try:
+        ot = getattr(obj, "OpticalType", "").lower()
+
+        if not ot:
+            return None
+
+        path = os.path.join(
+            BASE_PATH,
+            "..",
+            "icons",
+            f"oba_{ot}.svg",
+        )
+
+        if os.path.exists(path):
+            return path
+
+    except Exception:
+        pass
+
+    return None
+
+
 class OBAViewProviderBase:
     """
     Hanterar ikon + dubbelklick
@@ -538,19 +561,22 @@ class OBAViewProviderBase:
             self._final_root = None
 
     def getIcon(self):
-        try:
-            obj = self.Object
-            ot = getattr(obj, "OpticalType", "").lower()
-            if not ot:
-                return ""
+        return get_optical_icon_path(self.Object) or ""
 
-            # print("ikooon", ot)
-            path = os.path.join(BASE_PATH, "..", "icons", f"oba_{ot}.svg")
-            if os.path.exists(path):
-                return path
-        except Exception:
-            pass
-        return ""
+    # def getIcon(self):
+    #     try:
+    #         obj = self.Object
+    #         ot = getattr(obj, "OpticalType", "").lower()
+    #         if not ot:
+    #             return ""
+
+    #         # print("ikooon", ot)
+    #         path = os.path.join(BASE_PATH, "..", "icons", f"oba_{ot}.svg")
+    #         if os.path.exists(path):
+    #             return path
+    #     except Exception:
+    #         pass
+    #     return ""
 
     def doubleClicked(self, vobj):
         try:

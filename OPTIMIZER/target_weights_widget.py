@@ -6,6 +6,8 @@ import FreeCAD as App
 from .spreadsheet_utils import read_param_bounds, get_param_info
 from .optimize_config import SPREADSHEET_NAME
 
+from oba_objects.oba_base import get_optical_icon_path
+
 # ==========================================================
 # METRICS CONFIG
 # ==========================================================
@@ -697,7 +699,9 @@ class TargetSelectorWidget(QtWidgets.QPushButton):
         doc = App.ActiveDocument
         if not doc:
             return
-        available = [o.Label for o in doc.Objects if hasattr(o, "OpticalType")]
+        # available = [o.Label for o in doc.Objects if hasattr(o, "OpticalType")]
+        available = [o for o in doc.Objects if hasattr(o, "OpticalType")]
+
         dlg = EditTargetsDialog(
             self,
             "targets",
@@ -1040,11 +1044,33 @@ class EditTargetsDialog(QtWidgets.QDialog):
         self._checkboxes = {}
         layout = QtWidgets.QVBoxLayout(self)
 
-        for tgt in available_targets:
-            cb = QtWidgets.QCheckBox(tgt)
-            cb.setChecked(tgt in selected_targets)
-            layout.addWidget(cb)
-            self._checkboxes[tgt] = cb
+        # for tgt in available_targets:
+        #     cb = QtWidgets.QCheckBox(tgt)
+        #     cb.setChecked(tgt in selected_targets)
+        #     layout.addWidget(cb)
+        #     self._checkboxes[tgt] = cb
+
+        for obj in available_targets:
+            label = obj.Label
+            row = QtWidgets.QWidget()
+            row_layout = QtWidgets.QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(4)
+
+            icon_label = QtWidgets.QLabel()
+            icon_path = get_optical_icon_path(obj)
+            if icon_path:
+                icon_label.setPixmap(QtGui.QIcon(icon_path).pixmap(16, 16))
+
+            cb = QtWidgets.QCheckBox(label)
+            cb.setChecked(label in selected_targets)
+
+            row_layout.addWidget(icon_label)
+            row_layout.addWidget(cb)
+            row_layout.addStretch()
+
+            layout.addWidget(row)
+            self._checkboxes[label] = cb
 
         row = QtWidgets.QHBoxLayout()
         btnApply = QtWidgets.QPushButton("Apply")
