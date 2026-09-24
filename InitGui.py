@@ -175,6 +175,17 @@ if IS_ACTIVE:
             # )
 
             # -------------------------
+            # --------- XGBoost --------
+            # -------------------------
+            hot_reload.register_command(
+                command="OBA_CreateXGBoostTrainingDialog",
+                impl_module="TOOLBOX.xgboost_training_dialog",
+                menu="XGBoost training",
+                tooltip="XGBoost training",
+                pixmap=get_icon("oba_mirrorbuilder2.svg"),
+            )
+
+            # -------------------------
             # --------- Utils --------
             # -------------------------
 
@@ -346,6 +357,8 @@ if IS_ACTIVE:
                 "OBA_CreateMainMirror",
                 "OBA_CreateCompMirror",
                 "OBA_CreateWhiteCell",
+                SEP(),
+                "OBA_CreateXGBoostTrainingDialog",
                 SEP(),
                 "OBA_ShowBatchDialog",
                 "OBA_ShowXYZLiveList",

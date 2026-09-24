@@ -234,7 +234,7 @@ class OBACompMirror:
             obj.FocusDistance = c
 
             if not self._suppress_onchange:
-                # print("---------------------------------  skall inte ske ---------------------------")
+                print("---------------------------------  skall inte ske ---------------------------")
                 obj.Document.recompute()
                 pass
 

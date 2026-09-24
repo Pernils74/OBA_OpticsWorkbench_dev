@@ -22,7 +22,7 @@ RUNNING = False
 # DB_PATH = f"sqlite:///{os.path.join(BASE_DIR, 'optimization.db')}"
 
 
-def get_db_path():
+def get_db_path_old():
     import FreeCAD as App
     import os
 
@@ -33,8 +33,29 @@ def get_db_path():
     else:
         # fallback om dokument ej sparat
         base = os.path.join(os.getcwd(), "unsaved_document")
-
     return f"sqlite:///{base}_optuna.db"
+
+
+def get_db_path():
+    import FreeCAD as App
+    import os
+    import sqlite3
+
+    doc = App.ActiveDocument
+
+    if doc and doc.FileName:
+        base = os.path.splitext(doc.FileName)[0]
+    else:
+        # fallback om dokument ej sparat
+        base = os.path.join(os.getcwd(), "unsaved_document")
+    db_file = f"{base}_optuna.db"
+    # Säkerställ WAL-läge
+    con = sqlite3.connect(db_file, timeout=60)
+    try:
+        con.execute("PRAGMA journal_mode=WAL")
+    finally:
+        con.close()
+    return f"sqlite:///{db_file}"
 
 
 DB_PATH = get_db_path()

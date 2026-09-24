@@ -244,6 +244,13 @@ class OBAWhiteCell:
             obj.Label = label
         return obj
 
+    def _restore_runtime_flags(self):
+        for child in (self._mainMirror, self._compMirror, self._emitter, self._detector):
+            proxy = getattr(child, "Proxy", None)
+            if proxy is None:
+                continue
+            proxy._suppress_onchange = True
+
     def _ensure_children(self, obj):
         doc = obj.Document
 
@@ -686,7 +693,7 @@ class OBAWhiteCell:
             self._rebuilding = False
 
         if self._is_dialog_open():
-            # print("hdkfhkjhdkfhdkjhfkdjhkfjhdkjfhk")
+            print("============================ recomputar ===========================")
             obj.Document.recompute()
 
         # if not is_optimization_running():
@@ -796,9 +803,7 @@ class OBAWhiteCell:
     # ==================================================================
 
     def onDocumentRestored(self, obj):
-
         self._init_runtime_state()
-
         obj.Proxy = self
         self.Object = obj
 
@@ -808,6 +813,7 @@ class OBAWhiteCell:
             install_properties(obj, WHITE_CELL_PROPERTIES)
             make_optical_type(obj, "WhiteCell")
             self._ensure_children(obj)
+            self._restore_runtime_flags()
         finally:
             self._initializing = False
         try:
@@ -885,7 +891,7 @@ class WhiteCellDialog(OBAToolboxDialogBase):
 
         button_layout = QtWidgets.QHBoxLayout()
 
-        self.export_button = QtWidgets.QPushButton("1). Export to Spreadsheet ---> ")
+        self.export_button = QtWidgets.QPushButton("1). Export to Spreadsheet     --->")
         self.export_button.clicked.connect(self._export_to_spreadsheet)
 
         self.optuna_button = QtWidgets.QPushButton("2). Update Optuna Config")
@@ -896,6 +902,18 @@ class WhiteCellDialog(OBAToolboxDialogBase):
         # valfritt
         # button_layout.addStretch(1)
         self.custom_layout.addLayout(button_layout)
+
+        button_layout_2 = QtWidgets.QHBoxLayout()
+        self.clear_button = QtWidgets.QPushButton("1b). Remove Spreadsheet References")
+        self.clear_button.clicked.connect(self._clear_spreadsheet_references)
+        button_layout_2.addWidget(self.clear_button)
+        # button_layout_2.addStretch(0)
+        self.help_button = QtWidgets.QPushButton("1b). Help")
+        self.help_button.clicked.connect(self._clear_spreadsheet_references)
+        button_layout_2.addWidget(self.help_button)
+        # button_layout_2.addStretch(0)
+
+        self.custom_layout.addLayout(button_layout_2)
 
         self._widgets = {}
         parent_groups = {}
@@ -968,14 +986,15 @@ class WhiteCellDialog(OBAToolboxDialogBase):
         # Specialfall för nollvärden
         if abs(value) < 1e-9:
             if unit == "deg":
-                return -1.0, 1.0
+                return -3.0, 3.0
             if unit == "mm":
                 return -5.0, 5.0
             if unit == "%":
                 return 0.5, 2.0
             return -1.0, 1.0
         # Normalt ±5%
-        return value * 0.95, value * 1.05
+        delta = abs(value) * 0.1
+        return value - delta, value + delta
 
     def _export_to_spreadsheet(self):
         doc = self.obj.Document
@@ -995,7 +1014,6 @@ class WhiteCellDialog(OBAToolboxDialogBase):
             if prop_def["type"] == "App::PropertyLink":
                 continue
             prop = prop_def["name"]
-
             unit = prop_def.get("unit", "")
 
             try:
@@ -1005,6 +1023,10 @@ class WhiteCellDialog(OBAToolboxDialogBase):
                 # unit = prop_def.get("unit", "")
                 # if unit:
                 #     sheet.set(f"B{row}", f"{float(value)} {unit}")
+                # else:
+                #     sheet.set(f"B{row}", str(value))
+                # if unit == "deg":
+                #     sheet.set(f"B{row}", f"{float(value)} deg")
                 # else:
                 #     sheet.set(f"B{row}", str(value))
                 sheet.set(f"B{row}", str(value))
@@ -1020,22 +1042,68 @@ class WhiteCellDialog(OBAToolboxDialogBase):
                     # sheet.set(f"C{row}", str(numeric_value * 0.95))
                     # sheet.set(f"D{row}", str(numeric_value * 1.05))
                 except Exception:
+                    print("error")
                     pass
                 row += 1
             except Exception as exc:
                 App.Console.PrintError(f"Spreadsheet export failed: {exc}\n")
             sheet.set(f"A{row}", "END")
-        # obj.Proxy._refresh_dialog()
+
+        obj.touch()
         doc.recompute()
+        self._reopen()
+
+    def _reopen(self):
+        geom = self.geometry()
+        self.close()
+        dlg = WhiteCellDialog(self.obj, title="White Cell Settings")
+        dlg.setGeometry(geom)
+        self.obj.Proxy._dialog = dlg
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    def _clear_spreadsheet_references(self):
+        obj = self.obj
+        doc = obj.Document
+        for prop_def in WHITE_CELL_PROPERTIES:
+            if prop_def["type"] == "App::PropertyLink":
+                continue
+            prop = prop_def["name"]
+            print("clear:", prop)
+            obj.setExpression(prop, None)
+        doc.recompute()
+        self._reopen()
 
     def _update_optuna_config(self):
         import json
 
         doc = self.obj.Document
         config = doc.getObject("OptimizeConfig")
+
         if config is None:
-            App.Console.PrintError("OptimizeConfig not found\n")
-            return
+
+            config = doc.addObject("App::FeaturePython", "OptimizeConfig")
+            if "json" not in config.PropertiesList:
+                config.addProperty("App::PropertyString", "json", "Config")
+            config.json = json.dumps(
+                {
+                    "active": "default",
+                    "configs": {
+                        "default": {
+                            "entries": [],
+                            "selected_params": [],
+                            "sampler": "TPESampler",
+                            "trials": 500,
+                            "constant_liar": True,
+                        }
+                    },
+                },
+                indent=4,
+            )
+            # if config is None:
+            #     App.Console.PrintError("OptimizeConfig not found\n")
+            # return
         try:
             data = json.loads(config.json)
         except Exception as exc:
