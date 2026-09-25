@@ -48,6 +48,7 @@ from .oba_main_mirror import OBA_CreateMainMirror
 from .oba_ellipsoid import OBA_CreateEllipsoid
 
 from OPTIMIZER.optimize_worker import is_optimization_running
+from OPTIMIZER.optuna_plotting import OptunaPlotWindow
 
 # ======================================================================
 # P R O P E R T I E S
@@ -692,7 +693,7 @@ class OBAWhiteCell:
         finally:
             self._rebuilding = False
 
-        if self._is_dialog_open():
+        if self._is_dialog_open() and not OptunaPlotWindow.is_open():
             print("============================ recomputar ===========================")
             obj.Document.recompute()
 
@@ -908,8 +909,10 @@ class WhiteCellDialog(OBAToolboxDialogBase):
         self.clear_button.clicked.connect(self._clear_spreadsheet_references)
         button_layout_2.addWidget(self.clear_button)
         # button_layout_2.addStretch(0)
-        self.help_button = QtWidgets.QPushButton("1b). Help")
-        self.help_button.clicked.connect(self._clear_spreadsheet_references)
+
+        self.help_button = QtWidgets.QPushButton("Help / XGBoost Optimizer")
+        self.help_button.clicked.connect(self._open_xgboost_optimizer)
+
         button_layout_2.addWidget(self.help_button)
         # button_layout_2.addStretch(0)
 
@@ -1131,6 +1134,15 @@ class WhiteCellDialog(OBAToolboxDialogBase):
         doc.recompute()
         App.Console.PrintMessage(f"Updated Optuna config with " f"{len(selected_params)} parameters\n")
 
+    def _open_xgboost_optimizer(self):
+        from .xgboost_parameter_optimizer_dialog import OBA_CreateXGBoostParameterOptimizerDialog
+
+        self._xgboost_optimizer_dialog = OBA_CreateXGBoostParameterOptimizerDialog(
+            self.obj,
+            parent=self,
+            show_dialog=True,
+        )
+
     # ==================================================================
     # S E T   P R O P E R T Y
     # ==================================================================
@@ -1167,7 +1179,6 @@ class WhiteCellDialog(OBAToolboxDialogBase):
     def closeEvent(self, event):
         try:
             # self.obj.Proxy._dialog_is_open = False
-
             if self.obj.Proxy._dialog is self:
                 self.obj.Proxy._dialog = None
         except Exception:
@@ -1228,21 +1239,11 @@ class WhiteCellViewProvider(OBAToolboxViewProviderBase):
 
     def doubleClicked(self, vobj):
 
-        obj = getattr(
-            vobj,
-            "Object",
-            None,
-        )
-
+        obj = getattr(vobj, "Object", None)
         if obj is None:
             return False
-
         try:
-
-            dialog = WhiteCellDialog(
-                obj,
-                title="White Cell Settings",
-            )
+            dialog = WhiteCellDialog(obj, title="White Cell Settings")
             # obj.Proxy._dialog_is_open = True
             self._dialog = dialog
 
@@ -1250,17 +1251,13 @@ class WhiteCellViewProvider(OBAToolboxViewProviderBase):
                 obj.Proxy._dialog = dialog
             except Exception:
                 pass
-
             dialog.show()
             dialog.raise_()
             dialog.activateWindow()
-
             return True
 
         except Exception as exc:
-
             App.Console.PrintError("[OBA] Failed to open White Cell dialog: " f"{exc}\n")
-
             return False
 
     # ==================================================================

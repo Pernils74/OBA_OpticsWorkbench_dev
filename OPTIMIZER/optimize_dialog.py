@@ -137,6 +137,34 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         )
         samplerLayout.addWidget(QtWidgets.QLabel("Sampler:"))
         samplerLayout.addWidget(self.cmbSampler)
+
+        self.cmbTrustRegion = QtWidgets.QComboBox()
+        self.cmbTrustRegion.addItems(
+            [
+                "None",
+                "Fixed",
+                "Linear",
+                "Sensitive",
+                "Exponential",
+            ]
+        )
+
+        samplerLayout.addSpacing(20)
+        samplerLayout.addWidget(QtWidgets.QLabel("Trust region:"))
+        self.cmbTrustRegion.setToolTip(
+            "<b>Trust Region Strategy</b><br><br>"
+            "Controls how far Optuna may move from the current best solution.<br><br>"
+            "<b>None</b> - Use the full parameter range.<br>"
+            "<b>Fixed</b> - Constant trust region size.<br>"
+            "<b>Linear</b> - Gradually shrinks during optimization.<br>"
+            "<b>Sensitive</b> - Small parameter changes, suitable for fragile sketches.<br>"
+            "<b>Exponential</b> - Quickly focuses on promising regions.<br><br>"
+            "<b>Recommended:</b><br>"
+            "White Cell: Linear<br>"
+            "Sketch-based models: Sensitive"
+        )
+        samplerLayout.addWidget(self.cmbTrustRegion)
+
         samplerLayout.addSpacing(20)
         samplerLayout.addWidget(self.chkConstantLiar)
         samplerLayout.addStretch()
@@ -543,6 +571,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             "constant_liar": use_constant_liar,
             "multi_objective": multi_objective,
             "start_cad_params": start_cad_params,
+            "trust_region_mode": self.cmbTrustRegion.currentText(),
         }
 
         print("🚀 Start", "NEW" if new_study else "RESUME")
@@ -742,23 +771,18 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         obj = App.ActiveDocument.getObject("OptimizeConfig")
         if not obj:
             return
-
         data = json.loads(obj.json)
-
         data["active"] = name
         obj.json = json.dumps(data)
-
         config = data.get("configs", {}).get(name)
         if config:
             self._apply_config(config)
-
         self._dirty = False
 
     def _refresh_config_list(self):
         obj = App.ActiveDocument.getObject("OptimizeConfig")
         self.cmbConfig.blockSignals(True)
         self.cmbConfig.clear()
-
         if not obj or not obj.json:
             obj = self._get_or_create_config_object()
             data = {
@@ -770,6 +794,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
                         "sampler": "TPESampler",
                         "trials": 500,
                         "constant_liar": True,
+                        "trust_region_mode": "None",
                     }
                 },
             }
@@ -837,6 +862,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             "sampler": self.cmbSampler.currentText(),
             "trials": self.spinTrials.value(),
             "constant_liar": self.chkConstantLiar.isChecked(),
+            "trust_region_mode": self.cmbTrustRegion.currentText(),
         }
 
         data["configs"] = configs
@@ -1023,6 +1049,10 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
                     idx = row.stepWidget.findData(e["step_id"])
                     if idx >= 0:
                         row.stepWidget.setCurrentIndex(idx)
+
+                # trusted region
+                if "trust_region_mode" in payload:
+                    self.cmbTrustRegion.setCurrentText(payload["trust_region_mode"])
 
             self.targetWeights.blockSignals(False)
             self.targetWeights._update()

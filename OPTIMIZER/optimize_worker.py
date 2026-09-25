@@ -93,8 +93,11 @@ class OptimizationWorker(QtCore.QObject):
 
         self.param_names = config["params"]
         self.bounds = config["bounds"]
-        self.unselected_params = config.get("unselected_params", {})  # Parametrar som INTE optimeras
 
+        self.trust_region_mode = config.get("trust_region_mode", "None")
+        self.n_trials = config["n_trials"]
+
+        self.unselected_params = config.get("unselected_params", {})  # Parametrar som INTE optimeras
         self.start_cad_params = config.get("start_cad_params")  # Spara undan cad_params vid start
 
         if self.start_cad_params is None:
@@ -352,7 +355,157 @@ class OptimizationWorker(QtCore.QObject):
     # Constrain Optuna's search to a trust region around the
     # current best solution. This reduces large CAD geometry
     # jumps while still allowing gradual exploration.
+
+    def _get_step_ratio(self, complete_count):
+        mode = getattr(self, "trust_region_mode", "Linear")
+        if mode == "None":
+            return self._step_ratio_none(complete_count)
+        if mode == "Fixed":
+            return self._step_ratio_fixed(complete_count)
+        if mode == "Sensitive":
+            return self._step_ratio_sensitive(complete_count)
+        if mode == "Exponential":
+            return self._step_ratio_exponential(complete_count)
+        return self._step_ratio_linear(complete_count)
+
+    def _step_ratio_fixed(self, complete_count):
+        return 0.15
+
+    def _step_ratio_linear(self, complete_count):
+        if self.n_trials <= 0:
+            return 1.0
+        progress = min(1.0, complete_count / float(self.n_trials))
+        return max(0.15, 1.0 - progress)
+
+    def _step_ratio_sensitive(self, complete_count):
+        if self.n_trials <= 0:
+            return 0.25
+        progress = min(1.0, complete_count / float(self.n_trials))
+        return max(0.05, 0.25 * (1.0 - progress))
+
+    def _step_ratio_exponential(self, complete_count):
+        import math
+
+        if self.n_trials <= 0:
+            return 1.0
+        progress = complete_count / float(self.n_trials)
+        return max(0.15, math.exp(-3.0 * progress))
+
     def _suggest(self, trial):
+        params = {}
+        PRECISION_STEP = 0.0001
+
+        # --------------------------------------------------
+        # completed trials
+        # --------------------------------------------------
+
+        complete = [t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        complete_count = len(complete)
+
+        # --------------------------------------------------
+        # trust region model
+        # --------------------------------------------------
+        step_ratio = self._get_step_ratio(complete_count)
+        # --------------------------------------------------
+        # reference solution
+        # --------------------------------------------------
+        best_params = None
+        if complete:
+            if len(self.metrics) == 1:
+                best_trial = self.study.best_trial
+            else:
+                best_trial = self.study.best_trials[0]
+            best_params = best_trial.params
+        # --------------------------------------------------
+        # suggest
+        # --------------------------------------------------
+        for name in self.param_names:
+            lo, hi = self.bounds[name]
+            if hi < lo:
+                lo, hi = hi, lo
+            center = None
+            if best_params:
+                center = best_params.get(name)
+            # No trust region
+            if center is None or step_ratio >= 1.0:
+                lo2 = lo
+                hi2 = hi
+            else:
+                span = (hi - lo) * step_ratio
+                lo2 = max(lo, center - span)
+                hi2 = min(hi, center + span)
+            lo2 = round(lo2, 4)
+            hi2 = round(hi2, 4)
+            if lo2 >= hi2:
+                hi2 = lo2 + PRECISION_STEP
+            value = trial.suggest_float(name, lo2, hi2, step=PRECISION_STEP)
+            params[name] = round(value, 5)
+        return params
+
+    def _suggest_old2(self, trial):
+        params = {}
+        PRECISION_STEP = 0.0001
+        # --------------------------------------------------
+        # Progress
+        # --------------------------------------------------
+        complete = [t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        complete_count = len(complete)
+        if getattr(self, "n_trials", -1) > 0:
+            progress = min(1.0, complete_count / float(self.n_trials))
+        else:
+            # Infinite run
+            progress = 0.0
+        # --------------------------------------------------
+        # Trust region size
+        # Start: 100%
+        # End  : 15%
+        # --------------------------------------------------
+        step_ratio = max(0.15, 1.0 - progress)
+        # --------------------------------------------------
+        # Best solution so far
+        # --------------------------------------------------
+        best_params = None
+        if complete:
+            if len(self.metrics) == 1:
+                best_trial = self.study.best_trial
+            else:
+                # Multi-objective:
+                # använd första Pareto-lösningen
+                best_trial = self.study.best_trials[0]
+
+            best_params = best_trial.params
+
+        # --------------------------------------------------
+        # Suggest values
+        # --------------------------------------------------
+
+        for name in self.param_names:
+            lo, hi = self.bounds[name]
+            if hi < lo:
+                lo, hi = hi, lo
+
+            if best_params and name in best_params:
+                center = best_params[name]
+            else:
+                center = None
+
+            # Första trials = full sökrymd
+            if center is None:
+                lo2 = lo
+                hi2 = hi
+            else:
+                span = (hi - lo) * step_ratio
+                lo2 = max(lo, center - span)
+                hi2 = min(hi, center + span)
+            lo2 = round(lo2, 4)
+            hi2 = round(hi2, 4)
+            if lo2 >= hi2:
+                hi2 = lo2 + PRECISION_STEP
+            value = trial.suggest_float(name, lo2, hi2, step=PRECISION_STEP)
+            params[name] = round(value, 5)
+        return params
+
+    def _suggest_old(self, trial):
         params = {}
 
         step_ratio = 0.15  # ±15% av hela parameterns range

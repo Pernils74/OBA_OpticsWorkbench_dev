@@ -22,8 +22,12 @@ from .optimize_worker import DB_PATH
 
 class OptunaPlotWindow(QtWidgets.QDialog):
 
+    _window_count = 0
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        # self.setWindowFlags(QtCore.Qt.Window)
+        OptunaPlotWindow._window_count += 1
 
         self.setWindowTitle("Optuna Plot")
         self.resize(1000, 700)
@@ -729,6 +733,14 @@ class OptunaVisualizationDialog(QtWidgets.QDialog):
         self.btnShow.clicked.connect(self.show_graph)
         self.btnClose.clicked.connect(self.close)
 
+    def closeEvent(self, event):
+        OptunaPlotWindow._window_count -= 1
+        super().closeEvent(event)
+
+    @classmethod
+    def is_open(cls):
+        return cls._window_count > 0
+
     # ======================================================
     # STUDY
     # ======================================================
@@ -1077,6 +1089,19 @@ _windows = []
 
 
 def open_optuna_plot_window():
+    import FreeCADGui as Gui
+
+    w = OptunaPlotWindow(parent=Gui.getMainWindow())
+
+    _windows.append(w)
+
+    w.show()
+    w.raise_()
+    w.activateWindow()
+    return w
+
+
+def open_optuna_plot_window_old():
     w = OptunaPlotWindow()
     _windows.append(w)
     w.show()

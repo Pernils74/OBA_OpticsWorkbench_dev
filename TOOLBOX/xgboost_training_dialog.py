@@ -16,7 +16,7 @@ The dialog:
     - discovers metric names from study.user_attrs["metric_names"]
     - discovers parameter names from COMPLETE trials
     - builds a regression dataset
-    - trains an XGBRegressor
+    - trains an XGBoost regression model
     - displays RMSE and R²
     - saves the XGBoost model as JSON
     - saves accompanying metadata as JSON
@@ -83,17 +83,10 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
         self.studies = []
         self.metric_names = []
         self.parameter_names = []
-        self.model = None
-        self.feature_names = []
-        self.metric_name = None
+
+        self.models = {}
+
         self.created_from_databases = []
-
-        self.training_dataframe = None
-
-        self.X_train = None
-        self.X_test = None
-        self.y_train = None
-        self.y_test = None
 
         # ----------------------------------------------------------
         # Window
@@ -150,17 +143,6 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
         db_buttons.addStretch()
         db_layout.addLayout(db_buttons)
         layout.addWidget(self.grpDatabases)
-
-        # ==========================================================
-        # T R A I N I N G   T A R G E T
-        # ==========================================================
-
-        self.grpTarget = QtWidgets.QGroupBox("Training Target")
-        target_layout = QtWidgets.QFormLayout(self.grpTarget)
-        self.cmbMetric = QtWidgets.QComboBox()
-        self.cmbMetric.setMinimumWidth(300)
-        target_layout.addRow("Metric:", self.cmbMetric)
-        layout.addWidget(self.grpTarget)
 
         # ==========================================================
         # P A R A M E T E R S
@@ -253,11 +235,11 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
 
         buttons = QtWidgets.QHBoxLayout()
         buttons.addStretch()
-        self.btnTrain = QtWidgets.QPushButton("Train Model")
+        self.btnTrainAll = QtWidgets.QPushButton("Train All")
+
         self.btnSave = QtWidgets.QPushButton("Save Model")
         self.btnClose = QtWidgets.QPushButton("Close")
-        self.btnTrain.setDefault(True)
-        buttons.addWidget(self.btnTrain)
+        buttons.addWidget(self.btnTrainAll)
         buttons.addWidget(self.btnSave)
         buttons.addWidget(self.btnClose)
         layout.addLayout(buttons)
@@ -273,9 +255,9 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
         self.btnClearDB.clicked.connect(self._clear_databases)
         self.btnSelectAll.clicked.connect(self.lstParameters.selectAll)
         self.btnClearParameters.clicked.connect(self.lstParameters.clearSelection)
-        self.cmbMetric.currentIndexChanged.connect(self._metric_changed)
-        self.btnTrain.clicked.connect(self._train_model)
-        self.btnSave.clicked.connect(self._save_model)
+        self.btnTrainAll.clicked.connect(self._train_all_models)
+
+        self.btnSave.clicked.connect(self._save_models)
         self.btnClose.clicked.connect(self.close)
 
     # ==============================================================
@@ -319,7 +301,12 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
         # Refresh UI
         # ----------------------------------------------------------
         self._refresh_database_list()
-        self._load_metadata()
+
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            self._load_metadata()
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
 
     def _remove_selected_databases(self):
         selected_items = self.lstDatabases.selectedItems()
@@ -338,18 +325,9 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
         self.parameter_names.clear()
 
         self.lstDatabases.clear()
-        self.cmbMetric.clear()
         self.lstParameters.clear()
 
-        self.model = None
-        self.feature_names = []
-        self.metric_name = None
-        self.training_dataframe = None
-
-        self.X_train = None
-        self.X_test = None
-        self.y_train = None
-        self.y_test = None
+        self.models = {}
 
         self.lblRMSE.setText("-")
         self.lblR2.setText("-")
@@ -419,8 +397,6 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
                     metric_names.append(name)
 
         self.metric_names = metric_names
-        self.cmbMetric.clear()
-        self.cmbMetric.addItems(self.metric_names)
 
         # ----------------------------------------------------------
         # Parameters
@@ -429,11 +405,7 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
         parameter_names = set()
         for _, study in self.studies:
 
-            # debugg
-            print(study.study_name, len(study.trials))
-            complete = [t for t in study.trials if t.state == TrialState.COMPLETE]
-            print("complete:", len(complete))
-            # -----------
+            # Collect parameter names from COMPLETE trials only.
             for trial in study.trials:
                 if trial.state != TrialState.COMPLETE:
                     continue
@@ -465,11 +437,11 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
         self._update_statistics()
         self._update_button_state()
 
-    # ==============================================================
-    # T R I A L S
-    # ==============================================================
+        # ==============================================================
+        # T R I A L S
+        # ==============================================================
 
-    def _collect_trials(self):
+    def _collect_trials(self, metric_name):
         """
         Collect COMPLETE trials from all loaded studies.
 
@@ -481,12 +453,11 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
             metric_index
             metric_name
         """
-
         if not self.studies:
             return []
-        metric_name = self.cmbMetric.currentText()
         if not metric_name:
             return []
+
         records = []
         for database_path, study in self.studies:
             # ------------------------------------------------------
@@ -495,16 +466,13 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
             study_metric_names = study.user_attrs.get("metric_names")
             if not isinstance(study_metric_names, (list, tuple)):
                 continue
-
             study_metric_names = [str(name) for name in study_metric_names]
             if metric_name not in study_metric_names:
                 continue
-
             metric_index = study_metric_names.index(metric_name)
             # ------------------------------------------------------
             # COMPLETE trials only
             # ------------------------------------------------------
-
             for trial in study.trials:
                 if trial.state != TrialState.COMPLETE:
                     continue
@@ -516,9 +484,15 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
 
                 if value is None:
                     continue
-
-                records.append({"database": database_path, "study": study, "trial": trial, "metric_index": metric_index, "metric_name": metric_name})
-
+                records.append(
+                    {
+                        "database": database_path,
+                        "study": study,
+                        "trial": trial,
+                        "metric_index": metric_index,
+                        "metric_name": metric_name,
+                    }
+                )
         return records
 
     def _selected_parameters(self):
@@ -528,10 +502,10 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
     # D A T A F R A M E
     # ==============================================================
 
-    def _build_dataframe(self, records=None):
+    def _build_dataframe(self, metric_name, records=None):
 
         if records is None:
-            records = self._collect_trials()
+            records = self._collect_trials(metric_name)
         if not records:
             raise ValueError("No COMPLETE trials were found " "for the selected metric.")
         selected_parameters = self._selected_parameters()
@@ -539,8 +513,6 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
             raise ValueError("Select at least one parameter.")
 
         rows = []
-        metric_name = self.cmbMetric.currentText()
-
         # ----------------------------------------------------------
         # Build one row per trial
         # ----------------------------------------------------------
@@ -601,14 +573,63 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
         dataframe = dataframe[dataframe[metric_name].replace([float("inf"), float("-inf")], float("nan")).notna()]
         if dataframe.empty:
             raise ValueError("No valid target values remain " "after dataframe cleanup.")
-        self.training_dataframe = dataframe.copy()
         return dataframe
 
     # ==============================================================
     # T R A I N
     # ==============================================================
 
-    def _train_model(self):
+    def calculate_r2(y_true, y_pred):
+        ss_res = np.sum((y_true - y_pred) ** 2)
+        ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+
+        if ss_tot <= 1e-12:
+            return 0.0
+
+        return 1.0 - (ss_res / ss_tot)
+
+    def _train_all_models(self):
+        self.models = {}
+        summary = []
+
+        progress = QtWidgets.QProgressDialog("Training models...", "Cancel", 0, len(self.metric_names), self)
+        progress.setWindowTitle("XGBoost")
+        progress.setWindowModality(QtCore.Qt.WindowModal)
+        progress.show()
+
+        for i, metric_name in enumerate(self.metric_names):
+            progress.setValue(i)
+            progress.setLabelText(f"Training:\n{metric_name}")
+            QtWidgets.QApplication.processEvents()
+
+            result = self._train_model(metric_name)
+            if progress.wasCanceled():
+                break
+
+            if result is not None:
+                top_features = sorted(result["feature_importance"].items(), key=lambda x: x[1], reverse=True)[:5]
+                top_text = "\n".join(f"  {name}:        {value:.1f}%" for name, value in top_features)
+
+                summary.append(
+                    f"{metric_name}\n"
+                    f"Samples: {result['samples']}\n"
+                    f"Features: {len(result['feature_names'])}\n"
+                    f"Train/Test: {result['train_rows']} / {result['test_rows']}\n"
+                    f"R²: {result['r2']:.4f}\n"
+                    f"RMSE: {result['rmse']:.6g}\n"
+                    f"Top Features:\n{top_text}"
+                )
+
+        progress.setValue(len(self.metric_names))
+
+        if summary:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Training Complete",
+                "\n\n".join(summary),
+            )
+
+    def _train_model(self, metric_name):
         try:
 
             # ------------------------------------------------------
@@ -618,9 +639,10 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
                 raise ValueError("Add at least one Optuna database.")
             if not self.studies:
                 raise ValueError("No Optuna studies are loaded.")
-            metric_name = self.cmbMetric.currentText()
+
             if not metric_name:
                 raise ValueError("Select a training metric.")
+
             selected_parameters = self._selected_parameters()
             if not selected_parameters:
                 raise ValueError("Select at least one parameter.")
@@ -629,14 +651,15 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
             # Collect trials
             # ------------------------------------------------------
 
-            records = self._collect_trials()
+            records = self._collect_trials(metric_name)
+
             if not records:
                 raise ValueError("No COMPLETE trials were found " "for the selected metric.")
 
             # ------------------------------------------------------
             # Build dataframe
             # ------------------------------------------------------
-            dataframe = self._build_dataframe(records)
+            dataframe = self._build_dataframe(metric_name, records)
             feature_names = list(selected_parameters)
             X = dataframe[feature_names]
             y = dataframe[metric_name]
@@ -652,11 +675,6 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
                 raise ValueError("Test fraction leaves no test rows.")
 
             # ------------------------------------------------------
-            # Train / test split
-            # ------------------------------------------------------
-
-            # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_fraction, random_state=42)
-
             # ------------------------------------------------------
             # Shuffle dataset
             # ------------------------------------------------------
@@ -691,42 +709,46 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
             # XGBoost
             # ------------------------------------------------------
 
-            dtrain = xgboost.DMatrix(X_train, label=y_train)
-            dtest = xgboost.DMatrix(X_test, label=y_test)
+            dtrain = xgboost.DMatrix(
+                X_train,
+                label=y_train,
+                feature_names=feature_names,
+            )
+            dtest = xgboost.DMatrix(
+                X_test,
+                label=y_test,
+                feature_names=feature_names,
+            )
+
             params = {
                 "objective": "reg:squarederror",
                 "max_depth": self.spinDepth.value(),
                 "eta": self.spinLearningRate.value(),
+                "subsample": 0.8,
+                "colsample_bytree": 0.8,
+                "min_child_weight": 3,
+                "seed": 42,
             }
+
+            # evals = [
+            #     (dtrain, "train"),
+            #     (dtest, "test"),
+            # ]
+
+            evals = [(dtest, "validation")]
 
             model = xgboost.train(
                 params,
                 dtrain,
                 num_boost_round=self.spinTrees.value(),
+                evals=evals,
+                early_stopping_rounds=50,
+                verbose_eval=False,
             )
-
-            # model = xgboost.XGBRegressor(
-            #     n_estimators=self.spinTrees.value(),
-            #     max_depth=self.spinDepth.value(),
-            #     learning_rate=(self.spinLearningRate.value()),
-            #     objective="reg:squarederror",
-            #     random_state=42,
-            #     n_jobs=-1,
-            # )
-
-            # ------------------------------------------------------
-            # Fit
-            # ------------------------------------------------------
 
             self._set_status("Training XGBoost model...")
             QtWidgets.QApplication.processEvents()
 
-            # model.fit(X_train, y_train)
-
-            # ------------------------------------------------------
-            # Predict
-            # ------------------------------------------------------
-            # predictions = model.predict(X_test)
             predictions = model.predict(dtest)
             # RMSE
             rmse = np.sqrt(np.mean((y_test.to_numpy() - predictions) ** 2))
@@ -743,15 +765,27 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
             # Store model state
             # ------------------------------------------------------
 
-            self.model = model
-            self.feature_names = feature_names
-            self.metric_name = metric_name
             self.created_from_databases = [os.path.abspath(path) for path in self.database_paths]
 
-            self.X_train = X_train
-            self.X_test = X_test
-            self.y_train = y_train
-            self.y_test = y_test
+            importance = model.get_score(importance_type="gain")
+            if importance:
+                total = sum(importance.values())
+                importance_percent = {feature: 100.0 * importance.get(feature, 0.0) / total if total > 0.0 else 0.0 for feature in feature_names}
+            else:
+                importance_percent = {feature: 0.0 for feature in feature_names}
+
+            model_info = {
+                "metric_name": metric_name,
+                "model": model,
+                "rmse": rmse,
+                "r2": r2,
+                "samples": len(dataframe),
+                "train_rows": len(X_train),
+                "test_rows": len(X_test),
+                "feature_names": feature_names,
+                "feature_importance": importance_percent,
+            }
+            self.models[metric_name] = model_info
 
             # ------------------------------------------------------
             # Results
@@ -759,198 +793,94 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
 
             self.lblRMSE.setText(f"{rmse:.8g}")
             self.lblR2.setText(f"{r2:.8g}")
-            self._update_statistics()
+            self._update_statistics(model_info)
             self._set_status("Model training completed successfully.")
             self._update_button_state()
 
-            # ------------------------------------------------------
-            # Result dialog
-            # ------------------------------------------------------
-
-            QtWidgets.QMessageBox.information(
-                self,
-                "Training Complete",
-                ("XGBoost model trained successfully.\n\n" f"Metric: {metric_name}\n" f"Samples: {len(dataframe)}\n" f"Features: {len(feature_names)}\n\n" f"RMSE: {rmse:.8g}\n" f"R²: {r2:.8g}"),
-            )
+            return model_info
 
         except Exception as exc:
             self._show_error("Model training failed.", exc)
+            return None
 
     # ==============================================================
     # S A V E   M O D E L
     # ==============================================================
 
-    def _save_model(self):
-        if self.model is None:
-            self._show_error("No trained model is available.\n\n" "Train a model before saving it.")
+    def _save_models(self):
+        if not self.models:
+            self._show_error("No trained models are available.\n\n" "Train one or more models before saving.")
             return
         try:
-            # ------------------------------------------------------
-            # Default folder = ActiveDocument folder
-            # ------------------------------------------------------
-            start_dir = os.path.expanduser("~")
-            try:
-                doc = App.ActiveDocument
-                if doc and doc.FileName:
-                    start_dir = os.path.dirname(doc.FileName)
-            except Exception:
-                pass
-            default_path = os.path.join(start_dir, "xgboost_model.json")
-            # ------------------------------------------------------
-            # Ask for model destination
-            # ------------------------------------------------------
 
-            path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save XGBoost Model", default_path, "XGBoost model (*.json);;All files (*)")
-            if not path:
-                return
+            # --------------------------------------------------
+            # Active document must be saved
+            # --------------------------------------------------
+            doc = App.ActiveDocument
+            if not doc or not doc.FileName:
+                raise ValueError("Please save the FreeCAD document first.")
+            # --------------------------------------------------
+            # Output folder = document folder
+            # --------------------------------------------------
+            output_dir = os.path.dirname(doc.FileName)
+            saved_files = []
+            # --------------------------------------------------
+            # Save every trained model
+            # --------------------------------------------------
+            for metric_name, model_info in self.models.items():
+                model = model_info["model"]
+                safe_name = metric_name
+                for ch in '\\/:*?"<>|':
+                    safe_name = safe_name.replace(ch, "_")
+                model_path = os.path.join(output_dir, f"xgboost_{safe_name}.json")
+                meta_path = os.path.join(output_dir, f"xgboost_{safe_name}.meta.json")
+                # ----------------------------------------------
+                # Save model
+                # ----------------------------------------------
 
-            # ------------------------------------------------------
-            # Normalize filename
-            # ------------------------------------------------------
+                model.save_model(model_path)
 
-            if not path.lower().endswith(".json"):
-                path += ".json"
-            path = os.path.abspath(path)
-            base, _ = os.path.splitext(path)
-            meta_path = base + ".meta.json"
-            # ------------------------------------------------------
-            # Save XGBoost model
-            # ------------------------------------------------------
-            self.model.save_model(path)
-            # ------------------------------------------------------
-            # Metadata
-            # ------------------------------------------------------
-            samples = 0
-            if self.training_dataframe is not None:
-                samples = len(self.training_dataframe)
-            metadata = {
-                "metric_name": self.metric_name,
-                "features": list(self.feature_names),
-                "created_from_databases": list(self.created_from_databases),
-                "samples": samples,
-            }
+                # ----------------------------------------------
+                # Metadata
+                # ----------------------------------------------
 
-            metadata["model_settings"] = {
-                "n_estimators": self.spinTrees.value(),
-                "max_depth": self.spinDepth.value(),
-                "learning_rate": self.spinLearningRate.value(),
-                "test_fraction": self.spinTestFraction.value(),
-            }
+                metadata = {
+                    "metric_name": metric_name,
+                    "features": model_info["feature_names"],
+                    "created_from_databases": list(self.created_from_databases),
+                    "samples": model_info["samples"],
+                    "train_rows": model_info["train_rows"],
+                    "test_rows": model_info["test_rows"],
+                    "rmse": model_info["rmse"],
+                    "r2": model_info["r2"],
+                    "feature_importance_percent": model_info["feature_importance"],
+                    "xgboost_version": getattr(xgboost, "__version__", None),
+                    "model_settings": {
+                        "n_estimators": self.spinTrees.value(),
+                        "max_depth": self.spinDepth.value(),
+                        "learning_rate": self.spinLearningRate.value(),
+                        "test_fraction": self.spinTestFraction.value(),
+                    },
+                }
 
-            metadata["train_rows"] = len(self.X_train) if self.X_train is not None else 0
-            metadata["test_rows"] = len(self.X_test) if self.X_test is not None else 0
-            metadata["rmse"] = self._float_from_label(self.lblRMSE.text())
-            metadata["r2"] = self._float_from_label(self.lblR2.text())
-            metadata["xgboost_version"] = getattr(xgboost, "__version__", None)
-
-            with open(meta_path, "w", encoding="utf-8") as handle:
-                json.dump(
-                    metadata,
-                    handle,
-                    indent=4,
-                    ensure_ascii=False,
-                )
-            self._set_status(f"Model saved successfully:\n" f"{path}\n" f"{meta_path}")
-            QtWidgets.QMessageBox.information(self, "Model Saved", ("Model saved successfully.\n\n" f"Model:\n{path}\n\n" f"Metadata:\n{meta_path}"))
-        except Exception as exc:
-            self._show_error("Could not save the model.", exc)
-
-    def _save_model_old(self):
-        if self.model is None:
-            self._show_error("No trained model is available.\n\n" "Train a model before saving it.")
-            return
-        try:
-            # ------------------------------------------------------
-            # Ask for model destination
-            # ------------------------------------------------------
-            path, _ = QtWidgets.QFileDialog.getSaveFileName(
-                self,
-                "Save XGBoost Model",
-                "model.json",
-                "XGBoost model (*.json);;" "All files (*)",
-            )
-            if not path:
-                return
-            # ------------------------------------------------------
-            # Normalize model filename
-            # ------------------------------------------------------
-            if not path.lower().endswith(".json"):
-                path += ".json"
-
-            # start_dir = os.path.dirname(App.ActiveDocument.FileName)
-            # default_path = os.path.join(start_dir, "xgboost_model.json")
-            # path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save XGBoost Model", default_path, "XGBoost model (*.json);;All files (*)")
-
-            path = os.path.abspath(path)
-            base, _ = os.path.splitext(path)
-
-            meta_path = base + ".meta.json"
-
-            # ------------------------------------------------------
-            # Save XGBoost model
-            # ------------------------------------------------------
-            self.model.save_model(path)
-            # ------------------------------------------------------
-            # Metadata
-            # ------------------------------------------------------
-            samples = 0
-            if self.training_dataframe is not None:
-                samples = len(self.training_dataframe)
-
-            metadata = {
-                "metric_name": self.metric_name,
-                "features": list(self.feature_names),
-                "created_from_databases": list(self.created_from_databases),
-                "samples": samples,
-            }
-
-            # ------------------------------------------------------
-            # Additional useful training information
-            # ------------------------------------------------------
-
-            metadata["model_settings"] = {
-                "n_estimators": (self.spinTrees.value()),
-                "max_depth": (self.spinDepth.value()),
-                "learning_rate": (self.spinLearningRate.value()),
-                "test_fraction": (self.spinTestFraction.value()),
-            }
-
-            if self.X_train is not None:
-                metadata["train_rows"] = len(self.X_train)
-            else:
-                metadata["train_rows"] = 0
-
-            if self.X_test is not None:
-                metadata["test_rows"] = len(self.X_test)
-            else:
-                metadata["test_rows"] = 0
-
-            metadata["rmse"] = self._float_from_label(self.lblRMSE.text())
-
-            metadata["r2"] = self._float_from_label(self.lblR2.text())
-
-            # ------------------------------------------------------
-            # XGBoost version
-            # ------------------------------------------------------
-
-            metadata["xgboost_version"] = getattr(xgboost, "__version__", None)
-
-            # ------------------------------------------------------
-            # Save metadata
-            # ------------------------------------------------------
-
-            with open(meta_path, "w", encoding="utf-8") as handle:
-
-                json.dump(metadata, handle, indent=4, ensure_ascii=False)
-            self._set_status("Model saved successfully:\n" f"{path}\n" f"{meta_path}")
+                with open(meta_path, "w", encoding="utf-8") as handle:
+                    json.dump(metadata, handle, indent=4, ensure_ascii=False)
+                saved_files.append(os.path.basename(model_path))
+            # --------------------------------------------------
+            # Finished
+            # --------------------------------------------------
+            self._set_status(f"Saved {len(saved_files)} model(s)\n" f"{output_dir}")
             QtWidgets.QMessageBox.information(
                 self,
-                "Model Saved",
-                ("Model saved successfully.\n\n" f"Model:\n{path}\n\n" f"Metadata:\n{meta_path}"),
+                "Models Saved",
+                (f"Saved {len(saved_files)} model(s)\n\n" f"Folder:\n{output_dir}"),
             )
 
         except Exception as exc:
-            self._show_error("Could not save the model.", exc)
+            self._show_error(
+                "Could not save models.",
+                exc,
+            )
 
     # ==============================================================
     # H E L P E R S
@@ -968,72 +898,26 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
         except (TypeError, ValueError):
             return None
 
-    def _metric_changed(self):
-        self.model = None
-        self.feature_names = []
-        self.metric_name = None
-
-        self.lblRMSE.setText("-")
-        self.lblR2.setText("-")
-
-        self._update_button_state()
-        if self.cmbMetric.currentText():
-            self._set_status(f"Selected metric: " f"{self.cmbMetric.currentText()}")
-
-    def _update_statistics_tmp(self):
-        if self.training_dataframe is None:
-            self.lblSamples.setText("0")
-            try:
-                n_features = len(self._selected_parameters())
-            except Exception:
-                n_features = 0
-
-            self.lblFeatures.setText(str(n_features))
-            self.lblTrainRows.setText("0")
-            self.lblTestRows.setText("0")
-            return
-
-    def _update_statistics(self):
-
-        # ----------------------------------------------------------
-        # No dataframe yet
-        # ----------------------------------------------------------
-
-        if self.training_dataframe is None:
+    def _update_statistics(self, model_info=None):
+        if model_info is None:
             self.lblSamples.setText("0")
             self.lblFeatures.setText(str(len(self._selected_parameters())))
             self.lblTrainRows.setText("0")
             self.lblTestRows.setText("0")
             return
 
-        # ----------------------------------------------------------
-        # Dataset
-        # ----------------------------------------------------------
-
-        dataframe = self.training_dataframe
-        self.lblSamples.setText(str(len(dataframe)))
-        self.lblFeatures.setText(str(len(self.feature_names)))
-
-        # ----------------------------------------------------------
-        # Train/test
-        # ----------------------------------------------------------
-
-        if self.X_train is not None:
-            self.lblTrainRows.setText(str(len(self.X_train)))
-        else:
-            self.lblTrainRows.setText("0")
-        if self.X_test is not None:
-            self.lblTestRows.setText(str(len(self.X_test)))
-        else:
-            self.lblTestRows.setText("0")
+        self.lblSamples.setText(str(model_info["samples"]))
+        self.lblFeatures.setText(str(len(model_info["feature_names"])))
+        self.lblTrainRows.setText(str(model_info["train_rows"]))
+        self.lblTestRows.setText(str(model_info["test_rows"]))
 
     def _update_button_state(self):
         has_databases = bool(self.database_paths)
         has_studies = bool(self.studies)
-        has_metric = bool(self.cmbMetric.currentText())
         has_parameters = bool(self._selected_parameters())
-        self.btnTrain.setEnabled(has_databases and has_studies and has_metric and has_parameters)
-        self.btnSave.setEnabled(self.model is not None)
+
+        self.btnTrainAll.setEnabled(has_databases and has_studies and has_parameters)
+        self.btnSave.setEnabled(bool(self.models))
         self.btnRemoveDB.setEnabled(self.lstDatabases.count() > 0)
         self.btnClearDB.setEnabled(self.lstDatabases.count() > 0)
         self.btnSelectAll.setEnabled(self.lstParameters.count() > 0)
