@@ -24,6 +24,14 @@ class OptunaPlotWindow(QtWidgets.QDialog):
 
     _window_count = 0
 
+    @classmethod
+    def is_open(cls):
+        return cls._window_count > 0
+
+    def closeEvent(self, event):
+        OptunaPlotWindow._window_count = max(0, OptunaPlotWindow._window_count - 1)
+        super().closeEvent(event)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         # self.setWindowFlags(QtCore.Qt.Window)
@@ -733,13 +741,9 @@ class OptunaVisualizationDialog(QtWidgets.QDialog):
         self.btnShow.clicked.connect(self.show_graph)
         self.btnClose.clicked.connect(self.close)
 
-    def closeEvent(self, event):
-        OptunaPlotWindow._window_count -= 1
-        super().closeEvent(event)
-
-    @classmethod
-    def is_open(cls):
-        return cls._window_count > 0
+    # def closeEvent(self, event):
+    #     OptunaPlotWindow._window_count = max(0, OptunaPlotWindow._window_count - 1)
+    #     super().closeEvent(event)
 
     # ======================================================
     # STUDY

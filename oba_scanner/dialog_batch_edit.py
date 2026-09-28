@@ -148,7 +148,7 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         row = QtWidgets.QHBoxLayout()
 
         self.btn_add = QtWidgets.QPushButton("Add Step")
-        self.btn_run = QtWidgets.QPushButton("Run")
+        self.btn_run = QtWidgets.QPushButton("Re Run")
         self.btn_stop = QtWidgets.QPushButton("Stop")
         self.btn_heatmap = QtWidgets.QPushButton("Heatmap")
         self.btn_xyz_list = QtWidgets.QPushButton("DB XYZ list")
@@ -184,7 +184,7 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         self.btn_db_reset.clicked.connect(self._reset_db)
         self.btn_db_clear.clicked.connect(self._clear_db)
         self.btn_add.clicked.connect(self._add_step)
-        self.btn_run.clicked.connect(self._run)
+        self.btn_run.clicked.connect(self._re_run)
         self.btn_stop.clicked.connect(self._stop)
         self.btn_heatmap.clicked.connect(self._open_heatmap)
         self.btn_xyz_list.clicked.connect(self._open_xyz_list)
@@ -217,7 +217,7 @@ class BatchGroupDock(QtWidgets.QDockWidget):
             db.close()
             self._update_db_label()
             self.refresh_list()
-            QtWidgets.QMessageBox.information(self, "DB", "All scan data cleared.")
+            # QtWidgets.QMessageBox.information(self, "DB", "All scan data cleared.")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "DB error", str(e))
 
@@ -494,7 +494,9 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         self.refresh_list()
 
     # --------------------------------------------------
-    def _run(self):
+    def _re_run(self):
+        self._clear_db()
+
         self._cancel = False
 
         batch = self._get_batch()

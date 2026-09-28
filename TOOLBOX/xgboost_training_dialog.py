@@ -183,6 +183,17 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
         self.spinLearningRate.setDecimals(6)
         self.spinLearningRate.setSingleStep(0.01)
         self.spinLearningRate.setValue(DEFAULT_LEARNING_RATE)
+        self.spinLearningRate.setToolTip(
+            "Learning rate (eta).\n\n"
+            "Lower values learn more slowly but usually generalize better.\n"
+            "Higher values learn faster but increase the risk of overfitting.\n\n"
+            "Typical values:\n"
+            "0.01 - Very conservative\n"
+            "0.05 - Good default\n"
+            "0.10 - Faster training\n"
+            "0.30+ - Aggressive, often needs fewer trees\n\n"
+            "When lowering learning rate, it is often beneficial to increase the number of trees."
+        )
         model_layout.addRow("Learning rate:", self.spinLearningRate)
         self.spinTestFraction = QtWidgets.QDoubleSpinBox()
         self.spinTestFraction.setRange(0.01, 0.99)
@@ -774,6 +785,31 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
             else:
                 importance_percent = {feature: 0.0 for feature in feature_names}
 
+            # ------------------------------------------------------
+            # Top 20% trials
+            # ------------------------------------------------------
+
+            top_fraction = 0.20
+            sorted_df = dataframe.sort_values(
+                by=metric_name,
+                ascending=False,  # maximera metric
+            )
+
+            top_count = max(1, int(len(sorted_df) * top_fraction))
+            top_df = sorted_df.iloc[:top_count]
+
+            # ------------------------------------------------------
+            # Bounds från bästa 20%
+            # ------------------------------------------------------
+            parameter_bounds = {}
+            for feature in feature_names:
+                parameter_bounds[feature] = {
+                    "global_min": float(dataframe[feature].min()),
+                    "global_max": float(dataframe[feature].max()),
+                    "top20_min": float(top_df[feature].quantile(0.05)),
+                    "top20_max": float(top_df[feature].quantile(0.95)),
+                }
+
             model_info = {
                 "metric_name": metric_name,
                 "model": model,
@@ -784,6 +820,7 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
                 "test_rows": len(X_test),
                 "feature_names": feature_names,
                 "feature_importance": importance_percent,
+                "parameter_bounds": parameter_bounds,
             }
             self.models[metric_name] = model_info
 
@@ -832,8 +869,13 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
                 safe_name = metric_name
                 for ch in '\\/:*?"<>|':
                     safe_name = safe_name.replace(ch, "_")
-                model_path = os.path.join(output_dir, f"xgboost_{safe_name}.json")
-                meta_path = os.path.join(output_dir, f"xgboost_{safe_name}.meta.json")
+
+                doc_name = os.path.splitext(os.path.basename(doc.FileName))[0]
+                model_path = os.path.join(output_dir, f"{doc_name}_xgboost_{safe_name}.json")
+                meta_path = os.path.join(output_dir, f"{doc_name}_xgboost_{safe_name}.meta.json")
+
+                # model_path = os.path.join(output_dir, f"xgboost_{safe_name}.json")
+                # meta_path = os.path.join(output_dir, f"xgboost_{safe_name}.meta.json")
                 # ----------------------------------------------
                 # Save model
                 # ----------------------------------------------
@@ -861,6 +903,7 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
                         "learning_rate": self.spinLearningRate.value(),
                         "test_fraction": self.spinTestFraction.value(),
                     },
+                    "parameter_bounds": model_info["parameter_bounds"],
                 }
 
                 with open(meta_path, "w", encoding="utf-8") as handle:

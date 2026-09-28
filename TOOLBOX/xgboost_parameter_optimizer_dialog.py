@@ -289,6 +289,8 @@ class XGBoostSurrogateModel:
         self.r2 = self.metadata.get("r2")
         self.samples = self.metadata.get("samples")
 
+        self.parameter_bounds = self.metadata.get("parameter_bounds", {})
+
         self.model = xgboost.Booster()
 
         self.model.load_model(self.model_path)
@@ -322,13 +324,66 @@ class XGBoostSurrogateModel:
         prediction = self.model.predict(dmatrix)
         return float(prediction[0])
 
-
-# ======================================================================
-# MODEL DISCOVERY
-# ======================================================================
+    # ======================================================================
+    # MODEL DISCOVERY
+    # ======================================================================
 
 
 def find_xgboost_models(directory):
+    """
+    Find all trained XGBoost models in a directory.
+    Supports both:
+        xgboost_<metric>.json
+    and
+        <document>_xgboost_<metric>.json
+    """
+    if not directory:
+        return []
+    if not os.path.isdir(directory):
+        return []
+    models = []
+    for filename in sorted(os.listdir(directory)):
+        if not filename.endswith(MODEL_SUFFIX):
+            continue
+        if filename.endswith(META_SUFFIX):
+            continue
+        if "_xgboost_" not in filename and not filename.startswith(MODEL_PREFIX):
+            continue
+        model_path = os.path.join(directory, filename)
+        # ----------------------------------------------------------
+        # Remove ".json"
+        # ----------------------------------------------------------
+        stem = filename[: -len(MODEL_SUFFIX)]
+        # ----------------------------------------------------------
+        # Extract metric name
+        #
+        # Examples:
+        #
+        # xgboost_MetricA.json
+        #     -> MetricA
+        #
+        # WhiteCellLarge_xgboost_MetricA.json
+        #     -> MetricA
+        # ----------------------------------------------------------
+        if "_xgboost_" in stem:
+            metric_name = stem.split("_xgboost_", 1)[1]
+        elif stem.startswith("xgboost_"):
+            metric_name = stem[len("xgboost_") :]
+        else:
+            continue
+        meta_path = model_path[: -len(MODEL_SUFFIX)] + META_SUFFIX
+        if not os.path.isfile(meta_path):
+            continue
+        try:
+            model = XGBoostSurrogateModel(metric_name, model_path, meta_path)
+            model.load()
+            models.append(model)
+        except Exception as exc:
+            App.Console.PrintError("[OBA] Could not load XGBoost model " f"{filename}: {exc}\n")
+    return models
+
+
+def find_xgboost_models_old(directory):
     """
     Find all trained XGBoost models in a directory.
 
@@ -561,11 +616,17 @@ class OptimizationResult:
 
 class XGBoostParameterOptimizerDialog(QtWidgets.QDialog):
 
-    def __init__(
-        self,
-        white_cell_obj,
-        parent=None,
-    ):
+    _window_count = 0
+
+    @classmethod
+    def is_open(cls):
+        return cls._window_count > 0
+
+    def closeEvent(self, event):
+        XGBoostParameterOptimizerDialog._window_count = max(0, XGBoostParameterOptimizerDialog._window_count - 1)
+        super().closeEvent(event)
+
+    def __init__(self, white_cell_obj, parent=None):
         super().__init__(parent)
         self.obj = white_cell_obj
         self.models = []
@@ -573,6 +634,10 @@ class XGBoostParameterOptimizerDialog(QtWidgets.QDialog):
         self.best_result = None
         self.ranges = {}
         self._running = False
+        self.best_guess = None
+
+        XGBoostParameterOptimizerDialog._window_count += 1
+
         self.setWindowTitle("XGBoost Parameter Optimizer")
 
         self.resize(
@@ -641,6 +706,7 @@ class XGBoostParameterOptimizerDialog(QtWidgets.QDialog):
         self.spin_trials.setSingleStep(50)
         self.spin_trials.setValue(DEFAULT_TRIALS)
         settings_layout.addRow("Surrogate trials:", self.spin_trials)
+
         self.spin_range = QtWidgets.QDoubleSpinBox()
         self.spin_range.setRange(0.001, 10.0)
         self.spin_range.setDecimals(3)
@@ -648,7 +714,23 @@ class XGBoostParameterOptimizerDialog(QtWidgets.QDialog):
         self.spin_range.setValue(DEFAULT_RANGE_PERCENT)
         self.spin_range.setToolTip("Search range around the current value. " "0.10 means ±10%.")
         settings_layout.addRow("Range fraction:", self.spin_range)
+
+        # --------------------------------------------------------------
+        # Horisontell linje (Avskiljare)
+        # --------------------------------------------------------------
+        separator = QtWidgets.QFrame()
+        separator.setFrameShape(QtWidgets.QFrame.HLine)
+        separator.setFrameShadow(QtWidgets.QFrame.Sunken)
+        settings_layout.addRow(separator)  # Läggs till över båda kolumnerna i form_layout
+
+        self.spin_guesses = QtWidgets.QSpinBox()
+        self.spin_guesses.setRange(1000, 10000000)
+        self.spin_guesses.setSingleStep(5000)  # Valfritt: gör det enklare att klicka sig fram i stora steg
+        self.spin_guesses.setValue(200000)
+        settings_layout.addRow("Initial guesses:", self.spin_guesses)  # Lade till denna rad
+
         main_layout.addWidget(settings_group)
+
         # --------------------------------------------------------------
         # Plot
         # --------------------------------------------------------------
@@ -693,12 +775,20 @@ class XGBoostParameterOptimizerDialog(QtWidgets.QDialog):
         # --------------------------------------------------------------
         button_layout = QtWidgets.QHBoxLayout()
         self.btn_reload = QtWidgets.QPushButton("Reload Models")
-        self.btn_run = QtWidgets.QPushButton("Run Mini Optuna")
+
+        self.btn_guess = QtWidgets.QPushButton("Generate Guess")
+        self.btn_apply_guess = QtWidgets.QPushButton("Apply Guess")
+        self.btn_apply_guess.setEnabled(False)
+        self.btn_run_optuna = QtWidgets.QPushButton("Run Mini Optuna")
         self.btn_apply = QtWidgets.QPushButton("Apply Best")
         self.btn_close = QtWidgets.QPushButton("Close")
         button_layout.addWidget(self.btn_reload)
         button_layout.addStretch()
-        button_layout.addWidget(self.btn_run)
+
+        button_layout.addWidget(self.btn_guess)
+        button_layout.addWidget(self.btn_apply_guess)
+
+        button_layout.addWidget(self.btn_run_optuna)
         button_layout.addWidget(self.btn_apply)
         button_layout.addWidget(self.btn_close)
         main_layout.addLayout(button_layout)
@@ -707,7 +797,10 @@ class XGBoostParameterOptimizerDialog(QtWidgets.QDialog):
         # Signals
         # --------------------------------------------------------------
         self.btn_reload.clicked.connect(self._reload)
-        self.btn_run.clicked.connect(self._run_optimization)
+        self.btn_guess.clicked.connect(self._generate_guess)
+        self.btn_apply_guess.clicked.connect(self._apply_guess)
+
+        self.btn_run_optuna.clicked.connect(self._run_optimization)
         self.btn_apply.clicked.connect(self._apply_best)
         self.btn_close.clicked.connect(self.close)
         self.btn_apply.setEnabled(False)
@@ -950,6 +1043,227 @@ class XGBoostParameterOptimizerDialog(QtWidgets.QDialog):
     # OPTIMIZATION
     # ==================================================================
 
+    def _generate_guess(self):
+
+        active_models = self._selected_models()
+
+        if not active_models:
+            self._show_error("Select at least one XGBoost model.")
+            return
+
+        if np is None:
+            self._show_error("NumPy is required.")
+            return
+
+        n_samples = int(self.spin_guesses.value())
+
+        progress = QtWidgets.QProgressDialog("Generating guesses...", "Cancel", 0, 100, self)
+        progress.setWindowTitle("XGBoost Guess")
+        progress.setWindowModality(QtCore.Qt.WindowModal)
+        progress.show()
+
+        try:
+
+            info = discover_white_cell_parameters(self.obj)
+            locked = info["locked"]
+            free = info["free"]
+            # --------------------------------------------------
+            # Fixed parameters
+            # --------------------------------------------------
+            fixed_values = {}
+            for name in locked:
+                value = _safe_property_value(self.obj, name)
+                if value is not None:
+                    fixed_values[name] = value
+            # --------------------------------------------------
+            # Union of all model features
+            # --------------------------------------------------
+            all_features = []
+            for model in active_models:
+                for feature in model.features:
+                    if feature not in all_features:
+                        all_features.append(feature)
+
+            if not all_features:
+                self._show_error("No model features found.")
+                return
+
+            # --------------------------------------------------
+            # Build candidate matrix
+            # --------------------------------------------------
+
+            progress.setValue(5)
+            progress.setLabelText("Building candidate matrix...")
+            QtWidgets.QApplication.processEvents()
+
+            feature_index = {name: idx for idx, name in enumerate(all_features)}
+
+            grid = np.zeros((n_samples, len(all_features)), dtype=np.float32)
+            # --------------------------------------------------
+            # Locked params
+            # --------------------------------------------------
+            for name, value in fixed_values.items():
+                if name not in feature_index:
+                    continue
+                grid[:, feature_index[name]] = value
+
+            # --------------------------------------------------
+            # Random free params
+            # --------------------------------------------------
+            for name in free:
+                bounds = None
+                for model in active_models:
+                    bounds = model.parameter_bounds.get(name)
+                    if bounds:
+                        break
+
+                if not bounds:
+                    continue
+
+                low = float(bounds["top20_min"])
+                high = float(bounds["top20_max"])
+                idx = feature_index[name]
+                grid[:, idx] = np.random.uniform(low, high, size=n_samples)
+            progress.setValue(25)
+            progress.setLabelText("Evaluating XGBoost models...")
+            QtWidgets.QApplication.processEvents()
+
+            # --------------------------------------------------
+            # Combined score
+            # --------------------------------------------------
+            scores = np.zeros(n_samples, dtype=np.float64)
+            # --------------------------------------------------
+            # Predict once per model
+            # --------------------------------------------------
+
+            for model_index, model in enumerate(active_models):
+                if progress.wasCanceled():
+                    return
+
+                cols = [feature_index[name] for name in model.features]
+                model_grid = grid[:, cols]
+                dmatrix = xgboost.DMatrix(
+                    model_grid,
+                    feature_names=model.features,
+                )
+                predictions = model.model.predict(dmatrix)
+                direction = self._direction_for_metric(model.metric_name)
+                if direction == "Maximize":
+                    scores += predictions
+                else:
+                    scores -= predictions
+
+                progress.setValue(25 + int(60.0 * (model_index + 1) / len(active_models)))
+                progress.setLabelText(f"Evaluating model {model_index + 1} / {len(active_models)}")
+                QtWidgets.QApplication.processEvents()
+
+            # --------------------------------------------------
+            # Best candidate
+            # --------------------------------------------------
+            best_idx = int(np.argmax(scores))
+
+            best_candidate = {}
+            for feature in all_features:
+                idx = feature_index[feature]
+                best_candidate[feature] = float(grid[best_idx, idx])
+
+            progress.setValue(100)
+            self.best_guess = best_candidate
+            self.btn_apply_guess.setEnabled(best_candidate is not None)
+
+            # KORRIGERAD RAD: Ändrat till scores[best_idx] och fixat strängformateringen
+            self._set_status(f"Generated {n_samples:,} guesses.\nBest score: {scores[best_idx]:.6g}")
+        finally:
+            progress.close()
+
+    def _generate_guess_old(self):
+        active_models = self._selected_models()
+        if not active_models:
+            self._show_error("Select at least one XGBoost model.")
+            return
+        n_samples = int(self.spin_guesses.value())
+
+        progress = QtWidgets.QProgressDialog(
+            "Generating guesses...",
+            "Cancel",
+            0,
+            n_samples,
+            self,
+        )
+        progress.setWindowTitle("XGBoost Guess")
+        progress.setWindowModality(QtCore.Qt.WindowModal)
+        progress.show()
+
+        fixed_values = {}
+        free_values = []
+        info = discover_white_cell_parameters(self.obj)
+
+        for name in info["locked"]:
+            value = _safe_property_value(self.obj, name)
+            if value is not None:
+                fixed_values[name] = value
+
+        for name in info["free"]:
+            free_values.append(name)
+
+        best_score = None
+        best_candidate = None
+
+        for i in range(n_samples):
+
+            if i % 100 == 0:
+                progress.setValue(i)
+                progress.setLabelText(f"Generating guesses...\n" f"{i:,} / {n_samples:,}\n\n" f"Best score: {best_score:.6g}" if best_score is not None else f"{i:,} / {n_samples:,}")
+
+            candidate = dict(fixed_values)
+            for name in free_values:
+                bounds = None
+                for model in active_models:
+                    bounds = model.parameter_bounds.get(name)
+                    if bounds:
+                        break
+
+                if not bounds:
+                    continue
+
+                low = bounds["top20_min"]
+                high = bounds["top20_max"]
+
+                candidate[name] = np.random.uniform(low, high)
+
+            score = 0.0
+            for model in active_models:
+                prediction = model.predict(candidate)
+                direction = self._direction_for_metric(model.metric_name)
+                if direction == "Maximize":
+                    score += prediction
+                else:
+                    score -= prediction
+
+            if best_score is None or score > best_score:
+                best_score = score
+                best_candidate = candidate
+
+        progress.setValue(n_samples)
+        self.best_guess = best_candidate
+        self.btn_apply_guess.setEnabled(best_candidate is not None)
+        self._set_status(f"Best guess score: {best_score:.6g}")
+
+    def _apply_guess(self):
+
+        if not self.best_guess:
+            return
+        info = discover_white_cell_parameters(self.obj)
+        for name in info["free"]:
+            if name not in self.best_guess:
+                continue
+            _set_property(
+                self.obj,
+                name,
+                self.best_guess[name],
+            )
+        self.obj.Document.recompute()
+
     def _run_optimization(self):
 
         if self._running:
@@ -1004,7 +1318,7 @@ class XGBoostParameterOptimizerDialog(QtWidgets.QDialog):
         # Optimization.
         # --------------------------------------------------------------
         self._running = True
-        self.btn_run.setEnabled(False)
+        self.btn_run_optuna.setEnabled(False)
         self.btn_apply.setEnabled(False)
         self.results = []
 
@@ -1110,7 +1424,7 @@ class XGBoostParameterOptimizerDialog(QtWidgets.QDialog):
             self._show_error("Surrogate optimization failed.", exc)
         finally:
             self._running = False
-            self.btn_run.setEnabled(True)
+            self.btn_run_optuna.setEnabled(True)
 
     # ==================================================================
     # REPRESENTATIVE RESULT
@@ -1391,11 +1705,7 @@ class XGBoostParameterOptimizerDialog(QtWidgets.QDialog):
 # ======================================================================
 
 
-def OBA_CreateXGBoostParameterOptimizerDialog(
-    white_cell_obj,
-    parent=None,
-    show_dialog=True,
-):
+def OBA_CreateXGBoostParameterOptimizerDialog(white_cell_obj, parent=None, show_dialog=True):
     """
     Create the inverse XGBoost optimizer dialog.
 
@@ -1412,34 +1722,22 @@ def OBA_CreateXGBoostParameterOptimizerDialog(
     """
 
     if white_cell_obj is None:
-
         raise ValueError("A White Cell object is required.")
-
     if parent is None:
-
         try:
-
             if App.GuiUp:
-
                 import FreeCADGui as Gui
 
                 parent = Gui.getMainWindow()
-
         except Exception:
-
             parent = None
 
-    dialog = XGBoostParameterOptimizerDialog(
-        white_cell_obj,
-        parent=parent,
-    )
+    dialog = XGBoostParameterOptimizerDialog(white_cell_obj, parent=parent)
 
     if show_dialog:
-
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()
-
     return dialog
 
 

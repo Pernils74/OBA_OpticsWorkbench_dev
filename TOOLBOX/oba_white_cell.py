@@ -49,6 +49,7 @@ from .oba_ellipsoid import OBA_CreateEllipsoid
 
 from OPTIMIZER.optimize_worker import is_optimization_running
 from OPTIMIZER.optuna_plotting import OptunaPlotWindow
+from .xgboost_parameter_optimizer_dialog import XGBoostParameterOptimizerDialog
 
 # ======================================================================
 # P R O P E R T I E S
@@ -693,7 +694,7 @@ class OBAWhiteCell:
         finally:
             self._rebuilding = False
 
-        if self._is_dialog_open() and not OptunaPlotWindow.is_open():
+        if self._is_dialog_open() and not OptunaPlotWindow.is_open() and not XGBoostParameterOptimizerDialog.is_open():
             print("============================ recomputar ===========================")
             obj.Document.recompute()
 
@@ -1022,16 +1023,6 @@ class WhiteCellDialog(OBAToolboxDialogBase):
             try:
                 value = getattr(obj, prop)
                 sheet.set(f"A{row}", prop)
-                # sheet.set(f"A{row}", prop_def.get("label", prop))
-                # unit = prop_def.get("unit", "")
-                # if unit:
-                #     sheet.set(f"B{row}", f"{float(value)} {unit}")
-                # else:
-                #     sheet.set(f"B{row}", str(value))
-                # if unit == "deg":
-                #     sheet.set(f"B{row}", f"{float(value)} deg")
-                # else:
-                #     sheet.set(f"B{row}", str(value))
                 sheet.set(f"B{row}", str(value))
 
                 sheet.setAlias(f"B{row}", prop)
@@ -1134,7 +1125,26 @@ class WhiteCellDialog(OBAToolboxDialogBase):
         doc.recompute()
         App.Console.PrintMessage(f"Updated Optuna config with " f"{len(selected_params)} parameters\n")
 
+    def _get_spreadsheet_references(self):
+        refs = []
+        try:
+            for prop, expr in self.obj.ExpressionEngine:
+                if "Spreadsheet." in str(expr):
+                    refs.append(prop)
+        except Exception as exc:
+            print("ExpressionEngine error:", exc)
+        return refs
+
     def _open_xgboost_optimizer(self):
+        refs = self._get_spreadsheet_references()
+        if refs:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Spreadsheet References Found",
+                "The following parameters are controlled by Spreadsheet " "expressions:\n\n" + "\n".join(refs) + "\n\nRemove Spreadsheet References before using " "the XGBoost Optimizer.",
+            )
+            return
+
         from .xgboost_parameter_optimizer_dialog import OBA_CreateXGBoostParameterOptimizerDialog
 
         self._xgboost_optimizer_dialog = OBA_CreateXGBoostParameterOptimizerDialog(

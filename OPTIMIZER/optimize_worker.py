@@ -368,6 +368,9 @@ class OptimizationWorker(QtCore.QObject):
             return self._step_ratio_exponential(complete_count)
         return self._step_ratio_linear(complete_count)
 
+    def _step_ratio_none(self, complete_count):
+        return 1.0
+
     def _step_ratio_fixed(self, complete_count):
         return 0.15
 

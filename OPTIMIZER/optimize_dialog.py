@@ -191,6 +191,8 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self.btnOptunaPlot = self._make_button("Optuna-plot", "optuna_plot.svg")
         self.btnOptunaSheet = self._make_button("Optuna Sheet", "optuna_plot.svg")
 
+        self.btnOptunaBoundsEditor = self._make_button("Optuna Bounds Editor", "optuna_plot.svg")
+
         self.lblStatus = QtWidgets.QLabel("Status: idle")
         self.lblStatus.setStyleSheet("color: gray;")
 
@@ -216,6 +218,8 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
         row.addWidget(self.btnOptunaPlot)
         row.addWidget(self.btnOptunaSheet)
+        row.addWidget(self.btnOptunaBoundsEditor)
+
         row.addWidget(self.lblStatus)
 
         row.addStretch()
@@ -228,6 +232,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self.btnStart_new.clicked.connect(self._on_start_new)
         self.btnOptunaPlot.clicked.connect(self._open_optuna_plot_window)
         self.btnOptunaSheet.clicked.connect(self._open_optuna_sheet_window)
+        self.btnOptunaBoundsEditor.clicked.connect(self._open_optuna_bounds_editor)
 
         self.cmbConfig.currentTextChanged.connect(self._on_config_changed)
         self.btnNewConfig.clicked.connect(self._create_new_config)
@@ -670,6 +675,14 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             from .optuna_sheet import open_optuna_sheet
 
             self._optuna_sheet_window = open_optuna_sheet()
+        except Exception as e:
+            App.Console.PrintError(f"[UI] Sheet error: {e}\n")
+
+    def _open_optuna_bounds_editor(self):
+        try:
+            from .optuna_bounds_editor import show_optuna_bounds_editor
+
+            self._optuna_sheet_window = show_optuna_bounds_editor()
         except Exception as e:
             App.Console.PrintError(f"[UI] Sheet error: {e}\n")
 

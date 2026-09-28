@@ -872,6 +872,96 @@ class XGBoostTrainingDialog(QtWidgets.QDialog):
         if not self.models:
             self._show_error("No trained models are available.\n\n" "Train one or more models before saving.")
             return
+        try:
+            # ------------------------------------------------------
+            # Active document
+            # ------------------------------------------------------
+            doc = App.ActiveDocument
+            if not doc or not doc.FileName:
+                raise ValueError("Please save the FreeCAD document first.")
+            output_dir = os.path.dirname(doc.FileName)
+            # ------------------------------------------------------
+            # Document name
+            # ------------------------------------------------------
+            document_name = os.path.splitext(os.path.basename(doc.FileName))[0]
+            for ch in '\\/:*?"<>|':
+                document_name = document_name.replace(ch, "_")
+            saved_files = []
+            # ------------------------------------------------------
+            # Save every trained model
+            # ------------------------------------------------------
+            for metric_name, model_info in self.models.items():
+                model = model_info["model"]
+                safe_name = str(metric_name)
+                for ch in '\\/:*?"<>|':
+                    safe_name = safe_name.replace(ch, "_")
+                model_path = os.path.join(
+                    output_dir,
+                    f"{document_name}_xgboost_{safe_name}.json",
+                )
+                meta_path = os.path.join(
+                    output_dir,
+                    f"{document_name}_xgboost_{safe_name}.meta.json",
+                )
+
+                # --------------------------------------------------
+                # Save model
+                # --------------------------------------------------
+                model.save_model(model_path)
+                # --------------------------------------------------
+                # Metadata
+                # --------------------------------------------------
+                metadata = {
+                    "metric_name": metric_name,
+                    "features": model_info["feature_names"],
+                    "created_from_databases": list(self.created_from_databases),
+                    "samples": model_info["samples"],
+                    "train_rows": model_info["train_rows"],
+                    "test_rows": model_info["test_rows"],
+                    "rmse": model_info["rmse"],
+                    "r2": model_info["r2"],
+                    "feature_importance_percent": model_info["feature_importance"],
+                    "xgboost_version": getattr(xgboost, "__version__", None),
+                    "model_settings": {
+                        "n_estimators": self.spinTrees.value(),
+                        "max_depth": self.spinDepth.value(),
+                        "learning_rate": self.spinLearningRate.value(),
+                        "test_fraction": self.spinTestFraction.value(),
+                    },
+                }
+
+                with open(
+                    meta_path,
+                    "w",
+                    encoding="utf-8",
+                ) as handle:
+
+                    json.dump(
+                        metadata,
+                        handle,
+                        indent=4,
+                        ensure_ascii=False,
+                    )
+                saved_files.append(os.path.basename(model_path))
+            # ------------------------------------------------------
+            # Finished
+            # ------------------------------------------------------
+            self._set_status(f"Saved {len(saved_files)} model(s)\n" f"{output_dir}")
+            QtWidgets.QMessageBox.information(
+                self,
+                "Models Saved",
+                (f"Saved {len(saved_files)} model(s)\n\n" f"Folder:\n{output_dir}"),
+            )
+        except Exception as exc:
+            self._show_error(
+                "Could not save models.",
+                exc,
+            )
+
+    def _save_models_old(self):
+        if not self.models:
+            self._show_error("No trained models are available.\n\n" "Train one or more models before saving.")
+            return
 
         try:
             # ------------------------------------------------------
