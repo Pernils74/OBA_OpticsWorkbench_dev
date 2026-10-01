@@ -20,7 +20,15 @@ from oba_objects.oba_base import (
 BASE_PATH = os.path.dirname(__file__)
 
 
-def _set_quantity_if_changed(obj, name, value, unit):
+def set_property_if_changed(obj, name, value):
+    if getattr(obj, name) == value:
+        return False
+
+    setattr(obj, name, value)
+    return True
+
+
+def set_quantity_if_changed(obj, name, value, unit):
     current = float(getattr(obj, name))
     new = float(value)
 
@@ -90,38 +98,6 @@ def install_properties(obj, specs):
                 setattr(obj, lock_name, spec.get("optuna_locked", False))
 
 
-def install_properties_old(obj, specs):
-    for spec in specs:
-
-        # 1. Guard: Skapa bara egenskapen om den inte redan finns
-        if not hasattr(obj, spec["name"]):
-            obj.addProperty(spec["type"], spec["name"], spec["group"], spec.get("doc", ""))
-
-        # 2. Guard: Sätt standardvärde ENDAST om 'default' finns i spec
-        # OCH om egenskapen är tom/nollställd (så du inte skriver över sparad data)
-        if "default" in spec:
-            current_value = getattr(obj, spec["name"])
-
-            # print(spec["name"], "current=", current_value, "default=", spec["default"])
-
-            # Kollar om värdet är oanvänt (t.ex. 0.0, None eller tom sträng) innan default sätts
-            if not current_value or current_value == 0.0:
-                setattr(obj, spec["name"], spec["default"])
-
-        if "optuna_locked" in spec:
-
-            lock_name = f'{spec["name"]}_OptunaLocked'
-            if not hasattr(obj, lock_name):
-                obj.addProperty("App::PropertyBool", lock_name, "Optimization", "Locked from Optuna")
-            if getattr(obj, lock_name) is None:
-                setattr(obj, lock_name, spec.get("optuna_locked", False))
-
-        # if "optuna_locked" in spec:
-        #     lock_name = f'{spec["name"]}_OptunaLocked'
-        #     obj.addProperty("App::PropertyBool", lock_name, "Optimization", "Locked from Optuna")
-        #     setattr(obj, lock_name, spec.get("optuna_locked", False))
-
-
 def make_calculated_length(obj, name, doc):
     if not hasattr(obj, name):
         obj.addProperty("App::PropertyLength", name, "Calculated", doc)
@@ -139,6 +115,18 @@ def make_optical_type(obj, value):
     obj.OpticalType = value
 
 
+def _obj_exists(obj):
+    """
+    Return True if the FreeCAD object still exists in its document.
+    """
+    if obj is None:
+        return False
+    try:
+        return obj.Document is not None and obj.Document.getObject(obj.Name) is obj
+    except Exception:
+        return False
+
+
 class OBAToolboxViewProviderBase(OBAViewProviderBase):
     """Shared view-provider boilerplate for mirror components."""
 
@@ -153,20 +141,49 @@ class OBAToolboxViewProviderBase(OBAViewProviderBase):
         except Exception:
             pass
 
+    def attach(self, vobj):
+        self.ViewObject = vobj
+        self.Object = vobj.Object
+
+    # ==================================================================
+    # T R A N S F O R M
+    # ==================================================================
+
+    def canTransform(self):
+        # White Cell itself has no geometry.
+        #
+        # Placement is handled by the child optical objects.
+        return False
+
+    # ==================================================================
+    # C H I L D R E N
+    # ==================================================================
+
+    def claimChildren(self):
+        obj = getattr(self, "Object", None)
+        if obj is None:
+            return []
+        return [child for child in getattr(obj, "Group", []) if _obj_exists(child)]
+
     def doubleClicked(self, vobj):
+        obj = getattr(vobj, "Object", None)
+        if obj is None:
+            return False
         try:
-            print("[OBA] doubleClicked:", vobj.Object.Name)
-
-            if hasattr(self, "dialog_class") and self.dialog_class:
-                dlg = self.dialog_class(vobj.Object)
-                dlg.show()
-            else:
-                print("[OBA] missing dialog_class")
-            return True  # ✅ ALLTID TRUE
-
-        except Exception as e:
-            App.Console.PrintError(f"[OBA] doubleClick error: {e}\n")
-            return True  # ✅ stoppa fallback
+            if not self.dialog_class:
+                return False
+            dialog = self.dialog_class(obj)
+            try:
+                obj.Proxy._dialog = dialog
+            except Exception:
+                pass
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+            return True
+        except Exception as exc:
+            App.Console.PrintError(f"[OBA] Failed to open dialog: {exc}\n")
+            return False
 
     def getIcon(self):
         try:
@@ -194,27 +211,196 @@ class OBAToolboxDialogBase(OBABaseDialog):
 
     ALLOW_SURFACE_SELECTION = False
 
+    PROPERTY_DEFINITIONS = []  # måste sättas i underklasserna
+
     def __init__(self, obj, title, parent=None):
         super().__init__(obj, title=title, parent=parent)
         self._closing = False
 
-    # @staticmethod
-    # def _create_spinbox(
-    #     suffix="",
-    #     minimum=-1_000_000.0,
-    #     maximum=1_000_000.0,
-    #     decimals=4,
-    #     step=1.0,
-    #     changed=None,
-    # ):
-    #     spin = QtWidgets.QDoubleSpinBox()
-    #     spin.setDecimals(decimals)
-    #     spin.setRange(minimum, maximum)
-    #     spin.setSingleStep(step)
-    #     spin.setSuffix(suffix)
-    #     if changed:
-    #         spin.valueChanged.connect(changed)
-    #     return spin
+    def get_limits(self, value, unit):
+        value = float(value)
+        # Specialfall för nollvärden
+        if abs(value) < 1e-9:
+            if unit == "deg":
+                return -3.0, 3.0
+            if unit == "mm":
+                return -5.0, 5.0
+            if unit == "%":
+                return 0.5, 2.0
+            return -1.0, 1.0
+        # Normalt ±5%
+        delta = abs(value) * 0.1
+        return value - delta, value + delta
+
+    def export_to_spreadsheet(self, properties=PROPERTY_DEFINITIONS):
+        doc = self.obj.Document
+        obj = self.obj
+
+        sheet = doc.getObject("Spreadsheet")
+        if sheet is None:
+            sheet = doc.addObject("Spreadsheet::Sheet", "Spreadsheet")
+
+        sheet.set("A1", "Property")
+        sheet.set("B1", "Value")
+        sheet.set("C1", "Min")
+        sheet.set("D1", "Max")
+        row = 2
+
+        for prop_def in properties:  #  WHITE_CELL_PROPERTIES:
+            if prop_def["type"] == "App::PropertyLink":
+                continue
+            prop = prop_def["name"]
+            unit = prop_def.get("unit", "")
+
+            try:
+                value = getattr(obj, prop)
+                sheet.set(f"A{row}", prop)
+                sheet.set(f"B{row}", str(value))
+
+                sheet.setAlias(f"B{row}", prop)
+                obj.setExpression(prop, f"{sheet.Name}.{prop}")
+
+                try:
+                    numeric_value = float(value)
+                    min_val, max_val = self.get_limits(numeric_value, unit)
+                    sheet.set(f"C{row}", str(min_val))
+                    sheet.set(f"D{row}", str(max_val))
+                    # sheet.set(f"C{row}", str(numeric_value * 0.95))
+                    # sheet.set(f"D{row}", str(numeric_value * 1.05))
+                except Exception:
+                    print("error")
+                    pass
+                row += 1
+            except Exception as exc:
+                App.Console.PrintError(f"Spreadsheet export failed: {exc}\n")
+            sheet.set(f"A{row}", "END")
+
+        obj.touch()
+        doc.recompute()
+        self.reopen()
+
+    def clear_spreadsheet_references(self, properties=PROPERTY_DEFINITIONS):
+        for prop_def in properties:
+            if prop_def["type"] == "App::PropertyLink":
+                continue
+            self.obj.setExpression(prop_def["name"], None)
+        self.obj.Document.recompute()
+        self.reopen()
+
+    def update_optuna_config(self, properties=PROPERTY_DEFINITIONS):
+        import json
+
+        doc = self.obj.Document
+        config = doc.getObject("OptimizeConfig")
+        if config is None:
+            config = doc.addObject("App::FeaturePython", "OptimizeConfig")
+            if "json" not in config.PropertiesList:
+                config.addProperty("App::PropertyString", "json", "Config")
+
+            config.json = json.dumps(
+                {
+                    "active": "default",
+                    "configs": {
+                        "default": {
+                            "entries": [],
+                            "selected_params": [],
+                            "sampler": "TPESampler",
+                            "trials": 500,
+                            "constant_liar": True,
+                        }
+                    },
+                },
+                indent=4,
+            )
+        try:
+            data = json.loads(config.json)
+        except Exception as exc:
+            App.Console.PrintError(f"Invalid OptimizeConfig JSON: {exc}\n")
+            return
+        selected_params = []
+        for prop_def in properties:  # self.PROPERTY_DEFINITIONS:
+            if prop_def["type"] == "App::PropertyLink":
+                continue
+            prop = prop_def["name"]
+            if getattr(self.obj, f"{prop}_OptunaLocked", False):
+                continue
+            selected_params.append(prop)
+
+        active = data.get("active", "default")
+
+        configs = data.setdefault("configs", {})
+        cfg = configs.setdefault(active, {})
+        cfg["selected_params"] = selected_params
+
+        config.json = json.dumps(data, indent=4)
+        doc.recompute()
+        App.Console.PrintMessage(f"Updated Optuna config with " f"{len(selected_params)} parameters\n")
+
+    def reopen(self):
+        # import traceback
+
+        # print("REOPEN")
+        # traceback.print_stack(limit=5)
+
+        # print("REOPEN")
+        geom = self.geometry()
+        self.close()
+        dlg = self.__class__(self.obj, title=self.windowTitle())
+        dlg.setGeometry(geom)
+        try:
+            self.obj.Proxy._dialog = dlg
+        except Exception:
+            pass
+
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    # ==================
+    # ==================
+
+    def _add_checked_spin(self, prop, label, optuna_locked=False, minimum=0.0, maximum=1000.0, unit="mm", form=None, step=1):
+        """
+        Create a row containing:
+            [ ] checkbox    [ QuantitySpinBox ]
+        Returns:
+
+            widget.checkbox
+            widget.spinbox
+            widget.widget
+        """
+        from types import SimpleNamespace
+
+        row_widget = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(row_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        # --------------------------------------------------------------
+        # Checkbox
+        # --------------------------------------------------------------
+        checkbox = QtWidgets.QCheckBox()
+        # checkbox.setChecked(bool(optuna_locked))
+        checkbox.setChecked(getattr(self.obj, f"{prop}_OptunaLocked", False))
+        # --------------------------------------------------------------
+        # Quantity SpinBox
+        # --------------------------------------------------------------
+
+        spinbox = Gui.UiLoader().createWidget("Gui::QuantitySpinBox")
+        spinbox.setProperty("minimum", minimum)
+        spinbox.setProperty("maximum", maximum)
+        spinbox.setProperty("unit", unit)
+        spinbox.setProperty("singleStep", step)
+        spinbox.setProperty("rawValue", float(getattr(self.obj, prop)))
+        spinbox.setProperty("binding", f"{self.obj.Name}.{prop}")
+
+        # --------------------------------------------------------------
+        # Layout
+        # --------------------------------------------------------------
+        layout.addWidget(checkbox, 0)
+        layout.addWidget(spinbox, 1)
+        if form is not None:
+            form.addRow(label, row_widget)
+        return SimpleNamespace(widget=row_widget, checkbox=checkbox, spinbox=spinbox, label=label)
 
     def _add_spin(self, label, prop, mn, mx, unit, layout, step=1.0):
         w = Gui.UiLoader().createWidget("Gui::QuantitySpinBox")
@@ -226,28 +412,6 @@ class OBAToolboxDialogBase(OBABaseDialog):
         w.setProperty("binding", f"{self.obj.Name}.{prop}")
         layout.addRow(label, w)
         return w
-
-    # def add_placement_group(self):
-    #     group = QtWidgets.QGroupBox("Placement")
-    #     form = QtWidgets.QFormLayout(group)
-
-    #     self.pos_x = self._create_spinbox(" mm", changed=self._placement_changed)
-    #     self.pos_y = self._create_spinbox(" mm", changed=self._placement_changed)
-    #     self.pos_z = self._create_spinbox(" mm", changed=self._placement_changed)
-
-    #     form.addRow("X", self.pos_x)
-    #     form.addRow("Y", self.pos_y)
-    #     form.addRow("Z", self.pos_z)
-    #     self.custom_layout.addWidget(group)
-
-    # def _placement_changed(self):
-    #     placement = self.obj.Placement.copy()
-    #     placement.Base = App.Vector(
-    #         self.pos_x.value(),
-    #         self.pos_y.value(),
-    #         self.pos_z.value(),
-    #     )
-    #     self.obj.Placement = placement
 
     def reload_placement(self):
         placement = self.obj.Placement.Base
@@ -262,6 +426,17 @@ class OBAToolboxDialogBase(OBABaseDialog):
         self.custom_layout.addWidget(self.show_debug)
 
     def closeEvent(self, event):
+        print("CLOSEEVENT")
+        try:
+            # self.obj.Proxy._dialog_is_open = False
+            if self.obj.Proxy._dialog is self:
+                self.obj.Proxy._dialog = None
+        except Exception:
+            pass
+
+        super().closeEvent(event)
+
+    def closeEvent_OLD(self, event):
         try:
             if hasattr(self.obj, "ShowDebugEllipsoid"):
                 self.obj.ShowDebugEllipsoid = False
@@ -286,26 +461,6 @@ def ensure_debug_property(obj):
             "Show debug ellipsoid",
         )
         obj.ShowDebugEllipsoid = False
-
-
-# def update_debug_ellipsoid(obj, shape, visible):
-#     name = f"{obj.Name}_DebugEllipsoid"
-#     if not visible:
-#         remove_objects(obj.Document, [name])
-#         return
-
-#     dbg = obj.Document.getObject(name)
-#     if dbg is None:
-#         dbg = obj.Document.addObject("Part::Feature", name)
-#     dbg.Label = f"{obj.Label} debug ellipsoid"
-#     dbg.Shape = shape.copy()
-#     dbg.ViewObject.Transparency = 80
-#     dbg.ViewObject.ShapeColor = (1.0, 0.0, 0.0)
-
-#     try:
-#         dbg.Placement = obj.Placement
-#     except Exception:
-#         pass
 
 
 def restore_view_provider(obj, view_provider_cls):

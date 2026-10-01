@@ -35,6 +35,8 @@ from .oba_toolbox_base import (
     make_calculated_length,
     make_optical_type,
     restore_view_provider,
+    set_property_if_changed,
+    set_quantity_if_changed,
 )
 
 MAIN_MIRROR_PROPERTIES = [
@@ -129,19 +131,20 @@ class OBAMainMirror:
         self._cut1 = self._get_or_create(doc, f"{obj.Name}_Cut1", "Part::Cut", f"{obj.Label} Cut 1")
         self._cut2 = self._get_or_create(doc, f"{obj.Name}_Cut2", "Part::Cut", f"{obj.Label} Cut 2")
 
-        obj.Group = [
+        children = [
             self._cube,
             self._ellipsoid_Left,
             self._ellipsoid_Right,
             self._cut1,
             self._cut2,
         ]
+        set_property_if_changed(obj, "Group", children)
 
-        self._cut1.Base = self._cube
-        self._cut1.Tool = self._ellipsoid_Left
+        set_property_if_changed(self._cut1, "Base", self._cube)
+        set_property_if_changed(self._cut1, "Tool", self._ellipsoid_Left)
 
-        self._cut2.Base = self._cut1
-        self._cut2.Tool = self._ellipsoid_Right
+        set_property_if_changed(self._cut2, "Base", self._cut1)
+        set_property_if_changed(self._cut2, "Tool", self._ellipsoid_Right)
 
     # ------------------------------------------------------------------
     # Geometry
@@ -160,13 +163,15 @@ class OBAMainMirror:
         # Keep enough depth for the ellipsoid geometry.
         depth = 1.5 * float(obj.B)
 
-        self._cube.Length = width
-        self._cube.Width = depth
-        self._cube.Height = height
+        changed = False
+        changed |= set_quantity_if_changed(self._cube, "Length", width, "mm")
+        changed |= set_quantity_if_changed(self._cube, "Width", depth, "mm")
+        changed |= set_quantity_if_changed(self._cube, "Height", height, "mm")
 
         base = obj.Placement
         cube_local = App.Placement(App.Vector(-width / 2.0, float(obj.B), -height / 2.0), App.Rotation())
-        self._cube.Placement = base.multiply(cube_local)
+        changed |= set_property_if_changed(self._cube, "Placement", base.multiply(cube_local))
+        return changed
 
     def _update_ellipsoids(self, obj):
         """
@@ -192,10 +197,11 @@ class OBAMainMirror:
         # --------------------------------------------------------------
 
         left = self._ellipsoid_Left
+        changed = False
 
-        left.Radius1 = a
-        left.Radius2 = b
-        left.Radius3 = b2
+        changed |= set_quantity_if_changed(left, "Radius1", a, "mm")
+        changed |= set_quantity_if_changed(left, "Radius2", b, "mm")
+        changed |= set_quantity_if_changed(left, "Radius3", b2, "mm")
 
         left_local = App.Placement()
 
@@ -204,15 +210,15 @@ class OBAMainMirror:
 
         rot2 = App.Rotation(App.Vector(0, 0, 1), 270 + tilt)
         left_local.Rotation = rot2.multiply(rot1)
-        left.Placement = obj.Placement.multiply(left_local)
+        changed |= set_property_if_changed(left, "Placement", obj.Placement.multiply(left_local))
         # --------------------------------------------------------------
         # Right ellipsoid
         # --------------------------------------------------------------
         right = self._ellipsoid_Right
 
-        right.Radius1 = a
-        right.Radius2 = b
-        right.Radius3 = b2
+        changed |= set_quantity_if_changed(right, "Radius1", a, "mm")
+        changed |= set_quantity_if_changed(right, "Radius2", b, "mm")
+        changed |= set_quantity_if_changed(right, "Radius3", b2, "mm")
 
         right_local = App.Placement()
 
@@ -220,32 +226,35 @@ class OBAMainMirror:
         rot1 = App.Rotation(App.Vector(1, 0, 0), 90)
         rot2 = App.Rotation(App.Vector(0, 0, 1), 270 - tilt)
         right_local.Rotation = rot2.multiply(rot1)
-        right.Placement = obj.Placement.multiply(right_local)
+        changed |= set_property_if_changed(right, "Placement", obj.Placement.multiply(right_local))
+        return changed
 
     def _update_debug_visibility(self, obj):
         try:
             debug = bool(obj.ShowDebugEllipsoids)
+            changed = False
 
             # Final result visible.
-            self._cube.ViewObject.Visibility = False
-            self._cut1.ViewObject.Visibility = False
-            self._cut2.ViewObject.Visibility = True
+            changed |= set_property_if_changed(self._cube.ViewObject, "Visibility", False)
+            changed |= set_property_if_changed(self._cut1.ViewObject, "Visibility", False)
+            changed |= set_property_if_changed(self._cut2.ViewObject, "Visibility", True)
 
             if debug:
-                self._ellipsoid_Left.ViewObject.Visibility = True
-                self._ellipsoid_Right.ViewObject.Visibility = True
+                changed |= set_property_if_changed(self._ellipsoid_Left.ViewObject, "Visibility", True)
+                changed |= set_property_if_changed(self._ellipsoid_Right.ViewObject, "Visibility", True)
 
-                self._ellipsoid_Left.ViewObject.ShapeColor = (1.0, 0.0, 0.0)
-                self._ellipsoid_Right.ViewObject.ShapeColor = (0.0, 0.0, 1.0)
+                changed |= set_property_if_changed(self._ellipsoid_Left.ViewObject, "ShapeColor", (1.0, 0.0, 0.0))
+                changed |= set_property_if_changed(self._ellipsoid_Right.ViewObject, "ShapeColor", (0.0, 0.0, 1.0))
 
-                self._ellipsoid_Left.ViewObject.Transparency = 80
-                self._ellipsoid_Right.ViewObject.Transparency = 80
+                changed |= set_property_if_changed(self._ellipsoid_Left.ViewObject, "Transparency", 80)
+                changed |= set_property_if_changed(self._ellipsoid_Right.ViewObject, "Transparency", 80)
             else:
-                self._ellipsoid_Left.ViewObject.Visibility = False
-                self._ellipsoid_Right.ViewObject.Visibility = False
+                changed |= set_property_if_changed(self._ellipsoid_Left.ViewObject, "Visibility", False)
+                changed |= set_property_if_changed(self._ellipsoid_Right.ViewObject, "Visibility", False)
+            return changed
 
         except Exception:
-            pass
+            return False
 
     # ------------------------------------------------------------------
     # Rebuild
@@ -260,19 +269,20 @@ class OBAMainMirror:
         self._rebuilding = True
 
         try:
-            self._update_ellipsoids(obj)
-            self._update_cube(obj)
+            changed = False
+            changed |= self._update_ellipsoids(obj)
+            changed |= self._update_cube(obj)
 
-            self._update_debug_visibility(obj)
+            changed |= self._update_debug_visibility(obj)
 
             c = focus_distance(float(obj.A), float(obj.B))
 
-            obj.FocusDistance = c
-            obj.Ellipsoid1FocusX = -float(obj.SplitOffset) / 2.0
-            obj.Ellipsoid2FocusX = float(obj.SplitOffset) / 2.0
-            obj.MirrorPlaneX = 0.0
+            changed |= set_quantity_if_changed(obj, "FocusDistance", c, "mm")
+            changed |= set_quantity_if_changed(obj, "Ellipsoid1FocusX", -float(obj.SplitOffset) / 2.0, "mm")
+            changed |= set_quantity_if_changed(obj, "Ellipsoid2FocusX", float(obj.SplitOffset) / 2.0, "mm")
+            changed |= set_quantity_if_changed(obj, "MirrorPlaneX", 0.0, "mm")
 
-            if not self._suppress_onchange:
+            if changed and not self._suppress_onchange:
                 obj.Document.recompute()
                 pass
 
@@ -563,7 +573,6 @@ class MainMirrorViewProvider(OBAToolboxViewProviderBase):
         for child in getattr(obj, "Group", []):
             if child and doc.getObject(child.Name):
                 doc.removeObject(child.Name)
-
         return True
 
     def doubleClicked(self, vobj):

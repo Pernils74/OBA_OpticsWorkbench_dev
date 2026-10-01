@@ -40,7 +40,7 @@ from .oba_toolbox_base import (
     install_properties,
     make_optical_type,
     restore_view_provider,
-    _set_quantity_if_changed,
+    set_quantity_if_changed,
 )
 
 from .oba_comp_mirror import OBA_CreateCompMirror
@@ -422,12 +422,12 @@ class OBAWhiteCell:
             if proxy is not None:
                 proxy._initializing = True
 
-            changed |= _set_quantity_if_changed(mirror, "Width", obj.MainMirrorWidth, "mm")
-            changed |= _set_quantity_if_changed(mirror, "Height", obj.MainMirrorHeight, "mm")
-            changed |= _set_quantity_if_changed(mirror, "SplitOffset", obj.MainMirrorSplitOffset, "mm")
-            changed |= _set_quantity_if_changed(mirror, "A", obj.MainMirrorA, "mm")
-            changed |= _set_quantity_if_changed(mirror, "B", obj.MainMirrorB, "mm")
-            changed |= _set_quantity_if_changed(mirror, "TiltAngle", obj.MainMirrorTiltAngle, "deg")
+            changed |= set_quantity_if_changed(mirror, "Width", obj.MainMirrorWidth, "mm")
+            changed |= set_quantity_if_changed(mirror, "Height", obj.MainMirrorHeight, "mm")
+            changed |= set_quantity_if_changed(mirror, "SplitOffset", obj.MainMirrorSplitOffset, "mm")
+            changed |= set_quantity_if_changed(mirror, "A", obj.MainMirrorA, "mm")
+            changed |= set_quantity_if_changed(mirror, "B", obj.MainMirrorB, "mm")
+            changed |= set_quantity_if_changed(mirror, "TiltAngle", obj.MainMirrorTiltAngle, "deg")
 
             # mirror.Placement = App.Placement(
             #     App.Vector(
@@ -463,12 +463,12 @@ class OBAWhiteCell:
                 proxy._initializing = True
 
             required_width = 2 * max(abs(float(obj.EmitterX)), abs(float(obj.DetectorX)))
-            changed |= _set_quantity_if_changed(mirror, "Width", required_width, "mm")
-            changed |= _set_quantity_if_changed(mirror, "Height", obj.MainMirrorHeight, "mm")  # CompMirrorHeightchanged |=
+            changed |= set_quantity_if_changed(mirror, "Width", required_width, "mm")
+            changed |= set_quantity_if_changed(mirror, "Height", obj.MainMirrorHeight, "mm")  # CompMirrorHeightchanged |=
 
-            changed |= _set_quantity_if_changed(mirror, "A", obj.CompMirrorA, "mm")
-            changed |= _set_quantity_if_changed(mirror, "B", obj.CompMirrorB, "mm")
-            # _set_quantity_if_changed(mirror, "Width", obj.MainMirrorWidth, "mm")  # CompMirrorWidth
+            changed |= set_quantity_if_changed(mirror, "A", obj.CompMirrorA, "mm")
+            changed |= set_quantity_if_changed(mirror, "B", obj.CompMirrorB, "mm")
+            # set_quantity_if_changed(mirror, "Width", obj.MainMirrorWidth, "mm")  # CompMirrorWidth
 
             # mirror.Placement = App.Placement(
             #         App.Vector(
@@ -535,10 +535,10 @@ class OBAWhiteCell:
             # ----------------------------------------------------------
 
             if hasattr(ellipsoid, "APlaneWidth"):
-                changed |= _set_quantity_if_changed(ellipsoid, "APlaneWidth", getattr(obj, f"{prefix}APlaneWidth"), "mm")
+                changed |= set_quantity_if_changed(ellipsoid, "APlaneWidth", getattr(obj, f"{prefix}APlaneWidth"), "mm")
 
             if hasattr(ellipsoid, "APlaneHeight"):
-                changed |= _set_quantity_if_changed(ellipsoid, "APlaneHeight", getattr(obj, f"{prefix}APlaneHeight"), "mm")
+                changed |= set_quantity_if_changed(ellipsoid, "APlaneHeight", getattr(obj, f"{prefix}APlaneHeight"), "mm")
 
             # if hasattr(ellipsoid, "APlaneZoffset"):
             #     ellipsoid.APlaneZoffset = float(getattr(obj, f"{prefix}APlaneZoffset"))
@@ -556,10 +556,10 @@ class OBAWhiteCell:
                 changed |= _set_float_if_changed(ellipsoid, "WidthFactor", getattr(obj, f"{prefix}WidthFactor"))
 
             if hasattr(ellipsoid, "A"):
-                changed |= _set_quantity_if_changed(ellipsoid, "A", getattr(obj, f"{prefix}A"), "mm")
+                changed |= set_quantity_if_changed(ellipsoid, "A", getattr(obj, f"{prefix}A"), "mm")
 
             if hasattr(ellipsoid, "B"):
-                changed |= _set_quantity_if_changed(ellipsoid, "B", getattr(obj, f"{prefix}B"), "mm")
+                changed |= set_quantity_if_changed(ellipsoid, "B", getattr(obj, f"{prefix}B"), "mm")
 
             # if hasattr(ellipsoid, "WidthFactor"):
             #     setattr(ellipsoid, "WidthFactor", float(getattr(obj, f"{prefix}WidthFactor")))
@@ -568,17 +568,17 @@ class OBAWhiteCell:
             # ----------------------------------------------------------
 
             # if hasattr(ellipsoid, "B2"):
-            #     _set_quantity_if_changed(ellipsoid, "B2", getattr(obj, f"{prefix}B2"), "mm")
+            #     set_quantity_if_changed(ellipsoid, "B2", getattr(obj, f"{prefix}B2"), "mm")
 
             # ----------------------------------------------------------
             # Rotation
             # ----------------------------------------------------------
 
             if hasattr(ellipsoid, "RotX"):
-                changed |= _set_quantity_if_changed(ellipsoid, "RotX", getattr(obj, f"{prefix}RotX"), "deg")
+                changed |= set_quantity_if_changed(ellipsoid, "RotX", getattr(obj, f"{prefix}RotX"), "deg")
 
             if hasattr(ellipsoid, "RotZ"):
-                changed |= _set_quantity_if_changed(ellipsoid, "RotZ", getattr(obj, f"{prefix}RotZ"), "deg")
+                changed |= set_quantity_if_changed(ellipsoid, "RotZ", getattr(obj, f"{prefix}RotZ"), "deg")
 
             # ----------------------------------------------------------
             # Placement
@@ -669,7 +669,7 @@ class OBAWhiteCell:
             return False
 
     def _rebuild(self, obj):
-
+        print("REBUILD")
         # self._rebuild_count += 1
         # print(f"{obj.Label} rebuild #{self._rebuild_count}")
 
@@ -792,9 +792,7 @@ class OBAWhiteCell:
 
     def _refresh_dialog(self):
         dialog = getattr(self, "_dialog", None)
-
         if dialog is not None:
-
             try:
                 dialog.refresh_from_object()
             except Exception:
@@ -842,49 +840,7 @@ class OBAWhiteCell:
 
 class WhiteCellDialog(OBAToolboxDialogBase):
 
-    def _add_checked_spin(self, prop, label, optuna_locked=False, minimum=0.0, maximum=1000.0, unit="mm", form=None, step=1):
-        """
-        Create a row containing:
-            [ ] checkbox    [ QuantitySpinBox ]
-        Returns:
-
-            widget.checkbox
-            widget.spinbox
-            widget.widget
-        """
-        from types import SimpleNamespace
-
-        row_widget = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout(row_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-        # --------------------------------------------------------------
-        # Checkbox
-        # --------------------------------------------------------------
-        checkbox = QtWidgets.QCheckBox()
-        # checkbox.setChecked(bool(optuna_locked))
-        checkbox.setChecked(getattr(self.obj, f"{prop}_OptunaLocked", False))
-        # --------------------------------------------------------------
-        # Quantity SpinBox
-        # --------------------------------------------------------------
-
-        spinbox = Gui.UiLoader().createWidget("Gui::QuantitySpinBox")
-        spinbox.setProperty("minimum", minimum)
-        spinbox.setProperty("maximum", maximum)
-        spinbox.setProperty("unit", unit)
-        spinbox.setProperty("singleStep", step)
-        spinbox.setProperty("rawValue", float(getattr(self.obj, prop)))
-        spinbox.setProperty("binding", f"{self.obj.Name}.{prop}")
-
-        # --------------------------------------------------------------
-        # Layout
-        # --------------------------------------------------------------
-        layout.addWidget(checkbox, 0)
-        layout.addWidget(spinbox, 1)
-        if form is not None:
-            form.addRow(label, row_widget)
-
-        return SimpleNamespace(widget=row_widget, checkbox=checkbox, spinbox=spinbox, label=label)
+    PROPERTY_DEFINITIONS = WHITE_CELL_PROPERTIES
 
     def __init__(self, obj, title="White Cell Settings", parent=None):
         super().__init__(obj, title=title, parent=parent)
@@ -894,10 +850,10 @@ class WhiteCellDialog(OBAToolboxDialogBase):
         button_layout = QtWidgets.QHBoxLayout()
 
         self.export_button = QtWidgets.QPushButton("1). Export to Spreadsheet     --->")
-        self.export_button.clicked.connect(self._export_to_spreadsheet)
+        self.export_button.clicked.connect(lambda: self.export_to_spreadsheet(WHITE_CELL_PROPERTIES))
 
         self.optuna_button = QtWidgets.QPushButton("2). Update Optuna Config")
-        self.optuna_button.clicked.connect(self._update_optuna_config)
+        self.optuna_button.clicked.connect(lambda: self.update_optuna_config(WHITE_CELL_PROPERTIES))
 
         button_layout.addWidget(self.export_button)
         button_layout.addWidget(self.optuna_button)
@@ -907,7 +863,7 @@ class WhiteCellDialog(OBAToolboxDialogBase):
 
         button_layout_2 = QtWidgets.QHBoxLayout()
         self.clear_button = QtWidgets.QPushButton("1b). Remove Spreadsheet References")
-        self.clear_button.clicked.connect(self._clear_spreadsheet_references)
+        self.clear_button.clicked.connect(lambda: self.clear_spreadsheet_references(WHITE_CELL_PROPERTIES))
         button_layout_2.addWidget(self.clear_button)
         # button_layout_2.addStretch(0)
 
@@ -927,7 +883,6 @@ class WhiteCellDialog(OBAToolboxDialogBase):
                 continue
             if prop["type"] == "App::PropertyLink":
                 continue
-
             parent_name = prop.get("parent_group")
             group_name = prop["group"]
 
@@ -985,146 +940,6 @@ class WhiteCellDialog(OBAToolboxDialogBase):
         except Exception:
             pass
 
-    def get_limits(self, value, unit):
-        value = float(value)
-        # Specialfall för nollvärden
-        if abs(value) < 1e-9:
-            if unit == "deg":
-                return -3.0, 3.0
-            if unit == "mm":
-                return -5.0, 5.0
-            if unit == "%":
-                return 0.5, 2.0
-            return -1.0, 1.0
-        # Normalt ±5%
-        delta = abs(value) * 0.1
-        return value - delta, value + delta
-
-    def _export_to_spreadsheet(self):
-        doc = self.obj.Document
-        obj = self.obj
-        # sheet = doc.getObject(f"{obj.Name}_Properties")
-        sheet = doc.getObject("Spreadsheet")
-        if sheet is None:
-            sheet = doc.addObject("Spreadsheet::Sheet", "Spreadsheet")
-
-        sheet.set("A1", "Property")
-        sheet.set("B1", "Value")
-        sheet.set("C1", "Min")
-        sheet.set("D1", "Max")
-        row = 2
-        # for prop in sorted(obj.PropertiesList):
-        for prop_def in WHITE_CELL_PROPERTIES:
-            if prop_def["type"] == "App::PropertyLink":
-                continue
-            prop = prop_def["name"]
-            unit = prop_def.get("unit", "")
-
-            try:
-                value = getattr(obj, prop)
-                sheet.set(f"A{row}", prop)
-                sheet.set(f"B{row}", str(value))
-
-                sheet.setAlias(f"B{row}", prop)
-                obj.setExpression(prop, f"{sheet.Name}.{prop}")
-
-                try:
-                    numeric_value = float(value)
-                    min_val, max_val = self.get_limits(numeric_value, unit)
-                    sheet.set(f"C{row}", str(min_val))
-                    sheet.set(f"D{row}", str(max_val))
-                    # sheet.set(f"C{row}", str(numeric_value * 0.95))
-                    # sheet.set(f"D{row}", str(numeric_value * 1.05))
-                except Exception:
-                    print("error")
-                    pass
-                row += 1
-            except Exception as exc:
-                App.Console.PrintError(f"Spreadsheet export failed: {exc}\n")
-            sheet.set(f"A{row}", "END")
-
-        obj.touch()
-        doc.recompute()
-        self._reopen()
-
-    def _reopen(self):
-        geom = self.geometry()
-        self.close()
-        dlg = WhiteCellDialog(self.obj, title="White Cell Settings")
-        dlg.setGeometry(geom)
-        self.obj.Proxy._dialog = dlg
-        dlg.show()
-        dlg.raise_()
-        dlg.activateWindow()
-
-    def _clear_spreadsheet_references(self):
-        obj = self.obj
-        doc = obj.Document
-        for prop_def in WHITE_CELL_PROPERTIES:
-            if prop_def["type"] == "App::PropertyLink":
-                continue
-            prop = prop_def["name"]
-            print("clear:", prop)
-            obj.setExpression(prop, None)
-        doc.recompute()
-        self._reopen()
-
-    def _update_optuna_config(self):
-        import json
-
-        doc = self.obj.Document
-        config = doc.getObject("OptimizeConfig")
-
-        if config is None:
-
-            config = doc.addObject("App::FeaturePython", "OptimizeConfig")
-            if "json" not in config.PropertiesList:
-                config.addProperty("App::PropertyString", "json", "Config")
-            config.json = json.dumps(
-                {
-                    "active": "default",
-                    "configs": {
-                        "default": {
-                            "entries": [],
-                            "selected_params": [],
-                            "sampler": "TPESampler",
-                            "trials": 500,
-                            "constant_liar": True,
-                        }
-                    },
-                },
-                indent=4,
-            )
-            # if config is None:
-            #     App.Console.PrintError("OptimizeConfig not found\n")
-            # return
-        try:
-            data = json.loads(config.json)
-        except Exception as exc:
-            App.Console.PrintError(f"Invalid OptimizeConfig JSON: {exc}\n")
-            return
-
-        selected_params = []
-        for prop_def in WHITE_CELL_PROPERTIES:
-            if prop_def["type"] == "App::PropertyLink":
-                continue
-            prop = prop_def["name"]
-            if getattr(self.obj, f"{prop}_OptunaLocked", False):
-                continue
-
-            selected_params.append(prop)
-            # if prop_def.get("optuna_locked", False):
-            #     continue
-            # selected_params.append(prop_def["name"])
-        active = data.get("active", "default")
-
-        configs = data.setdefault("configs", {})
-        cfg = configs.setdefault(active, {})
-        cfg["selected_params"] = selected_params
-        config.json = json.dumps(data, indent=4)
-        doc.recompute()
-        App.Console.PrintMessage(f"Updated Optuna config with " f"{len(selected_params)} parameters\n")
-
     def _get_spreadsheet_references(self):
         refs = []
         try:
@@ -1174,7 +989,6 @@ class WhiteCellDialog(OBAToolboxDialogBase):
     def refresh_from_object(self):
         if not self.obj:
             return
-
         self._refreshing_ui = True
         try:
             for name, widget in self._widgets.items():
@@ -1185,24 +999,6 @@ class WhiteCellDialog(OBAToolboxDialogBase):
     # ==================================================================
     # C L O S E
     # ==================================================================
-
-    def closeEvent(self, event):
-        try:
-            # self.obj.Proxy._dialog_is_open = False
-            if self.obj.Proxy._dialog is self:
-                self.obj.Proxy._dialog = None
-        except Exception:
-            pass
-
-        super().closeEvent(event)
-
-    # def closeEvent_old(self, event):
-    #     try:
-    #         if self.obj.Proxy._dialog is self:
-    #             self.obj.Proxy._dialog = None
-    #     except Exception:
-    #         pass
-    #     super().closeEvent(event)
 
 
 # ======================================================================
@@ -1216,59 +1012,6 @@ class WhiteCellViewProvider(OBAToolboxViewProviderBase):
 
     def __init__(self, vobj):
         super().__init__(vobj, WhiteCellDialog)
-
-    def attach(self, vobj):
-        self.ViewObject = vobj
-        self.Object = vobj.Object
-
-    # ==================================================================
-    # T R A N S F O R M
-    # ==================================================================
-
-    def canTransform(self):
-
-        # White Cell itself has no geometry.
-        #
-        # Placement is handled by the child optical objects.
-
-        return False
-
-    # ==================================================================
-    # C H I L D R E N
-    # ==================================================================
-
-    def claimChildren(self):
-        obj = getattr(self, "Object", None)
-        if obj is None:
-            return []
-        return [child for child in getattr(obj, "Group", []) if _obj_exists(child)]
-
-    # ==================================================================
-    # D O U B L E   C L I C K
-    # ==================================================================
-
-    def doubleClicked(self, vobj):
-
-        obj = getattr(vobj, "Object", None)
-        if obj is None:
-            return False
-        try:
-            dialog = WhiteCellDialog(obj, title="White Cell Settings")
-            # obj.Proxy._dialog_is_open = True
-            self._dialog = dialog
-
-            try:
-                obj.Proxy._dialog = dialog
-            except Exception:
-                pass
-            dialog.show()
-            dialog.raise_()
-            dialog.activateWindow()
-            return True
-
-        except Exception as exc:
-            App.Console.PrintError("[OBA] Failed to open White Cell dialog: " f"{exc}\n")
-            return False
 
     # ==================================================================
     # D E L E T E
