@@ -9,9 +9,6 @@ import math
 
 import FreeCAD as App
 import FreeCADGui as Gui
-from PySide import QtWidgets
-
-from PySide.QtCore import QSignalBlocker
 
 # from oba_objects.oba_base import OBAElementProxy
 
@@ -35,31 +32,31 @@ from .oba_toolbox_base import (
 
 
 ELLIPSOID_PROPERTIES = [
-    {"name": "A", "type": "App::PropertyLength", "group": "Ellipsoid", "doc": "Semi-major axis"},
-    {"name": "B", "type": "App::PropertyLength", "group": "Ellipsoid", "doc": "Semi-minor axis"},
+    {"name": "A", "type": "App::PropertyLength", "group": "Ellipsoid", "unit": "mm", "min": 0, "max": 1_000_000, "doc": "Semi-major axis"},
+    {"name": "B", "type": "App::PropertyLength", "group": "Ellipsoid", "unit": "mm", "min": 0, "max": 1_000_000, "doc": "Semi-minor axis"},
     {"name": "UseIndependentRadius3", "type": "App::PropertyBool", "group": "Ellipsoid", "doc": "Use independent radius in Y direction"},
-    {"name": "B2", "type": "App::PropertyLength", "group": "Ellipsoid", "doc": "Independent ellipsoid Y radius"},
-    {"name": "WidthFactor", "type": "App::PropertyFloat", "group": "Ellipsoid", "default": 1.8},
-    {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "doc": "Distance from ellipsoid centre to focus"},
+    {"name": "B2", "type": "App::PropertyLength", "group": "Ellipsoid", "unit": "mm", "min": 0, "max": 1_000_000, "enabled_when": "UseIndependentRadius3", "doc": "Independent ellipsoid Y radius"},
+    {"name": "WidthFactor", "type": "App::PropertyFloat", "group": "Ellipsoid", "default": 1.8, "min": 0.5, "max": 2, "step": 0.1},
+    {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "unit": "mm", "display_only": True, "doc": "Distance from ellipsoid centre to focus"},
     {"name": "ShowDebugEllipsoid", "type": "App::PropertyBool", "group": "Debug", "doc": "Show ellipsoid for debugging"},
     {"name": "ShowDebugFoci", "type": "App::PropertyBool", "group": "Debug", "doc": "Show focal points"},
-    {"name": "APlaneWidth", "type": "App::PropertyLength", "group": "Box", "doc": "Aperture plane width"},
-    {"name": "APlaneHeight", "type": "App::PropertyLength", "group": "Box", "doc": "Aperture plane height"},
-    {"name": "APlaneZoffset", "type": "App::PropertyFloat", "group": "Box", "doc": "Additional Z offset from focus point"},
-    {"name": "APlaneYoffset", "type": "App::PropertyFloat", "group": "Box", "doc": "Additional Y offset from focus point"},
+    {"name": "APlaneWidth", "type": "App::PropertyLength", "group": "Box", "unit": "mm", "min": 0, "max": 100, "doc": "Aperture plane width"},
+    {"name": "APlaneHeight", "type": "App::PropertyLength", "group": "Box", "unit": "mm", "min": 0, "max": 10, "doc": "Aperture plane height"},
+    {"name": "APlaneZoffset", "type": "App::PropertyFloat", "group": "Box", "unit": "mm", "min": -2, "max": 5, "step": 0.1, "doc": "Additional Z offset from focus point"},
+    {"name": "APlaneYoffset", "type": "App::PropertyFloat", "group": "Box", "unit": "mm", "min": -2, "max": 5, "step": 0.1, "doc": "Additional Y offset from focus point"},
     # --------------------------------------------------------
     # Orientation.
     # --------------------------------------------------------
-    {"name": "RotX", "type": "App::PropertyAngle", "group": "Orientation", "doc": "Optical axis X rotation"},
-    {"name": "RotY", "type": "App::PropertyAngle", "group": "Orientation", "doc": "Optical axis Y rotation"},
-    {"name": "RotZ", "type": "App::PropertyAngle", "group": "Orientation", "doc": "Optical axis Z rotation"},
+    {"name": "RotX", "type": "App::PropertyAngle", "group": "Orientation", "unit": "deg", "min": -360, "max": 360, "enabled_when_not": "UseAimPoint", "doc": "Optical axis X rotation"},
+    {"name": "RotY", "type": "App::PropertyAngle", "group": "Orientation", "unit": "deg", "min": -360, "max": 360, "readonly": True, "doc": "Optical axis Y rotation"},
+    {"name": "RotZ", "type": "App::PropertyAngle", "group": "Orientation", "unit": "deg", "min": -360, "max": 360, "enabled_when_not": "UseAimPoint", "doc": "Optical axis Z rotation"},
     {"name": "UseAimPoint", "type": "App::PropertyBool", "group": "Orientation", "doc": "Aim the optical axis at a point"},
-    {"name": "AimX", "type": "App::PropertyFloat", "group": "Orientation", "doc": "Target X coordinate"},
-    {"name": "AimY", "type": "App::PropertyFloat", "group": "Orientation", "doc": "Target Y coordinate"},
-    {"name": "AimZ", "type": "App::PropertyFloat", "group": "Orientation", "doc": "Target Z coordinate"},
-    {"name": "PosX", "type": "App::PropertyFloat", "group": "Placement", "doc": "X coordinate"},
-    {"name": "PosY", "type": "App::PropertyFloat", "group": "Placement", "doc": "Y coordinate"},
-    {"name": "PosZ", "type": "App::PropertyFloat", "group": "Placement", "doc": "Z coordinate"},
+    {"name": "AimX", "type": "App::PropertyFloat", "group": "Orientation", "unit": "mm", "min": -1_000_000, "max": 1_000_000, "enabled_when": "UseAimPoint", "doc": "Target X coordinate"},
+    {"name": "AimY", "type": "App::PropertyFloat", "group": "Orientation", "unit": "mm", "min": -1_000_000, "max": 1_000_000, "enabled_when": "UseAimPoint", "doc": "Target Y coordinate"},
+    {"name": "AimZ", "type": "App::PropertyFloat", "group": "Orientation", "unit": "mm", "min": -1_000_000, "max": 1_000_000, "enabled_when": "UseAimPoint", "doc": "Target Z coordinate"},
+    {"name": "PosX", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1_000_000, "max": 1_000_000, "doc": "X coordinate"},
+    {"name": "PosY", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1_000_000, "max": 1_000_000, "doc": "Y coordinate"},
+    {"name": "PosZ", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1_000_000, "max": 1_000_000, "doc": "Z coordinate"},
 ]
 
 
@@ -97,16 +94,12 @@ class OBAEllipsoid:
         self._cut = None
 
     def __init__(self, obj):
-
         self._init_runtime_state()
-
         obj.Proxy = self
         self.Object = obj
 
         install_properties(obj, ELLIPSOID_PROPERTIES)
-
         obj.addProperty("App::PropertyLinkList", "Group", "Base", "Owned children")
-
         # ensure_debug_property(obj)
         make_calculated_length(obj, "FocusDistance", "Distance from ellipsoid centre to focus")
 
@@ -610,321 +603,10 @@ class OBAEllipsoid:
 
 class EllipsoidDialog(OBAToolboxDialogBase):
     ALLOW_SURFACE_SELECTION = False
+    PROPERTY_DEFINITIONS = ELLIPSOID_PROPERTIES
 
     def __init__(self, obj, title="Ellipsoid Settings", parent=None):
-
         super().__init__(obj, title=title, parent=parent)
-
-        self.obj.Proxy._dialog = self  # registrering av dialogen
-
-        self._refreshing_ui = False
-
-        group = QtWidgets.QGroupBox("Aperture Plane")
-        form = QtWidgets.QFormLayout(group)
-        self.aplane_width = self._add_spin("Width", "APlaneWidth", 0, 100, "mm", form, 0.1)
-        self.aplane_height = self._add_spin("Height", "APlaneHeight", 0, 10, "mm", form, 0.1)
-        self.aplane_Zoffset = self._add_spin("Offset in Z", "APlaneZoffset", -2, 5, "mm", form, 0.1)
-        self.aplane_Yoffset = self._add_spin("Offset in Y", "APlaneYoffset", -2, 5, "mm", form, 0.1)
-        self.custom_layout.addWidget(group)
-
-        group = QtWidgets.QGroupBox("Ellipsoid")
-        form = QtWidgets.QFormLayout(group)
-
-        self.show_debug_ellipsoid = QtWidgets.QCheckBox("Show ellipsoids (debug)")
-        form.addRow(self.show_debug_ellipsoid)
-        self.show_debug_focal = QtWidgets.QCheckBox("Show focus points (debug)")
-        form.addRow(self.show_debug_focal)
-
-        self.a = self._add_spin("A", "A", 0, 1_000_000, "mm", form)
-        self.b = self._add_spin("B", "B", 0, 1_000_000, "mm", form)
-        self.use_b2 = QtWidgets.QCheckBox("Use independent Radius3")
-        form.addWidget(self.use_b2)
-        self.b2 = self._add_spin("B2", "B2", 0, 1_000_000, "mm", form)
-
-        self.widthfactor = self._add_spin("WidthFactor", "WidthFactor", 0.5, 2, "%", form, 0.1)
-
-        self.c = QtWidgets.QLabel()
-        form.addRow("Focus distance C", self.c)
-
-        # self.add_debug_checkbox("Show debug ellipsoid")
-
-        self.rot_x = self._add_spin("Rotation X", "RotX", -360, 360, "deg", form)
-        self.rot_y = self._add_spin("Rotation Y", "RotY", -360, 360, "deg", form)
-        self.rot_z = self._add_spin("Rotation Z", "RotZ", -360, 360, "deg", form)
-
-        self.chkAimPoint = QtWidgets.QCheckBox("Aim at point")
-        form.addRow(self.chkAimPoint)
-
-        self.aim_x = self._add_spin("Target X", "AimX", -1_000_000, 1_000_000, "mm", form)
-        self.aim_y = self._add_spin("Target Y", "AimY", -1_000_000, 1_000_000, "mm", form)
-        self.aim_z = self._add_spin("Target Z", "AimZ", -1_000_000, 1_000_000, "mm", form)
-
-        # ----------------------------------------------------
-        # Add group.
-        # ----------------------------------------------------
-        self.custom_layout.addWidget(group)
-
-        # ====================================================
-        #  S I G N A L S
-        # ====================================================
-        self.aplane_width.valueChanged.connect(lambda value: self._set_property("APlaneWidth", value.Value))
-        self.aplane_height.valueChanged.connect(lambda value: self._set_property("APlaneHeight", value.Value))
-        self.aplane_Zoffset.valueChanged.connect(lambda value: self._set_property("APlaneZoffset", value.Value))
-        self.aplane_Yoffset.valueChanged.connect(lambda value: self._set_property("APlaneYoffset", value.Value))
-
-        self.a.valueChanged.connect(lambda value: self._set_property("A", value.Value))
-        self.b.valueChanged.connect(lambda value: self._set_property("B", value.Value))
-        self.b2.valueChanged.connect(lambda value: self._set_property("B2", value.Value))
-
-        self.use_b2.toggled.connect(self._use_b2_changed)
-
-        self.widthfactor.valueChanged.connect(lambda value: self._set_property("WidthFactor", value.Value))
-
-        self.rot_x.valueChanged.connect(lambda value: self._set_property("RotX", value.Value))
-        self.rot_y.valueChanged.connect(lambda value: self._set_property("RotY", value.Value))
-        self.rot_z.valueChanged.connect(lambda value: self._set_property("RotZ", value.Value))
-
-        self.aim_x.valueChanged.connect(lambda value: self._set_property("AimX", value.Value))
-        self.aim_y.valueChanged.connect(lambda value: self._set_property("AimY", value.Value))
-        self.aim_z.valueChanged.connect(lambda value: self._set_property("AimZ", value.Value))
-
-        self.show_debug_focal.toggled.connect(lambda checked: self._set_property("ShowDebugFoci", checked))
-        self.show_debug_ellipsoid.toggled.connect(lambda checked: self._set_property("ShowDebugEllipsoid", checked))
-
-        self.chkAimPoint.toggled.connect(lambda checked: self._set_property("UseAimPoint", checked))
-
-        self.chkAimPoint.toggled.connect(self._update_dialog_orientation_controls)
-
-        self.refresh_from_object()
-
-    def _set_property(self, prop, value):
-        if self._refreshing_ui:
-            return
-        # current = getattr(self.obj, prop)
-        # if float(current) == float(value):
-        #     print(f"[OBA] {prop} unchanged -> skip")
-        #     return
-        try:
-            setattr(self.obj, prop, value)
-            self._update_information()
-        except Exception as exc:
-            App.Console.PrintError(f"[OBA] Failed to update {prop}: {exc}\n")
-
-    def _use_b2_changed(self, checked):
-        if self._refreshing_ui:
-            return
-        try:
-            self.obj.UseIndependentRadius3 = checked
-            self.b2.setEnabled(checked)
-            self._update_information()
-
-        except Exception as exc:
-            App.Console.PrintError("[OBA] Failed to update UseIndependentRadius3: " f"{exc}\n")
-
-    def _set_property_new(self, prop, value):
-        if self._refreshing_ui:
-            return
-
-        try:
-            value = float(value)
-            # ----------------------------------------------------
-            # Ellipsoid: A måste alltid vara >= B
-            # ----------------------------------------------------
-            if prop == "A":
-                b = float(self.obj.B)
-                if value < b:
-                    value = b
-
-            elif prop == "B":
-                a = float(self.obj.A)
-                if value > a:
-                    value = a
-
-            current = float(getattr(self.obj, prop))
-
-            if current == value:
-                self._update_a_b_limits()
-                self._update_information()
-                return
-
-            setattr(self.obj, prop, value)
-
-            # Uppdatera spinbox-gränser efter att objektet ändrats.
-            if prop in ("A", "B"):
-                self._update_a_b_limits()
-
-            self._update_information()
-
-        except Exception as exc:
-            App.Console.PrintError(f"[OBA] Failed to update {prop}: {exc}\n")
-
-    def _update_a_b_limits(self, a=None, b=None):
-        a = float(self.obj.A) if a is None else a
-        b = float(self.obj.B) if b is None else b
-
-        self.a.setProperty("minimum", b)
-        self.b.setProperty("maximum", a)
-
-    def reload(self):
-
-        # self.c.setText(f"{float(self.obj.FocusDistance):.4f} mm")
-
-        self._update_a_b_limits()
-
-        self.a.setProperty("rawValue", float(self.obj.A))
-
-        self.b.setProperty("rawValue", float(self.obj.B))
-
-        self.use_b2.setChecked(bool(self.obj.UseIndependentRadius3))
-        self.b2.setProperty("rawValue", float(self.obj.B2))
-
-        # self.b2.setValue(float(self.obj.B2))  # funkar inte
-
-        self.chkAimPoint.setChecked(bool(self.obj.UseAimPoint))
-        self.show_debug_focal.setChecked(bool(self.obj.ShowDebugFoci))
-        self.show_debug_ellipsoid.setChecked(bool(self.obj.ShowDebugEllipsoid))
-
-        self.rot_x.setProperty("rawValue", float(self.obj.RotX))
-        self.rot_y.setProperty("rawValue", float(self.obj.RotY))
-        self.rot_z.setProperty("rawValue", float(self.obj.RotZ))
-
-        self.aim_x.setProperty("rawValue", float(self.obj.AimX))
-        self.aim_y.setProperty("rawValue", float(self.obj.AimY))
-        self.aim_z.setProperty("rawValue", float(self.obj.AimZ))
-
-        self.pos_x.setProperty("rawValue", float(self.obj.PosX))
-        self.pos_y.setProperty("rawValue", float(self.obj.PosY))
-        self.pos_z.setProperty("rawValue", float(self.obj.PosZ))
-
-        # self.reload_placement()
-        # ----------------------------------------------------
-        # UI.
-        # ----------------------------------------------------
-
-        self._preview()
-
-    def refresh_from_object(self):
-        if self._refreshing_ui:
-            return
-
-        self._refreshing_ui = True
-        try:
-            # Object -> UI
-            values = {
-                self.a: self.obj.A,
-                self.b: self.obj.B,
-                self.b2: self.obj.B2,
-                self.aplane_width: self.obj.APlaneWidth,
-                self.aplane_height: self.obj.APlaneHeight,
-                self.aplane_Zoffset: self.obj.APlaneZoffset,
-                self.aplane_Yoffset: self.obj.APlaneYoffset,
-                self.widthfactor: self.obj.WidthFactor,
-                self.rot_x: self.obj.RotX,
-                self.rot_y: self.obj.RotY,
-                self.rot_z: self.obj.RotZ,
-                self.aim_x: self.obj.AimX,
-                self.aim_y: self.obj.AimY,
-                self.aim_z: self.obj.AimZ,
-            }
-
-            for widget, value in values.items():
-                with QSignalBlocker(widget):
-                    widget.setProperty("rawValue", float(value))
-
-            with QSignalBlocker(self.use_b2):
-                self.use_b2.setChecked(bool(self.obj.UseIndependentRadius3))
-
-            with QSignalBlocker(self.chkAimPoint):
-                self.chkAimPoint.setChecked(bool(self.obj.UseAimPoint))
-
-            with QSignalBlocker(self.show_debug_focal):
-                self.show_debug_focal.setChecked(bool(self.obj.ShowDebugFoci))
-
-            with QSignalBlocker(self.show_debug_ellipsoid):
-                self.show_debug_ellipsoid.setChecked(bool(self.obj.ShowDebugEllipsoid))
-
-            self.b2.setEnabled(bool(self.obj.UseIndependentRadius3))
-
-            self._update_a_b_limits()
-            self._update_information()
-
-        finally:
-            self._refreshing_ui = False
-
-    def _update_information(self):
-        self.c.setText(f"{float(self.obj.FocusDistance):.4f} mm")
-
-        self._update_dialog_orientation_controls()
-        # f1, f2 = self.focal_points_world(self.obj)
-
-        # obj.AimX = f2.x
-        # obj.AimY = f2.y
-        # obj.AimZ = f2.z
-
-        # --------------------------------------------------------------
-        # Symmetric ellipsoid angles
-        # --------------------------------------------------------------
-        # self.left_angle.setText(f"{90 - tilt:.3f}°")
-        # self.right_angle.setText(f"{90 + tilt:.3f}°")
-        # self.b2.setEnabled(bool(self.obj.UseIndependentRadius3))
-
-    # ========================================================
-    #  R E L O A D
-    # ========================================================
-
-    # ========================================================
-    #  O R I E N T A T I O N   C O N T R O L S
-    # ========================================================
-
-    def _update_dialog_orientation_controls(self):
-        use_aim = self.chkAimPoint.isChecked()
-
-        # Aim mode
-        if use_aim:
-            self.rot_x.setEnabled(False)
-            self.rot_y.setEnabled(False)
-            self.rot_z.setEnabled(False)
-
-            self.aim_x.setEnabled(True)
-            self.aim_y.setEnabled(True)
-            self.aim_z.setEnabled(True)
-
-        # Rotation mode
-        else:
-            self.rot_x.setEnabled(True)
-            self.rot_y.setEnabled(False)  # som tidigare
-            self.rot_z.setEnabled(True)
-
-            self.aim_x.setEnabled(False)
-            self.aim_y.setEnabled(False)
-            self.aim_z.setEnabled(False)
-
-        self.rot_y.setReadOnly(True)
-        self.rot_y.setToolTip("Rotation around the optical axis. " "Not controlled by Aim Point.")
-
-    # ========================================================
-    #  P R E V I E W
-    # ========================================================
-
-    def _preview(self):
-        a = float(self.obj.A)
-        b = float(self.obj.B)
-        if a <= 0 or b <= 0:
-            self.c.setText("Invalid")
-            self.apply_button.setEnabled(False)
-            return
-        if a < b:
-            self.c.setText("Invalid: A must be ≥ B")
-            self.apply_button.setEnabled(False)
-            return
-        if self.use_b2.isChecked() and self.b2.value() <= 0:
-            self.c.setText("Invalid: B2 must be > 0")
-            return
-
-        c = focus_distance(a, b)
-        self.c.setText(f"{c:.4f} mm")
-
-        self.b2.setEnabled(self.use_b2.isChecked())
 
 
 # ============================================================

@@ -50,6 +50,8 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
     startRequested = QtCore.Signal(dict)
     studyCreated = QtCore.Signal(dict)
+    batchProgress = QtCore.Signal(dict)
+    batchFinished = QtCore.Signal(object)
 
     def __init__(self, parent=None, params_info=None):
         super().__init__("Optimize", parent)
@@ -101,6 +103,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         # self.stopRequested.connect(self._worker.stop)
         self._worker.requestEvaluate.connect(self._evaluate_main)
         self._worker.progress.connect(self._on_progress)
+        self._worker.trialProgress.connect(self.batchProgress.emit)
         self._worker.finished.connect(self._on_finished)
         self._worker.finished.connect(self._thread.quit)
         self._thread.finished.connect(self._worker.deleteLater)
@@ -192,6 +195,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self.btnOptunaSheet = self._make_button("Optuna Sheet", "optuna_plot.svg")
 
         self.btnOptunaBoundsEditor = self._make_button("Optuna Bounds Editor", "optuna_plot.svg")
+        self.btnModelBatchRunner = self._make_button("Model Batch Runner", "optuna_plot.svg")
 
         self.lblStatus = QtWidgets.QLabel("Status: idle")
         self.lblStatus.setStyleSheet("color: gray;")
@@ -214,13 +218,14 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self.btnStart = QtWidgets.QPushButton("Start")
         self.btnStart_new = QtWidgets.QPushButton("Start new")
 
+        layout.addWidget(self.lblStatus)
+
         row = QtWidgets.QHBoxLayout()
 
         row.addWidget(self.btnOptunaPlot)
         row.addWidget(self.btnOptunaSheet)
         row.addWidget(self.btnOptunaBoundsEditor)
-
-        row.addWidget(self.lblStatus)
+        row.addWidget(self.btnModelBatchRunner)
 
         row.addStretch()
         row.addWidget(self.btnStart)
@@ -233,6 +238,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         self.btnOptunaPlot.clicked.connect(self._open_optuna_plot_window)
         self.btnOptunaSheet.clicked.connect(self._open_optuna_sheet_window)
         self.btnOptunaBoundsEditor.clicked.connect(self._open_optuna_bounds_editor)
+        self.btnModelBatchRunner.clicked.connect(self._open_model_batch_runner)
 
         self.cmbConfig.currentTextChanged.connect(self._on_config_changed)
         self.btnNewConfig.clicked.connect(self._create_new_config)
@@ -336,6 +342,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
                 "active": e.get("active", True),  # ✅ default active
                 "value": e.get("value", None),
                 "percent": e.get("percent", None),
+                "use_threshold": e.get("use_threshold", False),
                 "axis": e.get("axis", None),
                 "min": e.get("min", None),
                 "max": e.get("max", None),
@@ -431,6 +438,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
         self.lblStatus.setText("Finished")
         self.lblStatus.setStyleSheet("color: green;")
+        self.batchFinished.emit(results)
 
     # ev.
     # open_optuna_plot_window(...)
@@ -484,7 +492,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         }
         self._eval_service.evaluate(payload)
 
-    def _start_optimization(self, new_study=False):
+    def _start_optimization(self, new_study=False, study_name_prefix=None):
 
         self._eval_service = EvaluationService()
         self._eval_service.evaluationReady.connect(self._on_evaluation_ready)
@@ -553,6 +561,9 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             selected_params,
             metrics,
         )
+        if study_name_prefix:
+            study_name = _model_prefixed_study_name(study_name_prefix, study_name)
+        self._current_study_name = study_name
 
         # --------------------------------------------------
         # 5. Worker configuration
@@ -686,6 +697,14 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         except Exception as e:
             App.Console.PrintError(f"[UI] Sheet error: {e}\n")
 
+    def _open_model_batch_runner(self):
+        try:
+            from TOOLBOX.model_batch_runner import show_model_batch_runner
+
+            self._model_batch_runner = show_model_batch_runner(parent=Gui.getMainWindow())
+        except Exception as e:
+            App.Console.PrintError(f"[UI] Model batch runner error: {e}\n")
+
     def _on_metric_config_changed(self, payload):
         # tidig exit pga dialog öppning
         if self._loading_config:
@@ -708,11 +727,11 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
     def _select_best_trial(self, payload):
 
         if self._loading_config:
-            return
+            return False
 
         study_name = getattr(self, "_current_study_name", None)
         if not study_name:
-            return
+            return False
 
         try:
             study = optuna.load_study(
@@ -720,11 +739,11 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
                 storage=DB_PATH,
             )
         except Exception:
-            return
+            return False
 
         trials = study.best_trials
         if not trials:
-            return
+            return False
 
         # ✅ välj balanserad lösning
         def score(t):
@@ -735,6 +754,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
         apply_cad_params(best_trial.params)
         App.ActiveDocument.recompute()
+        return True
 
     def _make_study_name(self, params, metrics):
         # ✅ metrics
@@ -771,14 +791,11 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         return obj
 
     def _on_config_changed(self):
-
         if getattr(self, "_dirty", False):
             reply = QtWidgets.QMessageBox.question(self, "Unsaved changes", "You have unsaved changes. Continue without saving?", QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
             if reply == QtWidgets.QMessageBox.No:
                 return
-
         name = self.cmbConfig.currentText()
-
         print("[_on_config_chnaged] Switching to config:", name)
 
         obj = App.ActiveDocument.getObject("OptimizeConfig")
@@ -786,7 +803,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             return
         data = json.loads(obj.json)
         data["active"] = name
-        obj.json = json.dumps(data)
+        obj.json = json.dumps(data, indent=4, ensure_ascii=False)
         config = data.get("configs", {}).get(name)
         if config:
             self._apply_config(config)
@@ -1097,6 +1114,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             "active": True,
             "value": metric.get("value"),
             "percent": metric.get("percent"),
+            "use_threshold": metric.get("use_threshold", False),
             "axis": metric.get("axis"),
             "min": metric.get("min"),
             "max": metric.get("max"),
@@ -1150,7 +1168,7 @@ def ShowOptimizeDialog():
     if _optimize_dock_instance is not None:
         _optimize_dock_instance.show()
         _optimize_dock_instance.raise_()
-        return
+        return _optimize_dock_instance
 
     doc = App.ActiveDocument
     ss = doc.getObject(SPREADSHEET_NAME) if doc else None
@@ -1170,6 +1188,14 @@ def ShowOptimizeDialog():
     dock.show()
 
     _optimize_dock_instance = dock
+    return dock
+
+
+def _model_prefixed_study_name(model_path, study_name):
+    model_prefix = os.path.splitext(os.path.basename(model_path))[0]
+    if not model_prefix:
+        return study_name
+    return f"{model_prefix}__{study_name}" if study_name else model_prefix
 
 
 # -------------------------------------------------------

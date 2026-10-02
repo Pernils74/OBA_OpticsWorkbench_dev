@@ -22,20 +22,6 @@ RUNNING = False
 # DB_PATH = f"sqlite:///{os.path.join(BASE_DIR, 'optimization.db')}"
 
 
-def get_db_path_old():
-    import FreeCAD as App
-    import os
-
-    doc = App.ActiveDocument
-
-    if doc and doc.FileName:
-        base = os.path.splitext(doc.FileName)[0]
-    else:
-        # fallback om dokument ej sparat
-        base = os.path.join(os.getcwd(), "unsaved_document")
-    return f"sqlite:///{base}_optuna.db"
-
-
 def get_db_path():
     import FreeCAD as App
     import os
@@ -68,6 +54,7 @@ def is_optimization_running():
 class OptimizationWorker(QtCore.QObject):
     requestEvaluate = QtCore.Signal(dict, dict)
     progress = QtCore.Signal(dict)
+    trialProgress = QtCore.Signal(dict)
     finished = QtCore.Signal(object)
     RUNNING = False
 
@@ -244,7 +231,13 @@ class OptimizationWorker(QtCore.QObject):
 
                     # 3. Använd study.tell med värdena. Optuna fattar att det är
                     # en ogiltig körning pga dina constraints, men sparar datan!
-                    self.study.tell(trial, tuple(values))
+                    # self.study.tell(trial, tuple(values))
+                    if len(self.metrics) == 1:
+                        self.study.tell(trial, values[0])
+                    else:
+                        self.study.tell(trial, tuple(values))
+
+                    self.trialProgress.emit({"trial": trial.number})
                     continue
 
                 # --------------------------------------------------
@@ -287,7 +280,11 @@ class OptimizationWorker(QtCore.QObject):
                 # --------------------------------------------------
                 # TELL
                 # --------------------------------------------------
-                self.study.tell(trial, values)
+                # self.study.tell(trial, values)
+                if len(self.metrics) == 1:
+                    self.study.tell(trial, values[0])
+                else:
+                    self.study.tell(trial, tuple(values))
                 # print(f"[worker] " f"trial={trial.number} " f"values={values}")
                 if trial.number % 10 == 0:
                     self.progress.emit({"trial": trial.number, "values": values})
@@ -302,6 +299,7 @@ class OptimizationWorker(QtCore.QObject):
             except Exception as e:
                 print(f"[worker] hard fail: {e}")
                 self.study.tell(trial, state=optuna.trial.TrialState.FAIL)
+            self.trialProgress.emit({"trial": trial.number})
         # --------------------------------------------------
         # BEST TRIALS
         # --------------------------------------------------
@@ -398,6 +396,7 @@ class OptimizationWorker(QtCore.QObject):
         params = {}
         PRECISION_STEP = 0.0001
 
+        # print("TRIAL", trial.number)
         # --------------------------------------------------
         # completed trials
         # --------------------------------------------------
@@ -412,13 +411,20 @@ class OptimizationWorker(QtCore.QObject):
         # --------------------------------------------------
         # reference solution
         # --------------------------------------------------
-        best_params = None
-        if complete:
-            if len(self.metrics) == 1:
-                best_trial = self.study.best_trial
-            else:
-                best_trial = self.study.best_trials[0]
-            best_params = best_trial.params
+        # best_params = None
+        # if complete:
+        #     if len(self.metrics) == 1:
+        #         best_trial = self.study.best_trial
+        #     else:
+        #         print("complete_count =", len(complete), "best_trials =", len(self.study.best_trials))
+
+        #         best_trial = self.study.best_trials[0]
+        #     best_params = best_trial.params
+
+        if complete and self.study.best_trials:
+            best_params = self.study.best_trials[0].params
+        else:
+            best_params = None
         # --------------------------------------------------
         # suggest
         # --------------------------------------------------
@@ -443,123 +449,6 @@ class OptimizationWorker(QtCore.QObject):
                 hi2 = lo2 + PRECISION_STEP
             value = trial.suggest_float(name, lo2, hi2, step=PRECISION_STEP)
             params[name] = round(value, 5)
-        return params
-
-    def _suggest_old2(self, trial):
-        params = {}
-        PRECISION_STEP = 0.0001
-        # --------------------------------------------------
-        # Progress
-        # --------------------------------------------------
-        complete = [t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-        complete_count = len(complete)
-        if getattr(self, "n_trials", -1) > 0:
-            progress = min(1.0, complete_count / float(self.n_trials))
-        else:
-            # Infinite run
-            progress = 0.0
-        # --------------------------------------------------
-        # Trust region size
-        # Start: 100%
-        # End  : 15%
-        # --------------------------------------------------
-        step_ratio = max(0.15, 1.0 - progress)
-        # --------------------------------------------------
-        # Best solution so far
-        # --------------------------------------------------
-        best_params = None
-        if complete:
-            if len(self.metrics) == 1:
-                best_trial = self.study.best_trial
-            else:
-                # Multi-objective:
-                # använd första Pareto-lösningen
-                best_trial = self.study.best_trials[0]
-
-            best_params = best_trial.params
-
-        # --------------------------------------------------
-        # Suggest values
-        # --------------------------------------------------
-
-        for name in self.param_names:
-            lo, hi = self.bounds[name]
-            if hi < lo:
-                lo, hi = hi, lo
-
-            if best_params and name in best_params:
-                center = best_params[name]
-            else:
-                center = None
-
-            # Första trials = full sökrymd
-            if center is None:
-                lo2 = lo
-                hi2 = hi
-            else:
-                span = (hi - lo) * step_ratio
-                lo2 = max(lo, center - span)
-                hi2 = min(hi, center + span)
-            lo2 = round(lo2, 4)
-            hi2 = round(hi2, 4)
-            if lo2 >= hi2:
-                hi2 = lo2 + PRECISION_STEP
-            value = trial.suggest_float(name, lo2, hi2, step=PRECISION_STEP)
-            params[name] = round(value, 5)
-        return params
-
-    def _suggest_old(self, trial):
-        params = {}
-
-        step_ratio = 0.15  # ±15% av hela parameterns range
-        # --- NYTT: Definiera ett stenhårt minsta steg (t.ex. 0.001 eller 0.0001) ---
-        # Ändra detta steg beroende på hur fin precision du faktiskt behöver i din sketch
-        PRECISION_STEP = 0.0001
-
-        best_params = None
-
-        # Hämta bästa trial hittills
-        complete = [t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-
-        if complete:
-            if len(self.metrics) == 1:
-                best_trial = self.study.best_trial
-            else:
-                # Multi-objective: använd första Pareto-lösningen
-                best_trial = self.study.best_trials[0]
-
-            best_params = best_trial.params
-
-        for name in self.param_names:
-            lo, hi = self.bounds[name]
-
-            if best_params and name in best_params:
-                prev = best_params[name]
-            else:
-                prev = None
-
-            span = (hi - lo) * step_ratio
-
-            if prev is None:
-                lo2, hi2 = lo, hi
-            else:
-                lo2 = max(lo, prev - span)
-                hi2 = min(hi, prev + span)
-
-            # --- MODIFIERAD RAD: Tvinga Optuna att hålla sig till fasta steg ---
-            # Genom att lägga till step=PRECISION_STEP tvingas Optuna att klippa bruset.
-            # Vi avrundar även lo2 och hi2 till samma precision för att undvika att gränserna krockar.
-            lo2_rounded = round(lo2, 4)
-            hi2_rounded = round(hi2, 4)
-
-            # Om gränserna blir identiska efter avrundning, säkra ett litet spann
-            if lo2_rounded >= hi2_rounded:
-                hi2_rounded = lo2_rounded + PRECISION_STEP
-            suggested_val = trial.suggest_float(name, lo2_rounded, hi2_rounded, step=PRECISION_STEP)
-
-            # Spara det rena, avklippta värdet i parameterträdet
-            params[name] = round(suggested_val, 5)
-            # params[name] = trial.suggest_float(name, lo2, hi2)
         return params
 
     def _create_sampler(self, config):

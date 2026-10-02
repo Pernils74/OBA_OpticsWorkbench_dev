@@ -54,7 +54,6 @@ eller:
 """
 
 import os
-import csv
 import json
 import time
 import string
@@ -65,10 +64,11 @@ try:
 except Exception:
     Gui = None
 
-try:
-    from PySide import QtCore, QtGui, QtWidgets
-except ImportError:
-    from PySide2 import QtCore, QtGui, QtWidgets
+
+from PySide import QtCore, QtGui, QtWidgets
+
+# except ImportError:
+#     from PySide2 import QtCore, QtGui, QtWidgets
 
 
 # =========================================================
@@ -91,6 +91,7 @@ COL_PROPERTY = 0
 COL_VALUE = 1
 COL_MIN = 2
 COL_MAX = 3
+COL_LOCKED = 4
 DEFAULT_MIN_PERCENT = -10.0
 DEFAULT_MAX_PERCENT = 10.0
 
@@ -205,6 +206,64 @@ def _format_number(value):
 
     except Exception:
         return str(value)
+
+
+def _is_locked(value):
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().casefold() in {"1", "true", "yes", "locked", "x"}
+
+
+def load_model_data_into_spreadsheet(data, sheet, min_percent=None, max_percent=None):
+    alias_to_row = {}
+    for row in range(1, MAX_SCAN_ROWS + 1):
+        try:
+            alias = sheet.getAlias(f"B{row}")
+        except Exception:
+            alias = None
+        if alias:
+            alias_to_row[alias] = row
+
+    loaded = 0
+    missing_aliases = []
+    global_percent = data.get("global_percent", {})
+    if min_percent is None:
+        min_percent = global_percent.get("min")
+    if max_percent is None:
+        max_percent = global_percent.get("max")
+
+    for item in data.get("parameters", []):
+        alias = item.get("alias", "")
+        if not alias:
+            continue
+        row = alias_to_row.get(alias)
+        if row is None:
+            missing_aliases.append(alias)
+            continue
+
+        value = item.get("value")
+        min_value = item.get("min")
+        max_value = item.get("max")
+        if min_percent is not None and max_percent is not None and value is not None:
+            numeric_value = _to_float(value)
+            if numeric_value is not None:
+                min_value = _calculate_bound(numeric_value, float(min_percent))
+                max_value = _calculate_bound(numeric_value, float(max_percent))
+
+        property_name = str(item.get("property", ""))
+        if property_name:
+            sheet.set(f"A{row}", property_name)
+        if value is not None:
+            sheet.set(f"B{row}", _format_number(_to_float(value)))
+        if min_value is not None:
+            sheet.set(f"C{row}", _format_number(_to_float(min_value)))
+        if max_value is not None:
+            sheet.set(f"D{row}", _format_number(_to_float(max_value)))
+        sheet.set(f"E{row}", "X" if _is_locked(item.get("locked", False)) else "")
+        loaded += 1
+
+    sheet.touch()
+    return loaded, missing_aliases
 
 
 def _calculate_bound(value, percent):
@@ -385,11 +444,23 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
         buttons = QtWidgets.QHBoxLayout()
         self.btnReload = QtWidgets.QPushButton("Läs om Spreadsheet")
         self.btnApplyPercent = QtWidgets.QPushButton("Uppdatera Min/Max")
+        self.btnDecreaseValue = QtWidgets.QPushButton("Value -10%")
+        self.btnIncreaseValue = QtWidgets.QPushButton("Value +10%")
+        self.btnDecreaseValue.setToolTip("Decrease Value by 10% for every unlocked parameter.")
+        self.btnIncreaseValue.setToolTip("Increase Value by 10% for every unlocked parameter.")
+        value_button_style = "QPushButton { background-color: #176b5b; color: white; font-weight: 600; padding: 5px 10px; } QPushButton:hover { background-color: #125648; }"
+        self.btnDecreaseValue.setStyleSheet(value_button_style)
+        self.btnIncreaseValue.setStyleSheet(value_button_style)
+        self.btnApplyPercent.setStyleSheet("QPushButton { background-color: #315f91; color: white; font-weight: 600; padding: 5px 10px; } QPushButton:hover { background-color: #264c75; }")
+        self.min_percent_spin.setStyleSheet("QDoubleSpinBox { border: 2px solid #315f91; border-radius: 3px; padding: 3px; }")
+        self.max_percent_spin.setStyleSheet("QDoubleSpinBox { border: 2px solid #315f91; border-radius: 3px; padding: 3px; }")
         self.btnOpen = QtWidgets.QPushButton("Öppna CSV / JSON")
         self.btnSave = QtWidgets.QPushButton("Spara CSV / JSON")
         self.btnClose = QtWidgets.QPushButton("Stäng")
         buttons.addWidget(self.btnReload)
         buttons.addWidget(self.btnApplyPercent)
+        buttons.addWidget(self.btnDecreaseValue)
+        buttons.addWidget(self.btnIncreaseValue)
         buttons.addStretch(1)
         buttons.addWidget(self.btnOpen)
         buttons.addWidget(self.btnSave)
@@ -410,6 +481,8 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
         self.cmbSheets.currentIndexChanged.connect(self._reload_sheet)
         self.btnReload.clicked.connect(self._reload_sheet)
         self.btnApplyPercent.clicked.connect(self._apply_percent_to_spreadsheet)
+        self.btnDecreaseValue.clicked.connect(lambda: self._adjust_all_unlocked_values(-1))
+        self.btnIncreaseValue.clicked.connect(lambda: self._adjust_all_unlocked_values(1))
         self.btnOpen.clicked.connect(self._open_file)
         self.btnSave.clicked.connect(self._save_file)
         self.btnClose.clicked.connect(self.close)
@@ -750,6 +823,67 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
         """
         self._global_percent_changed()
 
+    def _safe_get(self, sheet, addr, default=""):
+        try:
+            return sheet.get(addr)
+        except Exception:
+            return default
+
+    def _adjust_all_unlocked_values(self, direction):
+        sheet = self._current_sheet()
+        doc = App.ActiveDocument
+        if not sheet or not doc:
+            return
+
+        changed = 0
+        skipped_locked = 0
+        skipped_zero = 0
+        self._loading = True
+        self.tbl.blockSignals(True)
+        try:
+            locked_column = COLUMN_NAMES[COL_LOCKED]
+            for spreadsheet_row in range(1, MAX_SCAN_ROWS + 1):
+                property_name = str(self._safe_get(sheet, f"A{spreadsheet_row}") or "").strip()
+                if property_name.upper() == "END":
+                    break
+                if not property_name:
+                    continue
+                if _is_locked(self._safe_get(sheet, f"{locked_column}{spreadsheet_row}")):
+                    skipped_locked += 1
+                    continue
+
+                value = _to_float(self._safe_get(sheet, f"B{spreadsheet_row}"))
+                if value is None:
+                    continue
+                if abs(value) < 1e-15:
+                    skipped_zero += 1
+                    continue
+
+                new_value = value * (1.0 + direction * 0.1)
+                sheet.set(f"B{spreadsheet_row}", _format_number(new_value))
+                sheet.set(f"C{spreadsheet_row}", _format_number(_calculate_bound(new_value, self.min_percent_spin.value())))
+                sheet.set(f"D{spreadsheet_row}", _format_number(_calculate_bound(new_value, self.max_percent_spin.value())))
+                changed += 1
+
+            if changed:
+                sheet.touch()
+                # if self.chkAutoRecompute.isChecked():
+                #     recompute_doc(doc, note=f"Value {'+' if direction > 0 else '-'}10%")
+
+                # self._reload_sheet()
+
+        except Exception as exc:
+            App.Console.PrintError("Optuna Value adjustment failed: {}\n".format(exc))
+            self.statusLabel.setText("Adjustment failed: {}".format(exc))
+            return
+        finally:
+            self.tbl.blockSignals(False)
+            self._loading = False
+
+        if changed:
+            self._reload_sheet()
+        self.statusLabel.setText("Value {}10%: {} updated, {} locked, {} zero values unchanged.".format("+" if direction > 0 else "-", changed, skipped_locked, skipped_zero))
+
     # =====================================================
     # Cell editing
     # =====================================================
@@ -894,76 +1028,37 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
     # Save CSV / JSON
     # =====================================================
 
+    def _get_default_path(self):
+        doc = App.ActiveDocument
+        if doc and getattr(doc, "FileName", ""):
+            return os.path.dirname(doc.FileName)
+        return ""
+
+    def _get_default_save_name(self, ext="json"):
+        doc = App.ActiveDocument
+        if doc and getattr(doc, "FileName", ""):
+            folder = os.path.dirname(doc.FileName)
+            name = os.path.splitext(os.path.basename(doc.FileName))[0]
+            return os.path.join(folder, f"{name}_optuna_bounds.{ext}")
+
+        return ""
+
     def _save_file(self):
-        path, selected_filter = QtWidgets.QFileDialog.getSaveFileName(self, "Save Optuna bounds", "", "JSON (*.json);;CSV (*.csv)")
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Save Optuna bounds",
+            self._get_default_save_name(),
+            "OBA model (*.model)",
+        )
+
         if not path:
             return
 
-        try:
-            extension = os.path.splitext(path)[1].lower()
-            # Add extension if missing
-            if not extension:
-                if "CSV" in selected_filter.upper():
-                    path += ".csv"
+        if not path.lower().endswith(".model"):
+            path += ".model"
 
-                else:
-                    path += ".json"
-
-                extension = os.path.splitext(path)[1].lower()
-
-            if extension == ".json":
-                self._save_json(path)
-
-            elif extension == ".csv":
-                self._save_csv(path)
-
-            else:
-                raise ValueError("Unknown file format.")
-
-            self.statusLabel.setText("Saved: {}".format(path))
-
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Save error", "Could not save file:\n\n{}".format(e))
-
-    # =====================================================
-    # Save CSV
-    # =====================================================
-
-    def _save_csv(self, path):
-        """
-        CSV is specifically the Optuna parameter format:
-
-            Property,Value,Min,Max
-
-        Category rows are skipped.
-        """
-        sheet = self._current_sheet()
-        if not sheet:
-            return
-
-        with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.writer(f)
-            writer.writerow(["Property", "Value", "Min", "Max"])
-            for r in range(1, MAX_SCAN_ROWS + 1):
-                try:
-                    property_raw = sheet.get("A{}".format(r))
-                    value_raw = sheet.get("B{}".format(r))
-                    min_raw = sheet.get("C{}".format(r))
-                    max_raw = sheet.get("D{}".format(r))
-
-                except Exception:
-                    continue
-
-                property_name = "" if property_raw is None else str(property_raw).strip()
-                if property_name.upper() == "END":
-                    break
-
-                value = _to_float(value_raw)
-                # Skip category/header rows
-                if value is None:
-                    continue
-
-                writer.writerow([property_name, _format_number(value), _format_number(_to_float(min_raw)), _format_number(_to_float(max_raw))])
+        self._save_json(path)
+        self.statusLabel.setText(f"Saved: {path}")
 
     # =====================================================
     # Save JSON
@@ -973,83 +1068,83 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
         sheet = self._current_sheet()
         if not sheet:
             return
-
         data = {
             "format": "OptunaBoundsEditor",
-            "version": 1,
-            "spreadsheet": (sheet.Label or sheet.Name),
-            "spreadsheet_columns": {"property": "A", "value": "B", "min": "C", "max": "D"},
+            "version": 2,
+            "spreadsheet": sheet.Label or sheet.Name,
+            "spreadsheet_columns": {
+                "property": "A",
+                "value": "B",
+                "min": "C",
+                "max": "D",
+                "locked": "E",
+            },
             "global_percent": {"min": self.min_percent_spin.value(), "max": self.max_percent_spin.value()},
             "parameters": [],
         }
+
         for r in range(1, MAX_SCAN_ROWS + 1):
+            property_raw = self._safe_get(sheet, f"A{r}")
+            value_raw = self._safe_get(sheet, f"B{r}")
+            min_raw = self._safe_get(sheet, f"C{r}")
+            max_raw = self._safe_get(sheet, f"D{r}")
+            locked_raw = self._safe_get(sheet, f"E{r}")
             try:
-                property_raw = sheet.get("A{}".format(r))
-                value_raw = sheet.get("B{}".format(r))
-                min_raw = sheet.get("C{}".format(r))
-                max_raw = sheet.get("D{}".format(r))
-
+                alias = sheet.getAlias(f"B{r}")
             except Exception:
-                continue
-
+                alias = ""
             property_name = "" if property_raw is None else str(property_raw).strip()
             if property_name.upper() == "END":
                 break
-
             value = _to_float(value_raw)
-            # Skip category rows
+            # hoppa över kategorirader
             if value is None:
                 continue
-
             min_value = _to_float(min_raw)
             max_value = _to_float(max_raw)
-            data["parameters"].append({"property": property_name, "value": value, "min": min_value, "max": max_value, "min_percent": _calculate_percent(value, min_value), "max_percent": _calculate_percent(value, max_value), "spreadsheet_row": r})
-
+            data["parameters"].append(
+                {
+                    "alias": alias,
+                    "property": property_name,
+                    "value": value,
+                    "min": min_value,
+                    "max": max_value,
+                    "locked": _is_locked(locked_raw),
+                    "min_percent": _calculate_percent(value, min_value),
+                    "max_percent": _calculate_percent(value, max_value),
+                }
+            )
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
 
     # =====================================================
-    # Open CSV / JSON
+    # Open  JSON
     # =====================================================
 
     def _open_file(self):
-        path, selected_filter = QtWidgets.QFileDialog.getOpenFileName(self, "Open Optuna bounds", "", "JSON (*.json);;CSV (*.csv)")
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Open OBA model",
+            self._get_default_path(),
+            "OBA model (*.model)",
+        )
         if not path:
             return
-
-        try:
-            extension = os.path.splitext(path)[1].lower()
-            if extension == ".json":
-                self._load_json(path)
-
-            elif extension == ".csv":
-                self._load_csv(path)
-
-            else:
-                raise ValueError("Unknown file format.")
-
-            self.statusLabel.setText("Opened: {}".format(path))
-
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Open error", "Could not open file:\n\n{}".format(e))
+        self._load_json(path)
+        self.statusLabel.setText(f"Opened: {path}")
 
     # =====================================================
     # Load JSON
     # =====================================================
-
     def _load_json(self, path):
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-
         global_percent = data.get("global_percent", {})
         min_percent = global_percent.get("min")
         max_percent = global_percent.get("max")
 
         # -------------------------------------------------
         # Set spinboxes
-        #
-        # Signals blocked so opening JSON does not
-        # immediately rewrite Spreadsheet.
         # -------------------------------------------------
 
         if min_percent is not None:
@@ -1062,143 +1157,18 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
             self.max_percent_spin.setValue(float(max_percent))
             self.max_percent_spin.blockSignals(False)
 
-        # -------------------------------------------------
-        # IMPORTANT:
-        #
-        # Opening JSON loads its values into the active
-        # Spreadsheet's B/C/D.
-        #
-        # A is also set because JSON contains Property.
-        #
-        # This is intentional for "Open".
-        # -------------------------------------------------
-
         sheet = self._current_sheet()
         if not sheet:
             return
 
-        parameters = data.get("parameters", [])
-        for index, item in enumerate(parameters):
-            spreadsheet_row = item.get("spreadsheet_row")
-            if spreadsheet_row is None:
-                spreadsheet_row = index + 1
-
-            try:
-                spreadsheet_row = int(spreadsheet_row)
-
-            except Exception:
-                spreadsheet_row = index + 1
-
-            property_name = str(item.get("property", ""))
-            value = item.get("value")
-            min_value = item.get("min")
-            max_value = item.get("max")
-            # If global values exist, calculate
-            # fresh Min/Max from Value.
-            if min_percent is not None and max_percent is not None and value is not None:
-                numeric_value = _to_float(value)
-                if numeric_value is not None:
-                    min_value = _calculate_bound(numeric_value, float(min_percent))
-                    max_value = _calculate_bound(numeric_value, float(max_percent))
-
-            # A
-            if property_name:
-                sheet.set("A{}".format(spreadsheet_row), property_name)
-
-            # B
-            if value is not None:
-                sheet.set("B{}".format(spreadsheet_row), _format_number(_to_float(value)))
-
-            # C
-            if min_value is not None:
-                sheet.set("C{}".format(spreadsheet_row), _format_number(_to_float(min_value)))
-
-            # D
-            if max_value is not None:
-                sheet.set("D{}".format(spreadsheet_row), _format_number(_to_float(max_value)))
-
-        sheet.touch()
+        loaded, missing_aliases = load_model_data_into_spreadsheet(data, sheet)
+        if missing_aliases:
+            App.Console.PrintWarning("Model parameters with unmatched aliases: {}\n".format(", ".join(missing_aliases)))
+        if not loaded:
+            self.statusLabel.setText("No model parameters matched Spreadsheet aliases.")
+            return
         if self.chkAutoRecompute.isChecked():
             recompute_doc(App.ActiveDocument, note="Open JSON")
-
-        self._reload_sheet()
-
-    # =====================================================
-    # Load CSV
-    # =====================================================
-
-    def _load_csv(self, path):
-        with open(path, "r", newline="", encoding="utf-8-sig") as f:
-            reader = csv.reader(f)
-            rows = list(reader)
-
-        if not rows:
-            return
-
-        start_index = 0
-        first = [str(x).strip().lower() for x in rows[0]]
-        if "property" in first or "value" in first or "min" in first or "max" in first:
-            start_index = 1
-
-        sheet = self._current_sheet()
-        if not sheet:
-            return
-
-        # -------------------------------------------------
-        # CSV -> Spreadsheet
-        #
-        # A = Property
-        # B = Value
-        # C = Min
-        # D = Max
-        # -------------------------------------------------
-
-        target_row = 1
-        for csv_row in rows[start_index:]:
-            if not csv_row:
-                continue
-
-            while len(csv_row) < 4:
-                csv_row.append("")
-
-            property_name = str(csv_row[0]).strip()
-            if property_name.upper() == "END":
-                break
-
-            value = _to_float(csv_row[1])
-            min_value = _to_float(csv_row[2])
-            max_value = _to_float(csv_row[3])
-            # Ignore completely empty rows
-            if not property_name and value is None and min_value is None and max_value is None:
-                continue
-
-            # A
-            if property_name:
-                sheet.set("A{}".format(target_row), property_name)
-
-            # B
-            if value is not None:
-                sheet.set("B{}".format(target_row), _format_number(value))
-
-            # C
-            if min_value is not None:
-                sheet.set("C{}".format(target_row), _format_number(min_value))
-
-            # D
-            if max_value is not None:
-                sheet.set("D{}".format(target_row), _format_number(max_value))
-
-            target_row += 1
-
-        sheet.touch()
-
-        # -------------------------------------------------
-        # CSV contains existing C/D.
-        #
-        # Calculate percentage from the first
-        # parameter so the spinboxes reflect the file.
-        # -------------------------------------------------
-
         self._reload_sheet()
 
     # =====================================================
@@ -1302,43 +1272,6 @@ def OBA_CreateOptunaBoundsEditor(parent=None, show_dialog=True):
     return dialog
 
 
-# def OBA_ShowOptunaBoundsEditor():
-#     global _optuna_bounds_editor_ref
-#     if Gui is None:
-#         return None
-
-#     mw = Gui.getMainWindow()
-#     if mw is None:
-#         return None
-
-#     exist = mw.findChild(QtWidgets.QDockWidget, DOCK_OBJECT_NAME)
-#     if exist:
-#         area = mw.dockWidgetArea(exist)
-#         mw.removeDockWidget(exist)
-#         exist.deleteLater()
-#         dock = OptunaBoundsEditor(mw)
-#         mw.addDockWidget(area, dock)
-
-#     else:
-#         dock = OptunaBoundsEditor(mw)
-#         mw.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
-
-#     dock.show()
-#     dock.raise_()
-#     try:
-#         dock.activateWindow()
-#     except Exception:
-#         pass
-
-#     _optuna_bounds_editor_ref = dock
-#     try:
-#         Gui.OBA_OptunaBoundsEditor_ref = dock
-#     except Exception:
-#         pass
-
-#     return dock
-
-
 # =========================================================
 # Aliases
 # =========================================================
@@ -1354,11 +1287,3 @@ def show_optuna_bounds_editor():
 
 def show_dialog():
     return OBA_ShowOptunaBoundsEditor()
-
-
-# def show_optuna_bounds_editor():
-#     return OBA_ShowOptunaBoundsEditor()
-
-
-# def show_dialog():
-#     return OBA_ShowOptunaBoundsEditor()

@@ -652,14 +652,10 @@ class TargetWeightsWidget(QtWidgets.QGroupBox):
         )
 
     def get_payload(self):
-
         entries = []
         for r in self.rows:
-            if r.chkActive.isChecked():
-                entries.append(r.get_payload_part())
-
+            entries.append(r.get_payload_part())
         entries.sort(key=self.metric_sort_key)
-
         return {"entries": entries}
 
 

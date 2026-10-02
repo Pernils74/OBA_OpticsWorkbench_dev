@@ -368,6 +368,16 @@ class EvaluationService(QtCore.QObject):
         finally:
             self._busy = False
 
+    def _debug_threshold_info(self, metric):
+        if not metric.get("use_threshold"):
+            return "disabled"
+        base = metric.get("base_metric")
+        if base in ("power", "hit_count"):
+            return f">= {metric.get('percent', 0.0):.3f}"
+        if base == "target_cluster_count":
+            return f"count≈{metric.get('value')} " f"filter>={metric.get('percent', 0.0):.3f}"
+        return "enabled"
+
     def _run_trial_evaluation(self, params, unselected_params, metrics, doc, trial_id):
 
         # --------------------------------------------------
@@ -494,7 +504,7 @@ class EvaluationService(QtCore.QObject):
         return mapping
 
     def _evaluate_metric(self, clusters, metric):
-
+        # print("---- metric ----", metric)
         base = metric["base_metric"]
         plane = metric.get("plane")
         targets = metric.get("targets", [])
@@ -518,6 +528,7 @@ class EvaluationService(QtCore.QObject):
                 # valid = ratio >= threshold  # 1 metric.get("percent", 0.0)
                 # constraint = threshold - ratio
                 constraint = threshold - ratio
+                # print("power=", ratio, "threshold=", threshold, "constraint=", constraint)
 
         elif base == "target_cluster_count":
             value, diff = compute_target_cluster_count(filtered, target_names, metric.get("percent", 0.01), metric.get("value", 3))

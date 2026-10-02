@@ -11,11 +11,8 @@
 # object in the tree through the ViewProvider.claimChildren() mechanism.
 #
 
-import math
-
 import FreeCAD as App
 import FreeCADGui as Gui
-from PySide import QtWidgets
 
 # from oba_objects.oba_base import OBAElementProxy
 
@@ -32,18 +29,18 @@ from .oba_toolbox_base import (
 )
 
 COMP_MIRROR_PROPERTIES = [
-    {"name": "Width", "type": "App::PropertyLength", "group": "Main Mirror", "default": 100.0, "doc": "Width of the cube/body along X"},
-    {"name": "Height", "type": "App::PropertyLength", "group": "Main Mirror", "default": 30.0, "doc": "Height of the cube/body along Z"},
-    {"name": "A", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 40.0, "doc": "Ellipsoid semi-major axis"},
-    {"name": "B", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 30.0, "doc": "Ellipsoid semi-minor radius"},
+    {"name": "Width", "type": "App::PropertyLength", "group": "Main Mirror", "default": 100.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Width of the cube/body along X"},
+    {"name": "Height", "type": "App::PropertyLength", "group": "Main Mirror", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Height of the cube/body along Z"},
+    {"name": "A", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 40.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Ellipsoid semi-major axis"},
+    {"name": "B", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Ellipsoid semi-minor radius"},
     {"name": "UseIndependentRadius3", "type": "App::PropertyBool", "group": "Ellipsoid", "default": False, "doc": "Use independent radius in Y direction"},
-    {"name": "B2", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 20.0, "doc": "Independent ellipsoid Y radius"},
-    {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 26.4575131106, "doc": "Distance from ellipsoid centre to focus"},
+    {"name": "B2", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "enabled_when": "UseIndependentRadius3", "doc": "Independent ellipsoid Y radius"},
+    {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 26.4575131106, "unit": "mm", "display_only": True, "doc": "Distance from ellipsoid centre to focus"},
     # {"name": "TiltAngle", "type": "App::PropertyAngle", "group": "Ellipsoid", "default": 0.0, "doc": "Tilt angle of the ellipsoids around the Z axis"},
     {"name": "ShowDebugEllipsoids", "type": "App::PropertyBool", "group": "Debug", "default": False, "doc": "Show ellipsoids for debugging"},
-    {"name": "PosX", "type": "App::PropertyFloat", "group": "Placement", "doc": "X coordinate"},
-    {"name": "PosY", "type": "App::PropertyFloat", "group": "Placement", "doc": "Y coordinate"},
-    {"name": "PosZ", "type": "App::PropertyFloat", "group": "Placement", "doc": "Z coordinate"},
+    {"name": "PosX", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "X coordinate"},
+    {"name": "PosY", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "Y coordinate"},
+    {"name": "PosZ", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "Z coordinate"},
 ]
 
 
@@ -168,25 +165,6 @@ class OBACompMirror:
         changed |= set_property_if_changed(self._ellipsoid, "Placement", new_placement)
 
         return changed
-
-    def _update_ellipsoid_old(self, obj):
-        a = float(obj.A)
-        b = float(obj.B)
-
-        b2 = float(obj.B2) if obj.UseIndependentRadius3 else b
-
-        self._ellipsoid.Radius1 = a
-        self._ellipsoid.Radius2 = b
-        self._ellipsoid.Radius3 = b2
-
-        rot_z = App.Rotation(App.Vector(0, 0, 1), 90)
-        rot_x = App.Rotation(App.Vector(1, 0, 0), -90)
-
-        ell_local = App.Placement()
-        ell_local.Base = App.Vector(0, b, 0)
-        ell_local.Rotation = rot_z.multiply(rot_x)
-
-        self._ellipsoid.Placement = obj.Placement.multiply(ell_local)
 
     def _update_debug_visibility(self, obj):
         try:
@@ -342,135 +320,10 @@ class OBACompMirror:
 
 
 class CompMirrorDialog(OBAToolboxDialogBase):
+    PROPERTY_DEFINITIONS = COMP_MIRROR_PROPERTIES
 
-    def __init__(self, obj, title="Main Mirror Main Mirror Settings", parent=None):
+    def __init__(self, obj, title="Comp Mirror Settings", parent=None):
         super().__init__(obj, title=title, parent=parent)
-
-        # self.obj.Proxy._dialog = self  # registrering av dialog på objektet
-
-        self._refreshing_ui = False
-
-        group = QtWidgets.QGroupBox("Main Mirror Main Mirror Parameters")
-        form = QtWidgets.QFormLayout(group)
-
-        self.width = self._add_spin("Width", "Width", 0, 1000, "mm", form)
-        self.height = self._add_spin("Height", "Height", 0, 1000, "mm", form)
-        self.a = self._add_spin("A", "A", 0, 1000, "mm", form)
-        self.b = self._add_spin("B", "B", 0, 1000, "mm", form)
-        self.use_b2 = QtWidgets.QCheckBox("Use independent Radius3")
-        form.addRow(self.use_b2)
-        self.b2 = self._add_spin("B2", "B2", 0, 1000, "mm", form)
-        # self.tiltangle = self._add_spin("Tilt angle", "TiltAngle", -90, 90, "°", form)
-        self.c = QtWidgets.QLabel()
-
-        # info text
-        form.addRow("Focus distance C", self.c)
-
-        self.debug_show = QtWidgets.QCheckBox("Show ellipsoids (debug)")
-        form.addRow(self.debug_show)
-        self.custom_layout.addWidget(group)
-
-        info = QtWidgets.QLabel("The two ellipsoids are mirrored around the centre " "plane of the Main Mirror.\n\n" "TiltAngle is the symmetric tilt of the ellipsoids.")
-        info.setWordWrap(True)
-        self.custom_layout.addWidget(info)
-        # --------------------------------------------------------------
-        # Signals
-        # --------------------------------------------------------------
-        self.width.valueChanged.connect(lambda value: self._set_property("Width", value.Value))
-        self.height.valueChanged.connect(lambda value: self._set_property("Height", value.Value))
-        self.a.valueChanged.connect(lambda value: self._set_property("A", value.Value))
-        self.b.valueChanged.connect(lambda value: self._set_property("B", value.Value))
-        self.b2.valueChanged.connect(lambda value: self._set_property("B2", value.Value))
-        # self.tiltangle.valueChanged.connect(lambda value: self._set_property("TiltAngle", value.Value))
-        self.use_b2.toggled.connect(self._use_b2_changed)
-        self.debug_show.toggled.connect(lambda checked: self._set_property("ShowDebugEllipsoids", checked))
-
-        # self.pos_x.valueChanged.connect(lambda value: self._set_property("PosX", value.Value))
-        # self.pos_y.valueChanged.connect(lambda value: self._set_property("PosY", value.Value))
-        # self.pos_z.valueChanged.connect(lambda value: self._set_property("PosZ", value.Value))
-
-        self.refresh_from_object()
-
-    # ------------------------------------------------------------------
-    # Property editing
-    # ------------------------------------------------------------------
-
-    def _set_property(self, prop, value):
-        # print("_set_property", prop, value)
-        if self._refreshing_ui:
-            return
-        # current = getattr(self.obj, prop)
-        # if float(current) == float(value):
-        #     print(f"[OBA] {prop} unchanged -> skip")
-        #     return
-        try:
-            setattr(self.obj, prop, value)
-            self._update_information()
-        except Exception as exc:
-            App.Console.PrintError(f"[OBA] Failed to update {prop}: {exc}\n")
-
-    def set_if_changed(obj, prop, value):
-        if getattr(obj, prop) != value:
-            setattr(obj, prop, value)
-
-    def _use_b2_changed(self, checked):
-        if self._refreshing_ui:
-            return
-        try:
-            self.obj.UseIndependentRadius3 = checked
-            self.b2.setEnabled(checked)
-            self._update_information()
-        except Exception as exc:
-            App.Console.PrintError("[OBA] Failed to update UseIndependentRadius3: " f"{exc}\n")
-
-    # ------------------------------------------------------------------
-    # Dialog refresh
-    # ------------------------------------------------------------------
-
-    def refresh_from_object(self):
-        self._refreshing_ui = True
-
-        try:
-            self.use_b2.setChecked(bool(self.obj.UseIndependentRadius3))
-            self.b2.setEnabled(bool(self.obj.UseIndependentRadius3))
-            self.debug_show.setChecked(bool(self.obj.ShowDebugEllipsoids))
-
-            self.a.setProperty("rawValue", float(self.obj.A))
-            self.b.setProperty("rawValue", float(self.obj.B))
-            self.b2.setProperty("rawValue", float(self.obj.B2))
-
-            self.width.setProperty("rawValue", float(self.obj.Width))
-            self.height.setProperty("rawValue", float(self.obj.Height))
-            # self.tiltangle.setProperty("rawValue", float(self.obj.TiltAngle))
-            self._update_information()
-
-        finally:
-            self._refreshing_ui = False
-
-    def _update_information(self):
-        print("_update_information called")
-        width = float(self.obj.Width)
-        height = float(self.obj.Height)
-        a = float(self.obj.A)
-        b = float(self.obj.B)
-        # tilt = float(self.obj.TiltAngle)
-
-        if a > 0 and b > 0 and a >= b:
-            c = math.sqrt(max(0.0, a * a - b * b))
-            self.c.setText(f"{c:.4f} mm")
-        else:
-            self.c.setText("Invalid A/B")
-
-        self.b2.setEnabled(bool(self.obj.UseIndependentRadius3))
-
-    # def closeEvent(self, event):
-    #     self.obj.Proxy._dialog = None
-    #     super().closeEvent(event)
-
-    # def showEvent(self, event):
-    #     self.obj.Proxy._dialog = self
-    #     super().showEvent(event)
-    #     print("dialog opened")
 
 
 # ======================================================================

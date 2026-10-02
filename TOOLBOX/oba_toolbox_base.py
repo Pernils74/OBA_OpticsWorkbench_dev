@@ -10,6 +10,7 @@ import FreeCAD as App
 import FreeCADGui as Gui
 import Part
 from PySide import QtWidgets
+from PySide.QtCore import QSignalBlocker
 
 from oba_objects.oba_base import (
     OBABaseDialog,
@@ -127,6 +128,77 @@ def _obj_exists(obj):
         return False
 
 
+def set_spreadsheet_references(obj, properties=None):
+    doc = obj.Document
+    sheet = doc.getObject("Spreadsheet")
+    if sheet is None:
+        App.Console.PrintWarning("Spreadsheet not found; no references were set.\n")
+        return
+
+    if properties is None:
+        view_provider = getattr(getattr(obj, "ViewObject", None), "Proxy", None)
+        dialog_class = getattr(view_provider, "dialog_class", None)
+        properties = getattr(dialog_class, "PROPERTY_DEFINITIONS", [])
+
+    property_rows = {}
+    for row in range(1, 601):
+        try:
+            property_name = str(sheet.get(f"A{row}") or "").strip()
+        except Exception:
+            continue
+        if property_name.upper() == "END":
+            break
+        if property_name:
+            property_rows[property_name] = row
+
+    try:
+        current_expressions = dict(obj.ExpressionEngine)
+    except Exception:
+        current_expressions = {}
+
+    updated = 0
+    missing = []
+    numeric_property_types = {
+        "App::PropertyAngle",
+        "App::PropertyDistance",
+        "App::PropertyFloat",
+        "App::PropertyInteger",
+        "App::PropertyLength",
+    }
+    for prop_def in properties:
+        if not prop_def.get("visible", True) or prop_def.get("display_only", False) or prop_def.get("readonly", False):
+            continue
+        prop_type = prop_def.get("type", "")
+        if prop_type == "App::PropertyLink" or prop_type not in numeric_property_types:
+            continue
+
+        prop = prop_def["name"]
+        row = property_rows.get(prop)
+        if row is None:
+            missing.append(prop)
+            continue
+
+        try:
+            alias = sheet.getAlias(f"B{row}")
+        except Exception:
+            alias = ""
+        cell_reference = alias or f"B{row}"
+        expression = f"{sheet.Name}.{cell_reference}"
+        if current_expressions.get(prop) == expression:
+            continue
+        obj.setExpression(prop, expression)
+        updated += 1
+
+    if missing:
+        App.Console.PrintWarning("Spreadsheet rows missing for: {}\n".format(", ".join(missing)))
+    if not updated:
+        App.Console.PrintMessage("Spreadsheet references are already up to date.\n")
+        return
+
+    doc.recompute()
+    App.Console.PrintMessage("Set {} Spreadsheet reference(s).\n".format(updated))
+
+
 class OBAToolboxViewProviderBase(OBAViewProviderBase):
     """Shared view-provider boilerplate for mirror components."""
 
@@ -207,15 +279,274 @@ class OBAToolboxViewProviderBase(OBAViewProviderBase):
 
 
 class OBAToolboxDialogBase(OBABaseDialog):
-    """Shared placement/debug helpers used by mirror dialogs."""
+    """Shared property-driven dialog and spreadsheet/Optuna actions."""
 
     ALLOW_SURFACE_SELECTION = False
 
-    PROPERTY_DEFINITIONS = []  # måste sättas i underklasserna
+    PROPERTY_DEFINITIONS = []
+    NUMERIC_PROPERTY_TYPES = {
+        "App::PropertyAngle",
+        "App::PropertyDistance",
+        "App::PropertyFloat",
+        "App::PropertyInteger",
+        "App::PropertyLength",
+    }
 
     def __init__(self, obj, title, parent=None):
         super().__init__(obj, title=title, parent=parent)
         self._closing = False
+        self._refreshing_ui = False
+        self._widgets = {}
+        self._display_widgets = {}
+        self._build_action_buttons()
+        self._build_property_widgets()
+        self.refresh_from_object()
+        try:
+            self.obj.Proxy._dialog = self
+        except Exception:
+            pass
+
+    def _property_definitions(self, properties=None):
+        return self.PROPERTY_DEFINITIONS if properties is None else properties
+
+    def _iter_editable_properties(self, properties=None, numeric_only=False):
+        for prop_def in self._property_definitions(properties):
+            if not prop_def.get("visible", True) or prop_def.get("display_only", False) or prop_def.get("readonly", False):
+                continue
+            prop_type = prop_def.get("type", "")
+            if prop_type == "App::PropertyLink":
+                continue
+            if numeric_only and prop_type not in self.NUMERIC_PROPERTY_TYPES:
+                continue
+            yield prop_def
+
+    def _build_action_buttons(self):
+        layout = QtWidgets.QHBoxLayout()
+        self.export_button = QtWidgets.QPushButton("Export to Spreadsheet")
+        self.export_button.clicked.connect(lambda: self.export_to_spreadsheet())
+        self.clear_button = QtWidgets.QPushButton("Remove Spreadsheet References")
+        self.clear_button.clicked.connect(lambda: self.clear_spreadsheet_references())  # lambda används för att kunna skicka med argument
+        self.set_references_button = QtWidgets.QPushButton("Set Spreadsheet References")
+        self.set_references_button.clicked.connect(lambda: self.set_spreadsheet_references())
+        self.optuna_button = QtWidgets.QPushButton("Update Optuna Config")
+        self.optuna_button.clicked.connect(lambda: self.update_optuna_config())
+        self.boundsEditor_button = QtWidgets.QPushButton("Optuna Bounds Editor")
+        self.boundsEditor_button.clicked.connect(lambda: self._open_optuna_bounds_editor())
+
+        self.export_button.setStyleSheet("""
+        QPushButton {
+            background-color: #176b5b;
+            color: white;
+            font-weight: 600;
+        }
+        QPushButton:hover {
+            background-color: #125648;
+        }
+        """)
+        self.set_references_button.setStyleSheet("""
+        QPushButton {
+            background-color: #176b5b;
+            color: white;
+            font-weight: 600;
+        }
+        QPushButton:hover {
+            background-color: #125648;
+        }
+        """)
+        self.clear_button.setStyleSheet("""
+        QPushButton {
+            background-color: #a63b3b;
+            color: white;
+            font-weight: 600;
+        }
+        QPushButton:hover {
+            background-color: #8b2e2e;
+        }
+        """)
+        self.optuna_button.setStyleSheet("""
+        QPushButton {
+            background-color: #315f91;
+            color: white;
+            font-weight: 600;
+        }
+        QPushButton:hover {
+            background-color: #264c75;
+        }
+        """)
+        self.boundsEditor_button.setStyleSheet("""
+        QPushButton {
+            background-color: #6b4c9a;
+            color: white;
+            font-weight: 600;
+        }
+        QPushButton:hover {
+            background-color: #583d80;
+        }
+        """)
+
+        layout.addWidget(self.export_button)
+        layout.addWidget(self.clear_button)
+        layout.addWidget(self.set_references_button)
+        layout.addWidget(self.optuna_button)
+        layout.addWidget(self.boundsEditor_button)
+        self.custom_layout.addLayout(layout)
+
+    def _build_property_widgets(self):
+        from types import SimpleNamespace
+
+        parent_groups = {}
+        groups = {}
+        for prop_def in self.PROPERTY_DEFINITIONS:
+            if not prop_def.get("visible", True):
+                continue
+            prop = prop_def["name"]
+            parent_name = prop_def.get("parent_group")
+            group_name = prop_def.get("group", "Properties")
+            group_key = (parent_name, group_name)
+
+            if parent_name and parent_name not in parent_groups:
+                parent_box = QtWidgets.QGroupBox(parent_name)
+                parent_layout = QtWidgets.QHBoxLayout(parent_box)
+                parent_groups[parent_name] = parent_layout
+                self.custom_layout.addWidget(parent_box)
+
+            if group_key not in groups:
+                group_box = QtWidgets.QGroupBox(group_name)
+                form = QtWidgets.QFormLayout(group_box)
+                groups[group_key] = form
+                if parent_name:
+                    parent_groups[parent_name].addWidget(group_box)
+                else:
+                    self.custom_layout.addWidget(group_box)
+            form = groups[group_key]
+            prop_type = prop_def.get("type", "")
+            label = prop_def.get("label", prop)
+
+            if prop_def.get("display_only", False):
+                value_label = QtWidgets.QLabel()
+                form.addRow(label, value_label)
+                self._display_widgets[prop] = (value_label, prop_def.get("unit", ""))
+                continue
+            if prop_type == "App::PropertyLink":
+                continue
+            if prop_type == "App::PropertyBool":
+                widget = QtWidgets.QCheckBox(label)
+                form.addRow(widget)
+                widget.toggled.connect(lambda value, name=prop: self._set_property(name, value))
+                self._widgets[prop] = SimpleNamespace(widget=widget, checkbox=widget, spinbox=None)
+                continue
+            if prop_type not in self.NUMERIC_PROPERTY_TYPES:
+                continue
+
+            unit = prop_def.get("unit")
+            if unit is None:
+                unit = "deg" if prop_type == "App::PropertyAngle" else "mm" if prop_type in ("App::PropertyLength", "App::PropertyDistance") else ""
+            minimum = prop_def.get("min", -360 if unit == "deg" else 0 if prop_type == "App::PropertyLength" else -1_000_000)
+            maximum = prop_def.get("max", 360 if unit == "deg" else 1_000_000)
+            step = prop_def.get("step", 0.1 if prop_type == "App::PropertyFloat" else 1)
+            if "optuna_locked" in prop_def:
+                control = self._add_checked_spin(
+                    prop=prop,
+                    label=label,
+                    optuna_locked=prop_def["optuna_locked"],
+                    minimum=minimum,
+                    maximum=maximum,
+                    unit=unit,
+                    form=form,
+                    step=step,
+                )
+                control.checkbox.toggled.connect(lambda value, name=prop: self._set_optuna_locked(name, value))
+            else:
+                spinbox = self._add_spin(label, prop, minimum, maximum, unit, form, step)
+                control = SimpleNamespace(widget=spinbox, checkbox=None, spinbox=spinbox)
+            if prop_def.get("readonly", False):
+                control.spinbox.setReadOnly(True)
+            control.spinbox.valueChanged.connect(lambda value, name=prop: self._set_property(name, value.Value))
+            self._widgets[prop] = control
+
+        self._refresh_property_enablement()
+
+    def _set_optuna_locked(self, prop, value):
+        lock_prop = f"{prop}_OptunaLocked"
+        if hasattr(self.obj, lock_prop) and getattr(self.obj, lock_prop) != value:
+            setattr(self.obj, lock_prop, value)
+
+    def _set_property(self, prop, value):
+        if self._refreshing_ui:
+            return
+        try:
+            current = getattr(self.obj, prop)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                if abs(float(current) - float(value)) < 1e-9:
+                    return
+            elif current == value:
+                return
+            setattr(self.obj, prop, value)
+            self.refresh_from_object()
+        except Exception as exc:
+            App.Console.PrintError(f"[OBA] Failed to update {prop}: {exc}\n")
+
+    def _refresh_property_enablement(self):
+        for prop_def in self.PROPERTY_DEFINITIONS:
+            control = self._widgets.get(prop_def["name"])
+            if control is None or control.spinbox is None:
+                continue
+            enabled = True
+            dependency = prop_def.get("enabled_when")
+            if dependency:
+                enabled = bool(getattr(self.obj, dependency, False))
+            dependency = prop_def.get("enabled_when_not")
+            if dependency:
+                enabled = not bool(getattr(self.obj, dependency, False))
+            control.spinbox.setEnabled(enabled)
+
+    def refresh_from_object(self):
+        self._refreshing_ui = True
+        try:
+            for name, control in self._widgets.items():
+                widget = control.checkbox if control.checkbox is not None else control.spinbox
+                with QSignalBlocker(widget):
+                    # -----------------------------------------
+                    # Checkbox = Optuna lock state
+                    # -----------------------------------------
+                    if control.checkbox is not None:
+                        lock_prop = f"{name}_OptunaLocked"
+                        widget.setChecked(bool(getattr(self.obj, lock_prop, False)))
+                    # -----------------------------------------
+                    # Normal spinbox
+                    # -----------------------------------------
+                    else:
+                        control.spinbox.setProperty("rawValue", float(getattr(self.obj, name)))
+                    # -----------------------------------------
+                    # Checked-spin also updates value widget
+                    # -----------------------------------------
+                    if control.spinbox is not None:
+                        control.spinbox.setProperty("rawValue", float(getattr(self.obj, name)))
+            for name, (widget, unit) in self._display_widgets.items():
+                value = float(getattr(self.obj, name))
+                widget.setText(f"{value:.4f} {unit}".rstrip())
+            self._refresh_property_enablement()
+        finally:
+            self._refreshing_ui = False
+
+    def refresh_from_object_old(self):
+        self._refreshing_ui = True
+        try:
+            for name, control in self._widgets.items():
+                widget = control.checkbox if control.checkbox is not None else control.spinbox
+                with QSignalBlocker(widget):
+                    if control.checkbox is not None:
+                        widget.setChecked(bool(getattr(self.obj, name)))
+                    else:
+                        widget.setProperty("rawValue", float(getattr(self.obj, name)))
+                    if control.checkbox is not None and control.spinbox is not None:
+                        control.spinbox.setProperty("rawValue", float(getattr(self.obj, name)))
+            for name, (widget, unit) in self._display_widgets.items():
+                value = float(getattr(self.obj, name))
+                widget.setText(f"{value:.4f} {unit}".rstrip())
+            self._refresh_property_enablement()
+        finally:
+            self._refreshing_ui = False
 
     def get_limits(self, value, unit):
         value = float(value)
@@ -232,7 +563,7 @@ class OBAToolboxDialogBase(OBABaseDialog):
         delta = abs(value) * 0.1
         return value - delta, value + delta
 
-    def export_to_spreadsheet(self, properties=PROPERTY_DEFINITIONS):
+    def export_to_spreadsheet(self, properties=None):
         doc = self.obj.Document
         obj = self.obj
 
@@ -244,11 +575,10 @@ class OBAToolboxDialogBase(OBABaseDialog):
         sheet.set("B1", "Value")
         sheet.set("C1", "Min")
         sheet.set("D1", "Max")
+        sheet.set("E1", "Locked")
         row = 2
 
-        for prop_def in properties:  #  WHITE_CELL_PROPERTIES:
-            if prop_def["type"] == "App::PropertyLink":
-                continue
+        for prop_def in self._iter_editable_properties(properties, numeric_only=True):
             prop = prop_def["name"]
             unit = prop_def.get("unit", "")
 
@@ -256,6 +586,8 @@ class OBAToolboxDialogBase(OBABaseDialog):
                 value = getattr(obj, prop)
                 sheet.set(f"A{row}", prop)
                 sheet.set(f"B{row}", str(value))
+                locked = bool(getattr(obj, f"{prop}_OptunaLocked", False))
+                sheet.set(f"E{row}", "X" if locked else "")
 
                 sheet.setAlias(f"B{row}", prop)
                 obj.setExpression(prop, f"{sheet.Name}.{prop}")
@@ -270,24 +602,26 @@ class OBAToolboxDialogBase(OBABaseDialog):
                 except Exception:
                     print("error")
                     pass
-                row += 1
             except Exception as exc:
                 App.Console.PrintError(f"Spreadsheet export failed: {exc}\n")
-            sheet.set(f"A{row}", "END")
+            row += 1
+        sheet.set(f"A{row}", "END")
 
         obj.touch()
         doc.recompute()
         self.reopen()
 
-    def clear_spreadsheet_references(self, properties=PROPERTY_DEFINITIONS):
-        for prop_def in properties:
-            if prop_def["type"] == "App::PropertyLink":
-                continue
+    def clear_spreadsheet_references(self, properties=None):
+        for prop_def in self._iter_editable_properties(properties, numeric_only=True):
             self.obj.setExpression(prop_def["name"], None)
         self.obj.Document.recompute()
         self.reopen()
 
-    def update_optuna_config(self, properties=PROPERTY_DEFINITIONS):
+    def set_spreadsheet_references(self, properties=None):
+        set_spreadsheet_references(self.obj, properties)
+        self.reopen()
+
+    def update_optuna_config(self, properties=None):
         import json
 
         doc = self.obj.Document
@@ -318,9 +652,7 @@ class OBAToolboxDialogBase(OBABaseDialog):
             App.Console.PrintError(f"Invalid OptimizeConfig JSON: {exc}\n")
             return
         selected_params = []
-        for prop_def in properties:  # self.PROPERTY_DEFINITIONS:
-            if prop_def["type"] == "App::PropertyLink":
-                continue
+        for prop_def in self._iter_editable_properties(properties, numeric_only=True):
             prop = prop_def["name"]
             if getattr(self.obj, f"{prop}_OptunaLocked", False):
                 continue
@@ -335,6 +667,14 @@ class OBAToolboxDialogBase(OBABaseDialog):
         config.json = json.dumps(data, indent=4)
         doc.recompute()
         App.Console.PrintMessage(f"Updated Optuna config with " f"{len(selected_params)} parameters\n")
+
+    def _open_optuna_bounds_editor(self):
+        try:
+            from OPTIMIZER.optuna_bounds_editor import show_optuna_bounds_editor
+
+            self._optuna_sheet_window = show_optuna_bounds_editor()
+        except Exception as e:
+            App.Console.PrintError(f"[UI] Sheet error: {e}\n")
 
     def reopen(self):
         # import traceback
@@ -381,6 +721,9 @@ class OBAToolboxDialogBase(OBABaseDialog):
         checkbox = QtWidgets.QCheckBox()
         # checkbox.setChecked(bool(optuna_locked))
         checkbox.setChecked(getattr(self.obj, f"{prop}_OptunaLocked", False))
+
+        # lock_value = getattr(self.obj, f"{prop}_OptunaLocked", False)
+        # print(prop, lock_value)
         # --------------------------------------------------------------
         # Quantity SpinBox
         # --------------------------------------------------------------

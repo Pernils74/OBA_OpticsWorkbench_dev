@@ -669,7 +669,7 @@ class OBAWhiteCell:
             return False
 
     def _rebuild(self, obj):
-        print("REBUILD")
+        # print("REBUILD")
         # self._rebuild_count += 1
         # print(f"{obj.Label} rebuild #{self._rebuild_count}")
 
@@ -844,101 +844,9 @@ class WhiteCellDialog(OBAToolboxDialogBase):
 
     def __init__(self, obj, title="White Cell Settings", parent=None):
         super().__init__(obj, title=title, parent=parent)
-
-        self._refreshing_ui = False
-
-        button_layout = QtWidgets.QHBoxLayout()
-
-        self.export_button = QtWidgets.QPushButton("1). Export to Spreadsheet     --->")
-        self.export_button.clicked.connect(lambda: self.export_to_spreadsheet(WHITE_CELL_PROPERTIES))
-
-        self.optuna_button = QtWidgets.QPushButton("2). Update Optuna Config")
-        self.optuna_button.clicked.connect(lambda: self.update_optuna_config(WHITE_CELL_PROPERTIES))
-
-        button_layout.addWidget(self.export_button)
-        button_layout.addWidget(self.optuna_button)
-        # valfritt
-        # button_layout.addStretch(1)
-        self.custom_layout.addLayout(button_layout)
-
-        button_layout_2 = QtWidgets.QHBoxLayout()
-        self.clear_button = QtWidgets.QPushButton("1b). Remove Spreadsheet References")
-        self.clear_button.clicked.connect(lambda: self.clear_spreadsheet_references(WHITE_CELL_PROPERTIES))
-        button_layout_2.addWidget(self.clear_button)
-        # button_layout_2.addStretch(0)
-
         self.help_button = QtWidgets.QPushButton("Help / XGBoost Optimizer")
         self.help_button.clicked.connect(self._open_xgboost_optimizer)
-
-        button_layout_2.addWidget(self.help_button)
-        # button_layout_2.addStretch(0)
-
-        self.custom_layout.addLayout(button_layout_2)
-
-        self._widgets = {}
-        parent_groups = {}
-        groups = {}
-        for prop in WHITE_CELL_PROPERTIES:
-            if not prop.get("visible", True):
-                continue
-            if prop["type"] == "App::PropertyLink":
-                continue
-            parent_name = prop.get("parent_group")
-            group_name = prop["group"]
-
-            # --------------------------------------------------
-            # Parent group
-            # --------------------------------------------------
-            if parent_name:
-                if parent_name not in parent_groups:
-                    parent_box = QtWidgets.QGroupBox(parent_name)
-                    parent_layout = QtWidgets.QHBoxLayout(parent_box)
-
-                    parent_groups[parent_name] = {
-                        "box": parent_box,
-                        "layout": parent_layout,
-                    }
-
-                    self.custom_layout.addWidget(parent_box)
-
-            # --------------------------------------------------
-            # Child group
-            # --------------------------------------------------
-            group_key = (parent_name, group_name)
-            if group_key not in groups:
-                group_box = QtWidgets.QGroupBox(group_name)
-                form = QtWidgets.QFormLayout(group_box)
-                groups[group_key] = form
-                if parent_name:
-                    parent_groups[parent_name]["layout"].addWidget(group_box)
-                else:
-                    self.custom_layout.addWidget(group_box)
-            form = groups[group_key]
-            widget = self._add_checked_spin(
-                prop=prop["name"],
-                label=prop.get("label", prop["name"]),
-                optuna_locked=prop.get("optuna_locked", False),
-                minimum=prop.get("min", 0),
-                maximum=prop.get("max", 1000),
-                unit=prop.get("unit", "mm"),
-                form=form,
-                step=prop.get("step", 1),
-            )
-            self._widgets[prop["name"]] = widget
-
-        # ==============================================================
-        # S I G N A L S
-        # ==============================================================
-
-        for name, widget in self._widgets.items():
-            widget.checkbox.toggled.connect(lambda state, p=name: setattr(self.obj, f"{p}_OptunaLocked", state))
-            widget.spinbox.valueChanged.connect(lambda value, p=name: self._set_property(p, value.Value))
-
-        self.refresh_from_object()
-        try:
-            self.obj.Proxy._dialog = self
-        except Exception:
-            pass
+        self.custom_layout.addWidget(self.help_button)
 
     def _get_spreadsheet_references(self):
         refs = []
@@ -959,42 +867,23 @@ class WhiteCellDialog(OBAToolboxDialogBase):
                 "The following parameters are controlled by Spreadsheet " "expressions:\n\n" + "\n".join(refs) + "\n\nRemove Spreadsheet References before using " "the XGBoost Optimizer.",
             )
             return
-
         from .xgboost_parameter_optimizer_dialog import OBA_CreateXGBoostParameterOptimizerDialog
 
-        self._xgboost_optimizer_dialog = OBA_CreateXGBoostParameterOptimizerDialog(
-            self.obj,
-            parent=self,
-            show_dialog=True,
-        )
+        self._xgboost_optimizer_dialog = OBA_CreateXGBoostParameterOptimizerDialog(self.obj, parent=self, show_dialog=True)
 
     # ==================================================================
     # S E T   P R O P E R T Y
     # ==================================================================
 
     def _set_property(self, prop, value):
-        # print("SET", prop, value)
-        if self._refreshing_ui:
-            return
-        try:
-            setattr(self.obj, prop, value)
-            # self.obj.Document.recompute()
-        except Exception as exc:
-            App.Console.PrintError(f"[OBA] White Cell dialog failed to update " f"{prop}: {exc}\n")
+        super()._set_property(prop, value)
 
     # ==================================================================
     # R E F R E S H
     # ==================================================================
 
     def refresh_from_object(self):
-        if not self.obj:
-            return
-        self._refreshing_ui = True
-        try:
-            for name, widget in self._widgets.items():
-                widget.spinbox.setProperty("rawValue", float(getattr(self.obj, name)))
-        finally:
-            self._refreshing_ui = False
+        super().refresh_from_object()
 
     # ==================================================================
     # C L O S E
