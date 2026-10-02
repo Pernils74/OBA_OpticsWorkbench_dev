@@ -4,6 +4,7 @@ import uuid
 from pivy import coin
 import FreeCADGui as gui
 import math
+import hashlib
 
 
 class OBARay:
@@ -217,6 +218,9 @@ class OBARayManager:
     def _init_for_document(self, document):
         self.document = document
         self.rays = []
+
+        self.emitter_stats = {}  # stats per emitter_id
+
         self._listeners = set()
 
         # Coin3D-noder är dokument-/view-specifika
@@ -224,6 +228,32 @@ class OBARayManager:
         self._preview_node = None
         self._normal_preview_node = None
         self._final_node = None
+
+    def trace_hash(self, ray):
+        h = hashlib.md5()
+
+        h.update(str(ray.emitter_id).encode())
+        h.update(f"{ray.power:.12f}".encode())
+        h.update(f"{ray.wavelength:.12f}".encode())
+        h.update(str(ray.bounce_count).encode())
+
+        for n in ray.medium_stack:
+            h.update(f"{n:.12f}".encode())
+
+        for p in ray.points:
+            h.update(f"{p.x:.12f}".encode())
+            h.update(f"{p.y:.12f}".encode())
+            h.update(f"{p.z:.12f}".encode())
+
+        return h.hexdigest()
+
+    def scene_hash(self):
+
+        h = hashlib.md5()
+        ray_hashes = sorted(self.trace_hash(ray) for ray in self.rays)
+        for rh in ray_hashes:
+            h.update(rh.encode())
+        return h.hexdigest()
 
     # -----------------------------
     # Observer API
@@ -259,11 +289,34 @@ class OBARayManager:
           - "normal_preview"  → rensa endast normal-preview (UI)
         """
         # 1. Rensa Python ray-lista (endast ray-relaterade modes)
-        if mode in (None, "preview", "final"):
-            if emitter_id is None and mode is None:
-                self.rays = []
-            else:
-                self.rays = [r for r in self.rays if not ((emitter_id is None or r.emitter_id == emitter_id) and (mode is None or r.mode == mode))]
+
+        if mode is None:
+            self.rays = []
+            self.emitter_stats = {}
+        elif mode == "final":
+            self.rays = [r for r in self.rays if r.mode != "final"]
+            self.emitter_stats.pop("final", None)
+        elif mode == "preview":
+            self.rays = [r for r in self.rays if r.mode != "preview"]
+            self.emitter_stats.pop("preview", None)
+
+        # if mode in (None, "preview", "final"):
+        #     if emitter_id is None and mode is None:
+        #         self.rays = []
+        #         self.emitter_stats = {}
+        #     else:
+        #         self.rays = [r for r in self.rays if not ((emitter_id is None or r.emitter_id == emitter_id) and (mode is None or r.mode == mode))]
+        # ---------------------
+        # if mode in (None, "preview", "final"):  < --- ger problem eftersom jag anropar clear på både final och preview
+        #     if emitter_id is None:
+        #         if mode is None:
+        #             self.rays = []
+        #             self.emitter_stats = {}
+        #         else:
+        #             self.rays = [r for r in self.rays if r.mode != mode]
+        #             self.emitter_stats.pop(mode, None)
+        #     else:
+        #         self.rays = [r for r in self.rays if not (r.emitter_id == emitter_id and (mode is None or r.mode == mode))]
 
         # 2. Rensa Coin3D-lager
         if not (hasattr(self, "_coin_root") and self._coin_root):
@@ -287,35 +340,35 @@ class OBARayManager:
         # 3. Tvinga refresh
         self._coin_root.touch()
 
-    def clear_all(self):
-        """Rensar ALLT: rays + Coin3D-visualisering."""
-        self.rays = []
-        if hasattr(self, "_coin_root") and self._coin_root:
-            # 1. Rensa barnen
-            self._preview_node.removeAllChildren()
-            self._final_node.removeAllChildren()
-            self._normal_preview_node.removeAllChildren()
+    # def clear_all(self):
+    #     """Rensar ALLT: rays + Coin3D-visualisering."""
+    #     self.rays = []
+    #     if hasattr(self, "_coin_root") and self._coin_root:
+    #         # 1. Rensa barnen
+    #         self._preview_node.removeAllChildren()
+    #         self._final_node.removeAllChildren()
+    #         self._normal_preview_node.removeAllChildren()
 
-            # 2. Ta bort själva roten från scenegraph om möjligt
-            import FreeCADGui as gui
+    #         # 2. Ta bort själva roten från scenegraph om möjligt
+    #         import FreeCADGui as gui
 
-            view = gui.activeDocument().activeView()
-            if view:
-                root = view.getSceneGraph()
-                if root.findChild(self._coin_root) != -1:
-                    root.removeChild(self._coin_root)
+    #         view = gui.activeDocument().activeView()
+    #         if view:
+    #             root = view.getSceneGraph()
+    #             if root.findChild(self._coin_root) != -1:
+    #                 root.removeChild(self._coin_root)
 
-            # Nollställ referensen så att visualize() tvingas bygga om nästa gång
-            self._coin_root = None
-        # touchar all beams så att de återställs i preview läget
-        import FreeCAD as App
+    #         # Nollställ referensen så att visualize() tvingas bygga om nästa gång
+    #         self._coin_root = None
+    #     # touchar all beams så att de återställs i preview läget
+    #     import FreeCAD as App
 
-        for obj in App.ActiveDocument.Objects:
-            # Kolla om objektet är en Beam via din OpticalType-property
-            if hasattr(obj, "OpticalType") and obj.OpticalType == "Beam":
-                if hasattr(obj.Proxy, "run_beam_preview"):
-                    # Anropa direkt för att slippa vänta på FreeCADs interna kö
-                    obj.Proxy.run_beam_preview(obj)
+    #     for obj in App.ActiveDocument.Objects:
+    #         # Kolla om objektet är en Beam via din OpticalType-property
+    #         if hasattr(obj, "OpticalType") and obj.OpticalType == "Beam":
+    #             if hasattr(obj.Proxy, "run_beam_preview"):
+    #                 # Anropa direkt för att slippa vänta på FreeCADs interna kö
+    #                 obj.Proxy.run_beam_preview(obj)
 
     def get_children(self, ray_id):
         return [r for r in self.rays if r.parent_id == ray_id]
@@ -323,6 +376,21 @@ class OBARayManager:
     def get_all_rays(self):
         """Returnerar alla strålar för visualisering/export."""
         return self.rays
+
+    def register_emitter_stats(self, emitter_id, power, mode="final"):
+        stats = self.emitter_stats.setdefault(mode, {}).setdefault(
+            emitter_id,
+            {
+                "emitted_power": 0.0,
+                "emitted_rays": 0,
+            },
+        )
+
+        stats["emitted_power"] += power
+        stats["emitted_rays"] += 1
+
+    def get_emitted_stats(self, mode="final"):
+        return self.emitter_stats.get(mode, {})
 
     def count_hits_on_object(self, obj):
         if obj is None:

@@ -60,11 +60,31 @@ class DocXYZDialog(QtWidgets.QDialog):
         vbox.addLayout(row)
 
         self.tbl = QtWidgets.QTableWidget()
-        self.tbl.setColumnCount(8)
-        self.tbl.setHorizontalHeaderLabels(["X", "Y", "Z", "Hits", "Power In", "Power Out", "Loss", "Moved Objects"])
+        self.tbl.setColumnCount(14)
+
+        self.tbl.setHorizontalHeaderLabels(
+            [
+                "WX",
+                "WY",
+                "WZ",
+                "DX",
+                "DY",
+                "DZ",
+                "Hits",
+                "Power In",
+                "Power Out",
+                "Loss",
+                "Moved Objects",
+                "Moved Object",
+                "Hit Target",
+                "Hit Target_label (Hit Target) ** not in DB",
+                # "Moved Target",
+            ]
+        )
+
         self.tbl.setSortingEnabled(True)
         self.tbl.setAlternatingRowColors(True)
-        self.tbl.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        self.tbl.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Interactive)
 
         vbox.addWidget(self.tbl, 1)
 
@@ -196,17 +216,17 @@ class DocXYZDialog(QtWidgets.QDialog):
         step = self.cbStep.currentText()
 
         label = self.cbTarget.currentText()
-        target = self._target_map.get(label, label)
+        hit_target = self._target_map.get(label, label)
 
         em_label = self.cbEmitter.currentText()
         emitter = self._emitter_map.get(em_label, em_label)
 
-        if not (step and target and emitter):
+        if not (step and hit_target and emitter):
             self.tbl.setRowCount(0)
             self._update_status(0, 0, 0.0, 0.0)
             return
 
-        X, Y, Z, H, PIN, POUT, MOVED = self.db.read_grid(target, emitter, step)
+        WX, WY, WZ, X, Y, Z, H, PIN, POUT, MOVE_OBJECT, MOVED_OBJECTS = self.db.read_grid(hit_target, emitter, step)
 
         self.tbl.setSortingEnabled(False)
         self.tbl.setRowCount(len(X))
@@ -215,22 +235,31 @@ class DocXYZDialog(QtWidgets.QDialog):
         sum_p_in = 0.0
         sum_p_out = 0.0
 
-        for i in range(len(X)):
-            x, y, z = X[i], Y[i], Z[i]
+        for i in range(len(WX)):
+
+            wx, wy, wz = WX[i], WY[i], WZ[i]
+
+            dx, dy, dz = X[i], Y[i], Z[i]
+
             h = H[i]
             pin = PIN[i]
             pout = POUT[i]
-            moved = MOVED[i]
+            moved = MOVED_OBJECTS[i]
 
-            self.tbl.setItem(i, 0, self._num_item(x))
-            self.tbl.setItem(i, 1, self._num_item(y))
-            self.tbl.setItem(i, 2, self._num_item(z))
-            self.tbl.setItem(i, 3, self._num_item(h))
-            self.tbl.setItem(i, 4, self._num_item(pin))
-            self.tbl.setItem(i, 5, self._num_item(pout))
+            self.tbl.setItem(i, 0, self._num_item(wx))
+            self.tbl.setItem(i, 1, self._num_item(wy))
+            self.tbl.setItem(i, 2, self._num_item(wz))
+
+            self.tbl.setItem(i, 3, self._num_item(dx))
+            self.tbl.setItem(i, 4, self._num_item(dy))
+            self.tbl.setItem(i, 5, self._num_item(dz))
+
+            self.tbl.setItem(i, 6, self._num_item(h))
+            self.tbl.setItem(i, 7, self._num_item(pin))
+            self.tbl.setItem(i, 8, self._num_item(pout))
 
             loss = (pin or 0.0) - (pout or 0.0)
-            self.tbl.setItem(i, 6, self._num_item(loss))
+            self.tbl.setItem(i, 9, self._num_item(loss))
 
             # self.tbl.setItem(i, 7, self._text_item((moved or "").replace(";", ", ")))
 
@@ -241,9 +270,7 @@ class DocXYZDialog(QtWidgets.QDialog):
                 name = name.strip()
                 if name:
                     names.append(name)
-
                     lbl = self._get_label(name)
-
                     if lbl == name:
                         labels.append(name)
                     else:
@@ -255,7 +282,13 @@ class DocXYZDialog(QtWidgets.QDialog):
             # ✅ spara original names (kan användas senare)
             item.setData(QtCore.Qt.UserRole, ";".join(names))
 
-            self.tbl.setItem(i, 7, item)
+            self.tbl.setItem(i, 10, item)
+
+            print("[load_grid] Rad", i, "flyttade objektet:", MOVE_OBJECT[i], "av : ", moved, "  ", hit_target, MOVE_OBJECT)
+
+            self.tbl.setItem(i, 11, QtWidgets.QTableWidgetItem(MOVE_OBJECT[i]))
+            self.tbl.setItem(i, 12, QtWidgets.QTableWidgetItem(hit_target))
+            self.tbl.setItem(i, 13, QtWidgets.QTableWidgetItem(self._get_label(hit_target) + " (" + str(hit_target) + ")"))
 
             sum_hits += h or 0
             sum_p_in += pin or 0.0

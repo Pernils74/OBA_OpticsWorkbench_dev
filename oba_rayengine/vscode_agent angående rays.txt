@@ -1,0 +1,250 @@
+Gathering ray creation and propagation code paths to trace power lifecycle precisely.
+
+Searched for regex `total_weight|scale =|ray = OBARay|power=|ray.power|spawn_child|parent_id|power_in|power_out|absorbed_power|OBARayManager\(|get_all_rays\(|mode == "final"|def get_emitted_power|power\*|scale\*` (`**/oba_rayengine/*.py`), 155 results
+
+Read [](file:///c%3A/Users/psnygg/AppData/Roaming/FreeCAD/v1-1/Mod/OBA_OpticsWorkbench_dev/oba_rayengine/oba_ray_trace.py#1-1), lines 1 to 360
+
+Read [](file:///c%3A/Users/psnygg/AppData/Roaming/FreeCAD/v1-1/Mod/OBA_OpticsWorkbench_dev/oba_rayengine/oba_ray_core.py#1-1), lines 1 to 200
+
+Found the critical power modification sites in oba_ray_trace.py. Next I’ll inspect the exact propagation branches and any explicit root-power mutation.
+
+Searched for regex `ray\.power =|spawn_child\(|P_in = ray\.power|power=power|power=P_in|power= P_in|power\*` (`**/oba_rayengine/oba_ray_trace.py`), 28 results
+
+Read [](file:///c%3A/Users/psnygg/AppData/Roaming/FreeCAD/v1-1/Mod/OBA_OpticsWorkbench_dev/oba_rayengine/oba_ray_trace.py#320-320), lines 320 to 690
+
+Read [](file:///c%3A/Users/psnygg/AppData/Roaming/FreeCAD/v1-1/Mod/OBA_OpticsWorkbench_dev/oba_rayengine/oba_ray_trace.py#690-690), lines 690 to 870
+
+Read [](file:///c%3A/Users/psnygg/AppData/Roaming/FreeCAD/v1-1/Mod/OBA_OpticsWorkbench_dev/oba_rayengine/oba_ray_trace.py#870-870), lines 870 to 1260
+
+Now reading `get_emitted_power()` and nearby helpers to confirm exact root-ray selection and any count anomalies.
+
+Read [](file:///c%3A/Users/psnygg/AppData/Roaming/FreeCAD/v1-1/Mod/OBA_OpticsWorkbench_dev/oba_rayengine/oba_ray_analyser.py#360-360), lines 360 to 460
+
+## Summary
+
+The fluctuation is almost certainly not due to `total_weight / scale` math. It is caused by the fact that `get_emitted_power()` sums root rays after propagation, while the root rays are actively modified during trace.
+
+---
+
+## Key finding
+
+### Most likely root cause
+- `handle_optical_interaction()` zeroes `ray.power` for all non-detector interactions:
+  - `Mirror`
+  - `Lens`
+  - `Absorber`
+  - `Grating`
+- Therefore `root_ray.power` after tracing is not invariant.
+- `get_emitted_power()` sums `ray.power` for `parent_id is None` root rays after tracing, so it measures “surviving root power”, not “original emitted power”.
+
+This is the single most important reason emitted power can vary between trials.
+
+---
+
+## Power lifecycle trace
+
+1. `source_obj.Power` is read here:
+   - `total_power = getattr(source_obj, "Power", 1.0)`
+
+2. Ray generation:
+   - `rays = list(ray_gen)`
+
+3. Total weight:
+   - `total_weight = sum(w for _, _, w in rays)`
+
+4. Scale:
+   - `scale = total_power / total_weight`
+
+5. Root ray creation:
+   - `power = w * scale`
+   - `ray = OBARay(... power=power, emitter_id=..., mode=mode, ...)`
+   - `OBARay.__init__()` calls `OBARayManager().add(self)`
+
+6. Propagation:
+   - `propagate_occ(ray, ...)` or `propagate_mesh(ray, ...)`
+
+7. On optical interaction:
+   - `handle_optical_interaction(ray, ..., props)` runs
+
+8. Child creation:
+   - `ray.spawn_child(... power=...)`
+   - child has `parent_id=self.id`
+   - root ray remains in manager with `parent_id=None`
+
+9. Root ray mutation:
+   - For `Mirror`, `Lens`, `Grating`, `Absorber`: `ray.power = 0.0`
+   - For `Detector`: root ray power is kept intact
+
+10. `get_emitted_power()`:
+    - iterates `rm.get_all_rays()`
+    - filters `ray.mode == mode`
+    - filters `ray.parent_id is None`
+    - sums `ray.power`
+
+---
+
+## Exact violation points
+
+### 1. `handle_optical_interaction()` zeroes root ray power
+- File: oba_ray_trace.py
+- Code:
+  - `ray.power = 0.0`
+- Affected types:
+  - Mirror
+  - Lens
+  - Absorber
+  - Grating
+- Risk: **HIGH**
+- Why dangerous:
+  - A root ray created with initial power is later mutated to zero.
+  - `get_emitted_power()` then sees a reduced sum.
+- Example:
+  - 100 root rays start with total power = 1.0
+  - 70 hit mirrors/lenses/absorbers/gratings
+  - those 70 become zero
+  - only the remaining 30 contribute to `get_emitted_power()`
+
+### 2. `get_emitted_power()` semantics are wrong
+- File: oba_ray_analyser.py
+- Code:
+  - sums `ray.power` on root rays after full propagation
+- Risk: **HIGH**
+- Why dangerous:
+  - The invariant `sum(root_ray.power) == source_obj.Power` only holds at ray creation, not after interaction logic.
+  - The code assumes root ray power is stable, but it is intentionally modified later.
+
+### 3. `OBARayManager` clearing is probably fine
+- File: oba_ray_engine.py
+- Code:
+  - `rm.clear(mode="final")`
+  - `rm.clear(mode="preview")`
+- Risk: **LOW**
+- Why:
+  - This should remove previous ray state before each trace.
+  - So stale old traces are unlikely the source of the power fluctuation.
+
+### 4. `source_obj.Power` changes
+- Reviewed code: `run_normalized_ray_trace()`
+- Risk: **LOW**
+- Why:
+  - `source_obj.Power` is read directly and is not modified in the ray trace path.
+  - Unless the emitter object has dynamic expression-based power, the trace code does not change it.
+
+### 5. `parent_id` correctness
+- `spawn_child()` sets `parent_id=self.id`
+- Root rays have `parent_id=None`
+- Risk: **LOW**
+- Reason:
+  - No evidence of child rays being mis-tagged as root.
+
+---
+
+## Specific questions answered
+
+1. **Can `source_obj.Power` change during optimization?**
+   - In the traced code path, no. It is read once per emitter.
+   - Unless the object property itself is expression-driven outside this code, it is stable.
+
+2. **Is `source_obj.Power` geometry-dependent anywhere?**
+   - Not in `run_normalized_ray_trace()`.
+   - Code only reads the property directly.
+
+3. **Can root ray power be modified after ray creation?**
+   - Yes. `handle_optical_interaction()` sets `ray.power = 0.0` for most optics.
+
+4. **Does any propagation logic modify ray.power on root rays?**
+   - Yes. Mirror/lens/grating/absorber interactions zero root ray power.
+
+5. **Can child-ray creation accidentally modify parent ray power?**
+   - Not directly, but parent ray is intentionally zeroed after children are spawned.
+
+6. **Are rays cleared correctly before every evaluation?**
+   - Yes, `OBARayEngine._trace_scene()` clears `rm.clear(mode="final")` and `rm.clear(mode="preview")`.
+
+7. **Can `OBARayManager` contain rays from previous traces?**
+   - Likely not after a fresh `_trace_scene()` run.
+
+8. **Are root rays overwritten, replaced, or removed?**
+   - No. Root rays remain in manager, but their power may become zero.
+
+9. **Is `parent_id` always assigned correctly?**
+   - Yes, `spawn_child()` sets it correctly.
+
+10. **Can `get_emitted_power()` accidentally include or exclude rays?**
+    - It excludes all non-root rays correctly.
+    - But it includes root rays whose power may be zero.
+    - That is the key problem.
+
+11. **Is there more than one emitter contributing?**
+    - If multiple emitters exist, yes, but that is orthogonal.
+    - The fluctuation is still explained by root-ray power mutation.
+
+12. **Does mirror/lens/absorber/grating logic modify original root ray power?**
+    - Yes. Exactly there.
+
+---
+
+## Most likely root cause
+
+`get_emitted_power()` should not be used to assert the invariant after tracing, because the tracer intentionally removes power from root rays when they interact optically.
+
+So the real invariant should be:
+- `sum(initial root ray power before propagation) == source_obj.Power`
+- not:
+- `sum(root_ray.power after propagation) == source_obj.Power`
+
+---
+
+## Recommended fix
+
+### Best correction
+- change `get_emitted_power()` to compute from the original emitted rays before interaction.
+- or add a dedicated `initial_power` field to `OBARay`:
+  - `self.initial_power = power`
+- then use:
+  - `sum(ray.initial_power for ray in root_rays)`
+
+### If you want “remaining root power after trace”
+- rename function to avoid confusion, e.g. `get_surviving_root_power()`.
+
+### If you want actual emitted power
+- compute and store initial root power at ray creation.
+
+---
+
+## Useful debug statements
+
+Instrument these locations:
+
+1. In `run_normalized_ray_trace()`:
+   - `print("TRACE INIT", source_obj.Name, total_power, total_weight, scale, len(rays))`
+   - `print("ROOT POWER SUM", sum(w*scale for _,_,w in rays))`
+
+2. In `OBARay.__init__()`:
+   - `print("ROOT RAY CREATED", ray.id, "power", power, "emitter", emitter_name)`
+
+3. In `handle_optical_interaction()`:
+   - before `ray.power = 0.0`:
+     - `print("ZEROING ROOT", ray.id, "type", o_type, "incoming", P_in, "children", len(spawned_rays))`
+   - after detector:
+     - `print("DETECTOR ROOT RETAINED", ray.id, "power", P_in)`
+
+4. In `get_emitted_power()`:
+   - `print("ROOT RAYS", ray_count, "total", total_power)`
+   - maybe print the list of emitted root ray ids and their final power.
+
+5. After trace completion:
+   - `print("TRACE COMPLETE: root sum", root_sum, "root count", root_count, "total power", source_obj.Power)`
+
+---
+
+## Conclusion
+
+The observed emitted power fluctuation is explained by the code design:
+- root rays are created correctly,
+- but after propagation many root rays are zeroed by optical interactions,
+- and `get_emitted_power()` reads those mutated root rays.
+
+That makes the observed range 22–30 plausible and expected, not a pure sampling/math bug.
+
+If you want, I can also provide a patched `get_emitted_power()` and/or add a stable `initial_power` field to `OBARay`.

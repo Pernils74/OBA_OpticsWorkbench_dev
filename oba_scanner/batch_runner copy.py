@@ -3,7 +3,8 @@
 
 import json
 import math
-from pydoc import doc
+
+
 import time
 
 
@@ -11,10 +12,36 @@ import FreeCAD as App
 
 from oba_objects.oba_base import _trigger_ray_engine
 from oba_rayengine.oba_ray_analyser import collect_ray_hits_and_stats
+from oba_rayengine.oba_ray_engine import OBARayEngine
+
 
 from .scan_db import HitsDB
 
 BATCH_OFFSET_OBJ = "__OBABatchOffset__"
+
+TARGET_TYPES = {
+    "Mirror",
+    "Lens",
+    "Absorber",
+    "Detector",
+    "Grating",
+}
+
+EMITTER_TYPES = {
+    "Beam",
+    "Emitter",
+}
+
+
+# run_steps_for_batch
+#  ├── parse
+#  ├── prepare
+#  ├── loop
+#  │    ├── compute offset
+#  │    ├── apply
+#  │    ├── trace
+#  │    └── store
+#  └── restore
 
 
 # ============================================================
@@ -35,7 +62,7 @@ def rotate(x, y, z, axis, angle_rad):
 
 
 # ============================================================
-# Batch offset controller
+# Debug
 # ============================================================
 
 
@@ -75,12 +102,6 @@ def dump_placement_text(obj, header=None):
                 App.Console.PrintLog(f"  {path} = {expr}\n")
     else:
         App.Console.PrintLog("No expressions on Placement\n")
-
-
-def set_batch_offsets(batch_obj, dx, dy, dz):
-    batch_obj.OffsetX = dx
-    batch_obj.OffsetY = dy
-    batch_obj.OffsetZ = dz
 
 
 # ============================================================
@@ -127,6 +148,19 @@ def apply_direct_offset(obj, snap, dx, dy, dz):
         base0.y + dy,
         base0.z + dz,
     )
+
+
+def _apply_offset(objects, snaps, dx, dy, dz, step_offset):
+    for name, obj in objects.items():
+        clear_placement_expressions(obj)
+        apply_direct_offset(
+            obj,
+            snaps[name],
+            dx + step_offset.x,
+            dy + step_offset.y,
+            dz + step_offset.z,
+        )
+        # apply_direct_offset(obj, snaps[name], dx, dy, dz)
 
 
 def restore_placement(obj, snap):
@@ -181,35 +215,110 @@ def resolve_move_target(obj):
 # ============================================================
 
 
-def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag_func):
+def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag_func, only_step_id=None):
     App.Console.PrintLog("▶ Starting batch run\n")
 
     doc = batch.Document
     db = HitsDB()
 
-    # ----------------------------------------------------------
-    # Find OBARayConfig
-    # ----------------------------------------------------------
-
-    collector = None
-    for o in doc.Objects:
-        if hasattr(o, "Proxy") and o.Proxy and o.Proxy.__class__.__name__ == "OBARayConfig":
-            collector = o
-            break
+    collector = _find_ray_config(doc)
 
     if not collector:
         status_lbl.setText("No OBARayConfig – aborting")
         App.Console.PrintError("❌ OBARayConfig missing\n")
         return
 
+    old_run_mode = collector.RunMode
+
     collector.RunMode = "MANUAL"
 
-    # ----------------------------------------------------------
-    # Collect active steps
-    # ----------------------------------------------------------
+    parsed_steps, total_iters = _parse_steps(batch)
 
-    parsed_steps = []
-    total_iters = 0
+    # print("[runs_steps_for_batch] TOTAL_ITERS =", total_iters)
+    # print("[runs_steps_for_batch] PARSED_STEPS =", len(parsed_steps))
+
+    prog_bar.setRange(0, total_iters)
+    prog_bar.setValue(0)
+
+    label_to_name = {o.Label: o.Name for o in doc.Objects}
+
+    move_objects, placement_snaps = _prepare_move_objects(doc, parsed_steps, label_to_name)
+
+    doc.recompute()
+    done_iters = 0
+    trace_count = 0
+    try:
+        for step, data, A, rf, rt, R in parsed_steps:
+            if stop_flag_func():
+                break
+
+            if only_step_id and step.Id != only_step_id:
+                continue
+
+            step_offset = getattr(step, "StepOffset", App.Vector(0, 0, 0))  # offset utifall man har klickat i heatmap
+
+            moved_str, step_move_objects = _resolve_step_objects(step, data, label_to_name, move_objects)
+
+            plan = data.get("plan", "XY")
+            rot_axis = data.get("rotAxis", "X")
+            rot_angle = math.radians(float(data.get("rotAngle", 0.0)))
+
+            r_step = 0 if R <= 1 else (rt - rf) / float(R - 1)
+
+            for ri in range(R):
+                radius = rf + r_step * ri
+                ai_range = range(1) if ri == 0 and abs(radius) < 1e-12 else range(A)
+
+                for ai in ai_range:
+                    if stop_flag_func():
+                        break
+
+                    pump_events_func()
+
+                    dx, dy, dz = _compute_offset(ai, A, radius, plan, rot_axis, rot_angle)
+
+                    # APPLY
+                    _apply_offset(step_move_objects, placement_snaps, dx, dy, dz, step_offset)
+                    doc.recompute()
+
+                    # TRACE
+                    hits = run_trace()
+                    trace_count += 1
+
+                    # STORE
+
+                    step_id = step.Id
+                    dx_eff = dx + step_offset.x
+                    dy_eff = dy + step_offset.y
+                    dz_eff = dz + step_offset.z
+                    store_hits(db, step_id, hits, dx_eff, dy_eff, dz_eff, moved_str)
+
+                    done_iters += 1
+                    prog_bar.setValue(done_iters)
+
+        # print(f"[run_steps_for_batch] DONE: {done_iters} iterations, {trace_count} traces")
+
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        print("BATCH CRASH:", e)
+        raise
+
+    finally:
+        db.commit()
+        _restore_all(move_objects, placement_snaps)
+        doc.recompute()
+
+        _trigger_ray_engine(reason="batch_finished", force=True)
+
+        collector.RunMode = old_run_mode
+        status_lbl.setText("Stopped" if stop_flag_func() else "Done")
+
+
+def _parse_steps(batch):
+    parsed = []
+    total = 0
 
     for step in batch.Group:
         if not getattr(step, "Active", True):
@@ -226,147 +335,100 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
         R = max(1, int(data.get("rs", 4)))
 
         iters = A * R - (A - 1) if rf == 0 else A * R
-        total_iters += iters
+        total += iters
 
-        parsed_steps.append((step, data, A, rf, rt, R))
+        parsed.append((step, data, A, rf, rt, R))
 
-    prog_bar.setRange(0, total_iters)
-    prog_bar.setValue(0)
+    return parsed, total
 
-    # ----------------------------------------------------------
-    # Label → Name map
-    # ----------------------------------------------------------
 
-    label_to_name = {o.Label: o.Name for o in doc.Objects}
+def _find_ray_config(doc):
+    for o in doc.Objects:
+        if hasattr(o, "Proxy") and o.Proxy and o.Proxy.__class__.__name__ == "OBARayConfig":
+            return o
+    return None
 
-    # ----------------------------------------------------------
-    # Collect move-objects + snapshot Placement
-    # ----------------------------------------------------------
 
+def _resolve_step_objects(step, data, label_to_name, move_objects):
+    names = []
+
+    for lbl in (data.get("move"), data.get("move1"), data.get("move2")):
+        if not lbl or lbl == "none":
+            continue
+
+        name = label_to_name.get(lbl)
+        if name:
+            names.append(name)
+
+    moved_str = ";".join(sorted(names))
+
+    objs = {n: move_objects[n] for n in names if n in move_objects}
+
+    return moved_str, objs
+
+
+# def _compute_offset(ai, A, radius, plan, rot_axis, rot_angle):
+#     ang = (2.0 * math.pi / A) * ai
+
+#     dx = radius * math.cos(ang)
+#     dy = radius * math.sin(ang)
+#     dz = 0.0
+
+#     if plan == "XZ":
+#         dz, dy = dy, 0.0
+#     elif plan == "YZ":
+#         dx, dy, dz = 0.0, dx, dy
+
+#     return rotate(dx, dy, dz, rot_axis, rot_angle)
+
+
+def _compute_offset(ai, A, radius, plan, rot_axis, rot_angle):
+    ang = (2.0 * math.pi / A) * ai
+
+    dx = radius * math.cos(ang)
+    dy = radius * math.sin(ang)
+    dz = 0.0
+
+    if plan == "XZ":
+        dz, dy = dy, 0.0
+    elif plan == "YZ":
+        dx, dy, dz = 0.0, dx, dy
+
+    return rotate(dx, dy, dz, rot_axis, rot_angle)
+
+
+def _restore_all(move_objects, snaps):
+    for name, snap in snaps.items():
+        obj = move_objects.get(name)
+        if obj:
+            App.Console.PrintLog(f"Restoring {obj.Name}\n")
+            restore_placement(obj, snap)
+
+
+def _prepare_move_objects(doc, parsed_steps, label_to_name):
     move_objects = {}
-    placement_snaps = {}
+    snaps = {}
 
-    for step, data, *_ in parsed_steps:
-
+    for _, data, *_ in parsed_steps:
         for lbl in (data.get("move"), data.get("move1"), data.get("move2")):
             if not lbl or lbl == "none":
                 continue
 
-            raw_obj = doc.getObject(label_to_name.get(lbl, ""))
-            move_obj = resolve_move_target(raw_obj)
+            raw = doc.getObject(label_to_name.get(lbl, ""))
+            obj = resolve_move_target(raw)
 
-            if not move_obj:
-                App.Console.PrintWarning(f"[Batch] Object '{lbl}' cannot be moved (ignored)\n")
+            if not obj:
                 continue
 
-            key = move_obj.Name
-            if key in move_objects:
+            if obj.Name in move_objects:
                 continue
 
-            move_objects[key] = move_obj
-            placement_snaps[key] = snapshot_placement(move_obj)  # tar snapshot frö varje objekt som skall flyttas.
+            move_objects[obj.Name] = obj
+            snaps[obj.Name] = snapshot_placement(obj)
 
-            dump_placement_text(move_obj, header=f"Original placement for {move_obj.Name}")
-            clear_placement_expressions(move_obj)
+            # clear_placement_expressions(obj) # gör nu i apply_offset
 
-    doc.recompute()
-    # ----------------------------------------------------------
-    # RUN
-    # ----------------------------------------------------------
-    done_iters = 0
-
-    try:
-        for step, data, A, rf, rt, R in parsed_steps:
-            if stop_flag_func():
-                break
-
-            step_move_names = []  # för att lagra i DB senare
-            for lbl in (data.get("move"), data.get("move1"), data.get("move2")):
-                if not lbl or lbl == "none":
-                    continue
-                name = label_to_name.get(lbl)
-                if name:
-                    step_move_names.append(name)
-
-            moved_objects_as_str = ";".join(sorted(step_move_names))
-
-            plan = data.get("plan", "XY")
-            rot_axis = data.get("rotAxis", "X")
-            rot_angle = math.radians(float(data.get("rotAngle", 0.0)))
-
-            r_step = 0 if R <= 1 else (rt - rf) / float(R - 1)
-
-            for ri in range(R):
-                radius = rf + r_step * ri
-                ai_range = range(1) if ri == 0 and abs(radius) < 1e-12 else range(A)
-
-                for ai in ai_range:
-                    if stop_flag_func():
-                        break
-                    pump_events_func()
-
-                    ang = (2.0 * math.pi / A) * ai
-                    dx = radius * math.cos(ang)
-                    dy = radius * math.sin(ang)
-                    dz = 0.0
-
-                    if plan == "XZ":
-                        dz, dy = dy, 0.0
-                    elif plan == "YZ":
-                        dx, dy, dz = 0.0, dx, dy
-                    dx, dy, dz = rotate(dx, dy, dz, rot_axis, rot_angle)
-                    # ----------------------------------------------
-                    # Apply offset ONLY to move objects
-                    # Select ONLY objects for THIS step
-                    # ----------------------------------------------
-                    step_move_objects = {}
-                    for lbl in (data.get("move"), data.get("move1"), data.get("move2")):
-                        if not lbl or lbl == "none":
-                            continue
-                        name = label_to_name.get(lbl)
-                        if not name:
-                            continue
-                        obj = move_objects.get(name)
-                        if obj:
-                            step_move_objects[name] = obj
-
-                    # APPLY OFFSETS
-                    for name, move_obj in step_move_objects.items():
-                        snap = placement_snaps[name]
-                        # print("Moving", move_obj.Name, move_obj.TypeId)
-                        apply_direct_offset(move_obj, snap, dx, dy, dz)
-                        # dump_placement_text(move_obj, f"After offset dx={dx:.3f} dy={dy:.3f}")
-                    doc.recompute()
-
-                    # TRACE
-                    hits = run_trace()
-                    print("HITS", len(hits))
-
-                    # STORE
-                    doc_name = f"{doc.Name}_{batch.Label}_{step.Id}"
-                    store_hits(db, doc_name, hits, dx, dy, dz, moved_objects_as_str)
-
-                    done_iters += 1
-                    prog_bar.setValue(done_iters)
-
-    finally:
-        # ------------------------------------------------------
-        # RESTORE ORIGINAL PLACEMENT
-        # ------------------------------------------------------
-        db.commit()
-
-        for name, snap in placement_snaps.items():
-            obj = move_objects.get(name)
-            if obj:
-                App.Console.PrintLog(f"Restoring {obj.Name}\n")
-                restore_placement(obj, snap)
-
-        doc.recompute()
-
-        collector.RunMode = "AUTO"
-        _trigger_ray_engine(reason="batch_finished", force=True)
-
-        status_lbl.setText("Stopped" if stop_flag_func() else "Done")
+    return move_objects, snaps
 
 
 def run_trace():
@@ -375,59 +437,69 @@ def run_trace():
     return hits
 
 
-# def trace_and_store(doc_name, db, move_objects, placement_snaps, dx, dy, dz, moved_objects_str):
-def store_hits(db, doc_name, hits, dx, dy, dz, moved_objects_str):
+def store_hits(db, step_id, hits, dx, dy, dz, moved_objects_str):
+
+    doc = App.ActiveDocument
+
+    all_emitters = collect_scene_emitters(doc)
+    all_targets = collect_scene_targets(doc)
+
+    # ==========================================
+    # Initiera ALLA kombinationer med nollor
+    # ==========================================
 
     accum = {}
 
+    for target in all_targets:
+        for emitter in all_emitters:
+            accum[(target, emitter)] = {
+                "count": 0,
+                "power_in": 0.0,
+                "power_out": 0.0,
+                "absorbed_power": 0.0,
+            }
+
+    # ==========================================
+    # Lägg på riktiga träffar
+    # ==========================================
+
     for hit in hits:
+
         target = hit.get("object")
         if not target:
             continue
 
         emitter = hit.get("emitter_id") or "__UNKNOWN__"
+
         key = (target, emitter)
 
-        acc = accum.setdefault(
-            key,
-            {
+        # Skydd om target/emitter inte finns i scensamlingen
+        if key not in accum:
+            accum[key] = {
                 "count": 0,
                 "power_in": 0.0,
                 "power_out": 0.0,
                 "absorbed_power": 0.0,
-            },
-        )
+            }
 
-        acc["count"] += 1
-        acc["power_in"] += hit.get("power_in") or 0.0
-        acc["power_out"] += hit.get("power_out") or 0.0
-        acc["absorbed_power"] += hit.get("absorbed_power") or 0.0
+        accum[key]["count"] += 1
+        accum[key]["power_in"] += hit.get("power_in") or 0.0
+        accum[key]["power_out"] += hit.get("power_out") or 0.0
+        accum[key]["absorbed_power"] += hit.get("absorbed_power") or 0.0
+
+    # ==========================================
+    # Bygg databasrader
+    # ==========================================
 
     rows = []
 
     for (target, emitter), info in accum.items():
-        rows.append(
-            (
-                doc_name,
-                target,
-                emitter,
-                "",
-                moved_objects_str,
-                dx,
-                dy,
-                dz,
-                info["count"],
-                info["power_in"],
-                info["power_out"],
-                info["absorbed_power"],
-            )
-        )
 
         rows.append(
             (
-                doc_name,
+                step_id,
                 target,
-                "__ALL__",
+                emitter,
                 "",
                 moved_objects_str,
                 dx,
@@ -445,262 +517,51 @@ def store_hits(db, doc_name, hits, dx, dy, dz, moved_objects_str):
         db.flush_if_needed()
 
 
-def run_steps_for_batch_old(batch, prog_bar, status_lbl, pump_events_func, stop_flag_func):
+# ============================================================
+# UTILS
+# ============================================================
 
-    App.Console.PrintLog("▶ Starting batch run\n")
 
-    from oba_rayengine.oba_ray_analyser import collect_ray_hits_and_stats
-    from .scan_db import HitsDB
-
-    doc = batch.Document
-    db = HitsDB()
-
-    # ----------------------------------------------------------
-    # Find OBARayConfig
-    # ----------------------------------------------------------
-
-    collector = None
-    for o in doc.Objects:
-        if hasattr(o, "Proxy") and o.Proxy and o.Proxy.__class__.__name__ == "OBARayConfig":
-            collector = o
-            break
-
-    if not collector:
-        status_lbl.setText("No OBARayConfig – aborting")
-        App.Console.PrintError("❌ OBARayConfig missing\n")
-        return
-
-    collector.RunMode = "MANUAL"
-
-    # ----------------------------------------------------------
-    # Collect active steps
-    # ----------------------------------------------------------
-
-    parsed_steps = []
-    total_iters = 0
-
-    for step in batch.Group:
-        if not getattr(step, "Active", True):
+def collect_scene_targets(doc):
+    targets = []
+    for obj in doc.Objects:
+        otype = getattr(obj, "OpticalType", None)
+        if otype not in TARGET_TYPES:
             continue
+        if not obj.ViewObject.Visibility:
+            continue
+        targets.append(obj.Name)
+    return targets
 
-        try:
-            data = json.loads(step.DataJSON or "{}")
-        except Exception:
-            data = {}
 
-        A = max(1, int(data.get("angle", 5)))
-        rf = float(data.get("rf", 0.0))
-        rt = float(data.get("rt", 0.4))
-        R = max(1, int(data.get("rs", 4)))
+def collect_scene_emitters(doc):
+    emitters = []
+    for obj in doc.Objects:
+        if getattr(obj, "OpticalType", None) not in EMITTER_TYPES:
+            continue
+        if hasattr(obj, "ViewObject") and not obj.ViewObject.Visibility:
+            continue
+        emitters.append(obj.Name)
+    return emitters
 
-        iters = A * R - (A - 1) if rf == 0 else A * R
-        total_iters += iters
 
-        parsed_steps.append((step, data, A, rf, rt, R))
+def find_batch_object(doc):
+    if not doc:
+        return None
 
-    prog_bar.setRange(0, total_iters)
-    prog_bar.setValue(0)
+    for obj in doc.Objects:
+        if obj.TypeId == "App::DocumentObjectGroupPython" and hasattr(obj, "GroupId"):
+            return obj
 
-    # ----------------------------------------------------------
-    # Label → Name map
-    # ----------------------------------------------------------
+    return None
 
-    label_to_name = {o.Label: o.Name for o in doc.Objects}
 
-    # ----------------------------------------------------------
-    # Collect move-objects + snapshot Placement
-    # ----------------------------------------------------------
+def find_step_by_id(doc, step_id):
+    if not doc:
+        return None
 
-    move_objects = {}
-    placement_snaps = {}
+    for obj in doc.Objects:
+        if getattr(obj, "Id", "") == step_id:
+            return obj
 
-    for step, data, *_ in parsed_steps:
-
-        for lbl in (data.get("move"), data.get("move1"), data.get("move2")):
-            if not lbl or lbl == "none":
-                continue
-
-            raw_obj = doc.getObject(label_to_name.get(lbl, ""))
-            move_obj = resolve_move_target(raw_obj)
-
-            if not move_obj:
-                App.Console.PrintWarning(f"[Batch] Object '{lbl}' cannot be moved (ignored)\n")
-                continue
-
-            key = move_obj.Name
-            if key in move_objects:
-                continue
-
-            move_objects[key] = move_obj
-            placement_snaps[key] = snapshot_placement(move_obj)
-
-            dump_placement_text(move_obj, header=f"Original placement for {move_obj.Name}")
-            clear_placement_expressions(move_obj)
-
-    doc.recompute()
-    # ----------------------------------------------------------
-    # RUN
-    # ----------------------------------------------------------
-    done_iters = 0
-
-    try:
-        for step, data, A, rf, rt, R in parsed_steps:
-            if stop_flag_func():
-                break
-
-            step_move_names = []  # för att lagra i DB senare
-            for lbl in (data.get("move"), data.get("move1"), data.get("move2")):
-                if not lbl or lbl == "none":
-                    continue
-                name = label_to_name.get(lbl)
-                if name:
-                    step_move_names.append(name)
-            moved_objects_as_str = ";".join(sorted(step_move_names))
-
-            plan = data.get("plan", "XY")
-            rot_axis = data.get("rotAxis", "X")
-            rot_angle = math.radians(float(data.get("rotAngle", 0.0)))
-
-            r_step = 0 if R <= 1 else (rt - rf) / float(R - 1)
-
-            for ri in range(R):
-                radius = rf + r_step * ri
-                ai_range = range(1) if ri == 0 and abs(radius) < 1e-12 else range(A)
-
-                for ai in ai_range:
-                    if stop_flag_func():
-                        break
-                    pump_events_func()
-
-                    ang = (2.0 * math.pi / A) * ai
-                    dx = radius * math.cos(ang)
-                    dy = radius * math.sin(ang)
-                    dz = 0.0
-
-                    if plan == "XZ":
-                        dz, dy = dy, 0.0
-                    elif plan == "YZ":
-                        dx, dy, dz = 0.0, dx, dy
-                    dx, dy, dz = rotate(dx, dy, dz, rot_axis, rot_angle)
-                    # ----------------------------------------------
-                    # Apply offset ONLY to move objects
-                    # Select ONLY objects for THIS step
-                    # ----------------------------------------------
-                    step_move_objects = {}
-                    for lbl in (data.get("move"), data.get("move1"), data.get("move2")):
-                        if not lbl or lbl == "none":
-                            continue
-                        name = label_to_name.get(lbl)
-                        if not name:
-                            continue
-                        obj = move_objects.get(name)
-                        if obj:
-                            step_move_objects[name] = obj
-
-                    for name, move_obj in step_move_objects.items():
-                        snap = placement_snaps[name]
-                        # print("Moving", move_obj.Name, move_obj.TypeId)
-                        apply_direct_offset(move_obj, snap, dx, dy, dz)
-                        # dump_placement_text(move_obj, f"After offset dx={dx:.3f} dy={dy:.3f}")
-                    doc.recompute()
-                    # ----------------------------------------------
-                    # ANALYSIS
-                    # ----------------------------------------------
-
-                    _trigger_ray_engine(reason="Manual trace for scanner steps", source=None, force=True)
-
-                    hits, _stats = collect_ray_hits_and_stats(mode="final")
-                    doc_name = f"{doc.Name}_{batch.Label}_{step.Id}"
-                    accum = {}
-
-                    for hit in hits:
-                        target = hit.get("object")
-                        if not target:
-                            continue
-
-                        obj = doc.getObject(target)
-                        if not obj:
-                            continue
-
-                        optical_type = getattr(obj, "OpticalType", "UNKNOWN")
-                        emitter = hit.get("emitter_id") or "__UNKNOWN__"
-                        key = (target, emitter)
-
-                        acc = accum.setdefault(
-                            key,
-                            {
-                                "count": 0,
-                                "power_in": 0.0,
-                                "power_out": 0.0,
-                                "absorbed_power": 0.0,
-                                "optical_type": optical_type,
-                            },
-                        )
-
-                        acc["count"] += 1
-                        acc["power_in"] += hit.get("power_in") or 0.0
-                        acc["power_out"] += hit.get("power_out") or 0.0
-                        acc["absorbed_power"] += hit.get("absorbed_power") or 0.0
-
-                    rows = []
-                    for (target, emitter), info in accum.items():
-                        rows.append(
-                            (
-                                doc_name,
-                                target,
-                                emitter,
-                                info["optical_type"],
-                                moved_objects_as_str,  # exempel "Mirror001;Lens002"
-                                dx,
-                                dy,
-                                dz,
-                                info["count"],
-                                info["power_in"],
-                                info["power_out"],
-                                info["absorbed_power"],
-                            )
-                        )
-                        rows.append(
-                            (
-                                doc_name,
-                                target,
-                                "__ALL__",
-                                info["optical_type"],
-                                moved_objects_as_str,
-                                dx,
-                                dy,
-                                dz,
-                                info["count"],
-                                info["power_in"],
-                                info["power_out"],
-                                info["absorbed_power"],
-                            )
-                        )
-
-                    if rows:
-                        db.write_hits_batch(rows)
-
-                    done_iters += 1
-                    if done_iters % 20 == 0:
-                        db.commit()
-
-                    prog_bar.setValue(done_iters)
-
-    finally:
-        # ------------------------------------------------------
-        # RESTORE ORIGINAL PLACEMENT
-        # ------------------------------------------------------
-        db.commit()
-
-        for name, snap in placement_snaps.items():
-            obj = move_objects.get(name)
-            if obj:
-                App.Console.PrintLog(f"Restoring {obj.Name}\n")
-                restore_placement(obj, snap)
-
-        doc.recompute()
-
-        collector.RunMode = "AUTO"
-        _trigger_ray_engine(reason="batch_finished", force=True)
-
-        status_lbl.setText("Stopped" if stop_flag_func() else "Done")
+    return None

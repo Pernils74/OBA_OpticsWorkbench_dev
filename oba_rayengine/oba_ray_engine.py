@@ -1,5 +1,7 @@
 # oba_ray_engine.py
 
+import traceback
+
 import FreeCAD as App
 import FreeCADGui as Gui
 from PySide import QtCore
@@ -68,6 +70,8 @@ class OBARayEngine:
         self._scene_state = {}  # ✅ Scene isolation
         self._scene_isolated = False  # ✅ NY FLAGGA
 
+        self.trace_counter = 0  # för debugg
+
         self._debounce = QtCore.QTimer()
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self._run)
@@ -78,8 +82,6 @@ class OBARayEngine:
 
     def notify_event(self, reason="", source=None, force=False):
         doc = source.Document if source else App.ActiveDocument
-        if not doc:
-            return
 
         cfg = doc.getObject("OBARayConfig")
 
@@ -99,14 +101,21 @@ class OBARayEngine:
 
         # fallback (om ingen config)
         if not cfg:
+            # print("[obarrayenigen finns inte och det är nog preview mode]")
             if force:
                 self._run(force=True)
             else:
                 self._debounce.start(300)
             return
 
+        import traceback
+
         # 🔄 skydd mot recursion
         if self._in_compute:
+
+            print("[DIRTY SET]", reason, source.Name if source else None, source.TypeId if source else None)
+            # traceback.print_stack(limit=5)
+
             self._dirty = True
             return
 
@@ -127,7 +136,8 @@ class OBARayEngine:
 
         self._in_compute = True
         try:
-            self._trace_scene()
+            # print("oba ray scene")
+            self._trace_scene(force)
         finally:
             self._in_compute = False
 
@@ -135,10 +145,10 @@ class OBARayEngine:
             self._dirty = False
             self._run(force=True)
 
-    def _trace_scene(self):
+    def _trace_scene(self, force=False):
         doc = App.ActiveDocument
-        if not doc:
-            return
+        # if not doc:
+        #     return
 
         cfg = doc.getObject("OBARayConfig")
         # --------------------------------------------------
@@ -187,9 +197,16 @@ class OBARayEngine:
             engine = ray_targets
             ray_multiplier = 1
         else:
-            from .oba_intersect_mesh import build_mesh_engine
+            from .oba_intersect_mesh import build_mesh_engine, clear_mesh_cache
 
+            if force:
+                clear_mesh_cache()
             engine = build_mesh_engine(ray_targets, mesh_tolerance)
+
+            total_targets = len(engine)
+            total_tris = sum(t.get("num_tris", 0) for t in engine)
+            log.log("BVH", f"\n             Targets={total_targets}\n             Triangles={total_tris}")
+            # print("[ENGINE]", trace_mode_backend, "targets=", len(ray_targets))
             # ray_multiplier = cfg.MeshRayMultiplier
 
         log.end("BVH")
@@ -244,13 +261,7 @@ class OBARayEngine:
         # --------------------------------------------------
         log.start("VIS", "Visualizing rays")
 
-        rm.visualize(
-            bounce_min=bounce_min,
-            bounce_max=bounce_max,
-            line_width=line_width,
-            color_by_bounce=color_by_bounce,
-            mode=run_mode,
-        )
+        rm.visualize(bounce_min=bounce_min, bounce_max=bounce_max, line_width=line_width, color_by_bounce=color_by_bounce, mode=run_mode)
 
         # --------------------------------------------------
         # 6. Visualisera surface normals (VIEW OVERLAY)
@@ -276,9 +287,18 @@ class OBARayEngine:
         #     )
 
         log.end("VIS")
+
+        # from .oba_ray_trace import _LOG_PROFILE
+
+        # log.log("TRACE_EMITTERS", f"\n           BBox     = {_LOG_PROFILE['bbox']:.4f} s")
+        # log.log("TRACE_EMITTERS", f"\n           Intersect= {_LOG_PROFILE['intersect']:.4f} s")
+        # log.log("TRACE_EMITTERS", f"\n           ArgMin   = {_LOG_PROFILE['argmin']:.4f} s")
+
         log.end("TOTAL")
         log.flush("ActiveRays: " + str(len(rm.get_all_rays())))
         log.clear()
+
+        self.trace_counter += 1
 
         return
         render_data = rm.collect_render_data(

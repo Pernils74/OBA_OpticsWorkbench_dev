@@ -1,5 +1,5 @@
 # engine/cursor.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -7,7 +7,6 @@
 
 """Define cursor-specific result set constructs including
 :class:`.CursorResult`."""
-
 
 from __future__ import annotations
 
@@ -55,7 +54,6 @@ from ..util import compat
 from ..util.typing import Final
 from ..util.typing import Literal
 from ..util.typing import Self
-
 
 if typing.TYPE_CHECKING:
     from .base import Connection
@@ -185,9 +183,15 @@ class CursorResultMetaData(ResultMetaData):
         return key in self._keymap
 
     def _for_freeze(self) -> ResultMetaData:
+        ambiguous = {
+            rec[MD_LOOKUP_KEY]
+            for rec in self._keymap.values()
+            if rec[MD_INDEX] is None
+        }
         return SimpleResultMetaData(
             self._keys,
             extra=[self._keymap[key][MD_OBJECTS] for key in self._keys],
+            _ambiguous_keys=frozenset(ambiguous) if ambiguous else None,
         )
 
     def _make_new_metadata(
@@ -328,7 +332,7 @@ class CursorResultMetaData(ResultMetaData):
         keymap_by_position = self._keymap_by_result_column_idx
 
         if keymap_by_position is None:
-            # first retrival from cache, this map will not be set up yet,
+            # first retrieval from cache, this map will not be set up yet,
             # initialize lazily
             keymap_by_position = self._keymap_by_result_column_idx = {
                 metadata_entry[MD_RESULT_MAP_INDEX]: metadata_entry
@@ -2218,6 +2222,11 @@ class CursorResult(Result[_T]):
         using the MSSQL / pyodbc dialect a SELECT is emitted inline in
         order to retrieve an inserted primary key value.
 
+        .. seealso::
+
+            :meth:`.Result.close`
+
+            :attr:`.Result.closed`
 
         """
         return self._metadata.returns_rows

@@ -1,21 +1,24 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from collections.abc import Sequence
 from enum import Enum
 import math
 from typing import cast
 from typing import NamedTuple
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from optuna.logging import get_logger
-from optuna.samplers._base import _CONSTRAINTS_KEY
 from optuna.study import Study
 from optuna.study._study_direction import StudyDirection
 from optuna.trial import FrozenTrial
 from optuna.trial import TrialState
 from optuna.visualization._plotly_imports import _imports
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from collections.abc import Sequence
 from optuna.visualization._utils import _check_plot_args
 
 
@@ -67,15 +70,14 @@ def _get_optimization_history_info_list(
                 values.append(float("nan"))
                 value_states.append(_ValueState.Incomplete)
                 continue
-            constraints = trial.system_attrs.get(_CONSTRAINTS_KEY)
-            if constraints is None or all([x <= 0.0 for x in constraints]):
+            if all(x <= 0.0 for x in trial.constraints.values()):
                 value_states.append(_ValueState.Feasible)
             else:
                 value_states.append(_ValueState.Infeasible)
             if target is not None:
                 values.append(target(trial))
             else:
-                values.append(cast(float, trial.value))
+                values.append(cast("float", trial.value))
         if target is not None:
             # We don't calculate best for user-defined target function since we cannot tell
             # which direction is better.

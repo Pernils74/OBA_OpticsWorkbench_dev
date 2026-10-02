@@ -1,5 +1,5 @@
 # util/langhelpers.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -10,6 +10,7 @@
 modules, classes, hierarchies, attributes, functions, and methods.
 
 """
+
 from __future__ import annotations
 
 import collections
@@ -32,7 +33,6 @@ from typing import FrozenSet
 from typing import Generic
 from typing import Iterator
 from typing import List
-from typing import Mapping
 from typing import NoReturn
 from typing import Optional
 from typing import overload
@@ -58,108 +58,6 @@ _MP = TypeVar("_MP", bound="memoized_property[Any]")
 _MA = TypeVar("_MA", bound="HasMemoized.memoized_attribute[Any]")
 _HP = TypeVar("_HP", bound="hybridproperty[Any]")
 _HM = TypeVar("_HM", bound="hybridmethod[Any]")
-
-
-if compat.py314:
-    # vendor a minimal form of get_annotations per
-    # https://github.com/python/cpython/issues/133684#issuecomment-2863841891
-
-    from annotationlib import call_annotate_function  # type: ignore[import-not-found,unused-ignore]  # noqa: E501
-    from annotationlib import Format
-
-    def _get_and_call_annotate(obj, format):  # noqa: A002
-        annotate = getattr(obj, "__annotate__", None)
-        if annotate is not None:
-            ann = call_annotate_function(annotate, format, owner=obj)
-            if not isinstance(ann, dict):
-                raise ValueError(f"{obj!r}.__annotate__ returned a non-dict")
-            return ann
-        return None
-
-    # this is ported from py3.13.0a7
-    _BASE_GET_ANNOTATIONS = type.__dict__["__annotations__"].__get__
-
-    def _get_dunder_annotations(obj):
-        if isinstance(obj, type):
-            try:
-                ann = _BASE_GET_ANNOTATIONS(obj)
-            except AttributeError:
-                # For static types, the descriptor raises AttributeError.
-                return {}
-        else:
-            ann = getattr(obj, "__annotations__", None)
-            if ann is None:
-                return {}
-
-        if not isinstance(ann, dict):
-            raise ValueError(
-                f"{obj!r}.__annotations__ is neither a dict nor None"
-            )
-        return dict(ann)
-
-    def _vendored_get_annotations(
-        obj: Any, *, format: Format  # noqa: A002
-    ) -> Mapping[str, Any]:
-        """A sparse implementation of annotationlib.get_annotations()"""
-
-        try:
-            ann = _get_dunder_annotations(obj)
-        except Exception:
-            pass
-        else:
-            if ann is not None:
-                return dict(ann)
-
-        # But if __annotations__ threw a NameError, we try calling __annotate__
-        ann = _get_and_call_annotate(obj, format)
-        if ann is None:
-            # If that didn't work either, we have a very weird object:
-            # evaluating
-            # __annotations__ threw NameError and there is no __annotate__.
-            # In that case,
-            # we fall back to trying __annotations__ again.
-            ann = _get_dunder_annotations(obj)
-
-        if ann is None:
-            if isinstance(obj, type) or callable(obj):
-                return {}
-            raise TypeError(f"{obj!r} does not have annotations")
-
-        if not ann:
-            return {}
-
-        return dict(ann)
-
-    def get_annotations(obj: Any) -> Mapping[str, Any]:
-        # FORWARDREF has the effect of giving us ForwardRefs and not
-        # actually trying to evaluate the annotations.  We need this so
-        # that the annotations act as much like
-        # "from __future__ import annotations" as possible, which is going
-        # away in future python as a separate mode
-        return _vendored_get_annotations(obj, format=Format.FORWARDREF)
-
-elif compat.py310:
-
-    def get_annotations(obj: Any) -> Mapping[str, Any]:
-        return inspect.get_annotations(obj)
-
-else:
-
-    def get_annotations(obj: Any) -> Mapping[str, Any]:
-        # it's been observed that cls.__annotations__ can be non present.
-        # it's not clear what causes this, running under tox py37/38 it
-        # happens, running straight pytest it doesnt
-
-        # https://docs.python.org/3/howto/annotations.html#annotations-howto
-        if isinstance(obj, type):
-            ann = obj.__dict__.get("__annotations__", None)
-        else:
-            ann = getattr(obj, "__annotations__", None)
-
-        if ann is None:
-            return _collections.EMPTY_DICT
-        else:
-            return cast("Mapping[str, Any]", ann)
 
 
 def md5_hex(x: Any) -> str:
@@ -367,9 +265,19 @@ def decorator(target: Callable[..., Any]) -> Callable[[_Fn], _Fn]:
         if inspect.iscoroutinefunction(fn):
             metadata["prefix"] = "async "
             metadata["target_prefix"] = "await "
+            metadata["target_suffix"] = ""
+        elif inspect.isgeneratorfunction(fn):
+            # a generator function has to remain a generator function
+            # after decoration; tools such as pytest fixtures test for
+            # inspect.isgeneratorfunction() and will otherwise never
+            # iterate the function at all
+            metadata["prefix"] = ""
+            metadata["target_prefix"] = "(yield from "
+            metadata["target_suffix"] = ")"
         else:
             metadata["prefix"] = ""
             metadata["target_prefix"] = ""
+            metadata["target_suffix"] = ""
 
         # look for __ positional arguments.  This is a convention in
         # SQLAlchemy that arguments should be passed positionally
@@ -380,21 +288,15 @@ def decorator(target: Callable[..., Any]) -> Callable[[_Fn], _Fn]:
         # more kinds of methods that use @decorator, things may have to
         # be further improved in this area
         if "__" in repr(spec[0]):
-            code = (
-                """\
+            code = """\
 %(prefix)sdef %(name)s%(grouped_args)s:
-    return %(target_prefix)s%(target)s(%(fn)s, %(apply_pos)s)
-"""
-                % metadata
-            )
+    return %(target_prefix)s%(target)s(%(fn)s, %(apply_pos)s)%(target_suffix)s
+""" % metadata
         else:
-            code = (
-                """\
+            code = """\
 %(prefix)sdef %(name)s%(grouped_args)s:
-    return %(target_prefix)s%(target)s(%(fn)s, %(apply_kw)s)
-"""
-                % metadata
-            )
+    return %(target_prefix)s%(target)s(%(fn)s, %(apply_kw)s)%(target_suffix)s
+""" % metadata
 
         env: Dict[str, Any] = {
             targ_name: target,
@@ -579,7 +481,11 @@ def get_callable_argspec(
     """
     if inspect.isbuiltin(fn):
         raise TypeError("Can't inspect builtin: %s" % fn)
-    elif inspect.isfunction(fn):
+    elif inspect.isfunction(fn) or (
+        hasattr(fn, "__code__")
+        and not inspect.isclass(fn)
+        and not inspect.ismethod(fn)
+    ):
         if _is_init and no_self:
             spec = compat.inspect_getfullargspec(fn)
             return compat.FullArgSpec(
@@ -1667,9 +1573,13 @@ class hybridmethod(Generic[_T]):
 
     def __get__(self, instance: Any, owner: Any) -> Callable[..., _T]:
         if instance is None:
-            return self.clslevel.__get__(owner, owner.__class__)  # type:ignore
+            return self.clslevel.__get__(  # type: ignore[no-any-return]
+                owner, owner.__class__
+            )
         else:
-            return self.func.__get__(instance, owner)  # type:ignore
+            return self.func.__get__(  # type: ignore[no-any-return]
+                instance, owner
+            )
 
     def classlevel(self, func: Callable[..., Any]) -> hybridmethod[_T]:
         self.clslevel = func
@@ -1965,7 +1875,7 @@ def _warnings_warn(
 
             if frame.f_code in _warning_tags:
                 warning_tag_found = True
-                (_suffix, _category) = _warning_tags[frame.f_code]
+                _suffix, _category = _warning_tags[frame.f_code]
                 category = category or _category
                 message = f"{message} ({_suffix})"
 
@@ -2135,6 +2045,99 @@ def wrap_callable(wrapper, fn):
             _f.__doc__ = fn.__doc__
 
         return _f
+
+
+def find_matching_paren(text: str, start: int = 0) -> Optional[int]:
+    """Return the index of the ``)`` that matches the ``(`` at ``start``.
+
+    The walk skips single-quoted (``'...'``) and double-quoted (``"..."``)
+    string literals, so parentheses inside string literals do not affect
+    the depth counter. ``''`` and ``""`` are treated as escaped quotes
+    inside their respective contexts, matching PostgreSQL/SQLite literal
+    conventions.
+
+    Returns ``None`` if the opening parenthesis is never closed
+    (unbalanced).  The character at ``text[start]`` must be ``(``.
+
+    Note for SQLite use, SQLite also supports MySQL backtick-style quotes as
+    well as SQL Server bracket style quotes; the latter has different escaping
+    behaviors.  A follow-up patch could add support for these two additional
+    styles (consider using an enum like QuotingStyle.DOUBLE |
+    QuotingStyle.BRACKET, etc.)
+
+    E.g.::
+
+        >>> find_matching_paren("(a + b)")
+        6
+        >>> find_matching_paren("((a)(b))")
+        7
+        >>> find_matching_paren("(a = '(' AND b = ')')")
+        20
+
+    """
+    assert text[start] == "(", "start index must point at an open paren"
+
+    depth = 0
+    in_single = False
+    in_double = False
+    n = len(text)
+    i = start
+    while i < n:
+        ch = text[i]
+        if in_single:
+            if ch == "'":
+                if i + 1 < n and text[i + 1] == "'":
+                    i += 2
+                    continue
+                in_single = False
+        elif in_double:
+            if ch == '"':
+                if i + 1 < n and text[i + 1] == '"':
+                    i += 2
+                    continue
+                in_double = False
+        elif ch == "'":
+            in_single = True
+        elif ch == '"':
+            in_double = True
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
+
+def strip_outer_parens(text: str) -> str:
+    """Remove one layer of outer parentheses from ``text`` if they wrap the
+    entire (stripped) string.
+
+    Whitespace is preserved if the parentheses do not wrap the whole
+    expression. String literals are honored via :func:`find_matching_paren`,
+    so ``"(a = '(' AND b = ')')"`` correctly strips to
+    ``"a = '(' AND b = ')'"`` rather than being interpreted as two separate
+    paren groups.
+
+    E.g.::
+
+        >>> strip_outer_parens("(a IS NOT NULL)")
+        'a IS NOT NULL'
+        >>> strip_outer_parens("(a) AND (b)")
+        '(a) AND (b)'
+        >>> strip_outer_parens("a NOT NULL")
+        'a NOT NULL'
+
+    """
+    stripped = text.strip()
+    lstripped = len(stripped)
+    if lstripped < 2 or stripped[0] != "(" or stripped[-1] != ")":
+        return text
+    close = find_matching_paren(stripped, 0)
+    if close is not None and close == lstripped - 1:
+        return stripped[1:-1]
+    return text
 
 
 def quoted_token_parser(value):

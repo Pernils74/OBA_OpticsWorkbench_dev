@@ -59,34 +59,14 @@ class OBARayConfig(OBAElementProxy):
         #     default="Mesh",
         # )
 
-        self._ensure_bool(
-            obj,
-            "DisableDebounce",
-            "TraceSettings",
-            default=False,
-        )
+        self._ensure_bool(obj, "DisableDebounce", "TraceSettings", default=False)
 
-        self._ensure_bool(
-            obj,
-            "ShowLog",
-            "TraceSettings",
-            default=False,
-        )
+        self._ensure_bool(obj, "ShowLog", "TraceSettings", default=False)
 
         # -------- Mesh --------
-        self._ensure_float(
-            obj,
-            "MeshTolerance",
-            "MeshSettings",
-            default=50.0,
-        )
+        self._ensure_float(obj, "MeshTolerance", "MeshSettings", default=50.0)
 
-        self._ensure_int(
-            obj,
-            "MeshRayMultiplier",
-            "MeshSettings",
-            default=5,
-        )
+        self._ensure_int(obj, "MeshRayMultiplier", "MeshSettings", default=5)
 
         # -------- Visualization --------
         self._ensure_bool(obj, "SceneIsolation", "Visualization", False)
@@ -389,6 +369,7 @@ def OBA_CreateRayConfig(doc=None, show_dialog=True):
     # 0. Finns den redan? → använd den
     cfg = doc.getObject("OBARayConfig")
     if cfg:
+        print("[OBA_ray_config] kör en manuell trace")
         _trigger_ray_engine(reason="rayconfig_opened", source=cfg, force=True)
 
         # if show_dialog:

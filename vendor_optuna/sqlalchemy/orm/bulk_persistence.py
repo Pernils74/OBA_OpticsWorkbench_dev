@@ -1,5 +1,5 @@
 # orm/bulk_persistence.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -785,6 +785,22 @@ class BulkUDCompileState(ORMDMLState):
                 }
             )
 
+            # disable result-level adapt_to_context.  ORM UPDATE/DELETE with
+            # RETURNING uses a "two level" statement: the invoked ORM statement
+            # holds the user's returning() columns while the cached Core
+            # statement returns primary key + supplemental columns, so the two
+            # are not positionally aligned.  adapt_to_context() would remap
+            # result keys positionally between them and mislabel columns on a
+            # cache hit; the ORM instead interprets rows via its own
+            # from_statement context, so the Core adaptation would interfere
+            # here.
+            if not execution_options:
+                execution_options = context._orm_load_exec_options
+            else:
+                execution_options = execution_options.union(
+                    context._orm_load_exec_options
+                )
+
         return (
             statement,
             util.immutabledict(execution_options).union(
@@ -1107,7 +1123,7 @@ class BulkUDCompileState(ORMDMLState):
         # call can_use_returning() before invoking the statement and get
         # answer?, why does this go through the whole execute phase using an
         # event?  Answer: because we are integrating with extensions such
-        # as the horizontal sharding extention that "multiplexes" an individual
+        # as the horizontal sharding extension that "multiplexes" an individual
         # statement run through multiple engines, and it uses
         # do_orm_execute() to do that.
 
@@ -1218,7 +1234,7 @@ class BulkORMInsert(ORMDMLState, InsertDMLState):
             # for ORM object loading, like ORMContext, we have to disable
             # result set adapt_to_context, because we will be generating a
             # new statement with specific columns that's cached inside of
-            # an ORMFromStatementCompileState, which we will re-use for
+            # an ORMFromStatementCompileState, which we will reuse for
             # each result.
             if not execution_options:
                 execution_options = context._orm_load_exec_options

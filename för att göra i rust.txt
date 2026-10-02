@@ -1,0 +1,321 @@
+
+eknisk Specifikation: Analytisk Optisk Raytracer
+Stack: SvelteKit + Three.js (three-bvh-csg) + Rust (WASM, glam, rayon)
+1. Systemarkitektur & Dataflöde
+[ UI (SvelteKit) ] ──(Reglage/Mus)──> [ Svelte State (Source of Truth) ]
+       │                                       │
+       │ (Ändring / Klick)                     ├─(Automatiskt via $effect)─> [ Three.js Viewport ]
+       ▼                                       │                              (Visar CSG-mesh & strålar)
+[ ShapeBinder/Yt-ID Mappning ]                 │
+       │                                       ▼
+       └───────────────────────────────> [ Rust Engine (WASM) ]
+                                         (Kör direktanalytisk CSG på 1M strålar)
+1. Single Source of Truth: Hela scenen (volymer och optiska egenskaper) sparas i en reaktiv datastruktur i Svelte.
+2. ShapeBinder = Material/Yt-ID: Istället för komplex topologianalys mappar vi unika material-ID-nummer genom hela kedjan.
+3. Direktanalytisk CSG: Vi löser andragradsekvationer direkt och klipper linjesegment (intervall) i en for-loop över alla N subtraktioner. Detta klipper bort Raymarching-loopar och gör det möjligt att spåra 1 miljon strålar i realtid på CPU:n.
+2. Front-end & UI (SvelteKit)
+types.ts (Datamodellen)
+typescript
+export type SurfaceRole = 'PASSIVE' | 'MIRROR' | 'DETECTOR';
+
+export interface Primitive {
+    id: string;
+    materialId: number; // Vår ShapeBinder / Brygga till Rust
+    type: 'BOX' | 'ELLIPSOID';
+    position: [number, number, number];
+    dimensions: [number, number, number]; // [w,h,d] eller [rx,ry,rz]
+    role: SurfaceRole;
+}
+
+export interface CsgScene {
+    baseObject: Primitive;
+    subtractions: Primitive[];
+}
+Använd koden med försiktighet.
+Viewport.svelte (Three.js-integration & Yt-klick)
+html
+<script lang="ts">
+    import { onMount } from 'svelte';
+    import * as THREE from 'three';
+    import { CSG, SUBTRACTION } from 'three-bvh-csg';
+
+    let { sceneData } = $props(); // Reaktiva data från Svelte 5
+    let canvasEl: HTMLCanvasElement;
+    
+    let scene: THREE.Scene;
+    let camera: THREE.PerspectiveCamera;
+    let renderer: THREE.WebGLRenderer;
+    let csgEvaluator = new CSG();
+    let currentMesh: THREE.Mesh;
+    let selectedMaterialId = $state<number | null>(null);
+
+    onMount(() => {
+        scene = new THREE.Scene();
+        // ... Initiera kamera och renderer på canvasEl ...
+    });
+
+    // Triggas automatiskt när användaren drar i reglage. Med debounce för att undvika lagg.
+    let debounceTimer: number;
+    $effect(() => {
+        sceneData; // Registrera beroende
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            if (!scene || !sceneData) return;
+            rebuildCsgVisuals();
+            runRustRaytracer();
+        }, 16); // ~1 frame fördröjning
+        return () => clearTimeout(debounceTimer);
+    });
+
+    function rebuildCsgVisuals() {
+        if (currentMesh) scene.remove(currentMesh);
+
+        // Skapa bas-kropp (t.ex. Box)
+        const baseGeo = new THREE.BoxGeometry(...sceneData.baseObject.dimensions);
+        baseGeo.clearGroups(); baseGeo.addGroup(0, Infinity, sceneData.baseObject.materialId);
+        const baseMesh = new THREE.Mesh(baseGeo);
+        baseMesh.position.set(...sceneData.baseObject.position);
+
+        let resultMesh = baseMesh;
+
+        // Loopa igenom och subtrahera alla N objekt
+        for (const sub of sceneData.subtractions) {
+            const subGeo = new THREE.SphereGeometry(1, 32, 32);
+            subGeo.scale(...sub.dimensions); // Ellipsoid-skalning
+            subGeo.clearGroups(); subGeo.addGroup(0, Infinity, sub.materialId);
+            
+            const subMesh = new THREE.Mesh(subGeo);
+            subMesh.position.set(...sub.position);
+
+            resultMesh = csgEvaluator.evaluate(resultMesh, subMesh, SUBTRACTION);
+        }
+
+        currentMesh = resultMesh;
+        scene.add(currentMesh);
+    }
+
+    function handleCanvasClick(event: MouseEvent) {
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2(
+            (event.clientX / window.innerWidth) * 2 - 1,
+            -(event.clientY / window.innerHeight) * 2 + 1
+        );
+
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObject(currentMesh);
+
+        if (intersects.length > 0) {
+            const faceIndex = intersects[0].faceIndex;
+            const geometry = currentMesh.geometry;
+
+            // Hitta vilken grupp (vilket ursprungligt material-ID) som klickades på
+            if (faceIndex !== undefined && geometry.groups) {
+                const clickedGroup = geometry.groups.find(g => 
+                    (faceIndex * 3) >= g.start && (faceIndex * 3) < (g.start + g.count)
+                );
+                if (clickedGroup) {
+                    // Vi har nu hittat vårt ShapeBinder-ID via Three.js!
+                    selectedMaterialId = clickedGroup.materialIndex;
+                }
+            }
+        }
+    }
+
+    function runRustRaytracer() {
+        // Skicka scenData (JSON) till Rust WASM
+        // rustEngine.update_scene(JSON.stringify(sceneData));
+        // const rayFloatArray = rustEngine.trace_rays();
+        // ... rita ut strålar i Three.js med THREE.LineSegments ...
+    }
+</script>
+
+<canvas bind:this={canvasEl} onclick={handleCanvasClick}></canvas>
+Använd koden med försiktighet.
+3. Analytisk Beräkningsmotor (Rust)
+Denna kod kompileras till WebAssembly. Den tar emot scen-datat och utför den exakta, direktanalytiska intervall-klippningen i en platt loop utan tunga rumsliga steg.
+src/lib.rs (Intervaller och N-subtraktionsalgoritm)
+rust
+use glam::Vec3;
+use smallvec::SmallVec; // För att undvika heap-allokeringar i loopen
+
+#[derive(Clone, Copy, Debug)]
+pub struct Ray {
+    pub origin: Vec3,
+    pub direction: Vec3,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Hit {
+    pub t: f32,
+    pub normal: Vec3,
+    pub material_id: u32, // ShapeBinder-id
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Interval {
+    pub entry: Hit,
+    pub exit: Hit,
+}
+
+// Det optiska gränssnittet (ShapeBinder-roller)
+pub enum SurfaceRole {
+    Passive,
+    Mirror,
+    Detector,
+}
+
+// Kärnalgoritmen för Analytisk CSG Difference (A - B)
+pub fn csg_difference(a: Interval, b: Interval) -> SmallVec<[Interval; 2]> {
+    let mut result = SmallVec::new();
+
+    // Fall 1: Ingen överlappning
+    if b.exit.t <= a.entry.t || b.entry.t >= a.exit.t {
+        result.push(a);
+        return result;
+    }
+
+    // Fall 2: B sväljer hela A
+    if b.entry.t <= a.entry.t && b.exit.t >= a.exit.t {
+        return result;
+    }
+
+    // Fall 3: B klipper slutet på A
+    if b.entry.t > a.entry.t && b.entry.t < a.exit.t && b.exit.t >= a.exit.t {
+        result.push(Interval {
+            entry: a.entry,
+            // Ärv material från B (skålen) men vänd normalen inåt hålrummet!
+            exit: Hit { t: b.entry.t, normal: -b.entry.normal, material_id: b.entry.material_id },
+        });
+        return result;
+    }
+
+    // Fall 4: B klipper början på A
+    if b.entry.t <= a.entry.t && b.exit.t > a.entry.t && b.exit.t < a.exit.t {
+        result.push(Interval {
+            entry: Hit { t: b.exit.t, normal: -b.exit.normal, material_id: b.exit.material_id },
+            exit: a.exit,
+        });
+        return result;
+    }
+
+    // Fall 5: B ligger helt inuti A (Skapar den skålade spegelytan)
+    if b.entry.t > a.entry.t && b.exit.t < a.exit.t {
+        // Del 1: Fram till spegelytan
+        result.push(Interval {
+            entry: a.entry,
+            exit: Hit { t: b.entry.t, normal: -b.entry.normal, material_id: b.entry.material_id },
+        });
+        // Del 2: Efter bakre spegelväggen ut ur boxen
+        result.push(Interval {
+            entry: Hit { t: b.exit.t, normal: -b.exit.normal, material_id: b.exit.material_id },
+            exit: a.exit,
+        });
+    }
+
+    result
+}
+
+// Hjälpfunktion för att loopa och klippa en lista med rådande intervall mot en ny subtraktion
+pub fn clip_intervals_with_subtraction(current_intervals: &mut Vec<Interval>, b: Interval) {
+    let mut next_intervals = Vec::with_capacity(current_intervals.len() + 1);
+    for a in current_intervals.iter() {
+        next_intervals.extend(csg_difference(*a, b));
+    }
+    *current_intervals = next_intervals;
+}
+
+// Primitiv-definitioner med direktanalytiska ekvationer
+pub struct BoxPrimitive {
+    pub half_extents: Vec3,
+    pub position: Vec3,
+    pub material_id: u32,
+}
+
+pub struct EllipsoidPrimitive {
+    pub radii: Vec3,
+    pub position: Vec3,
+    pub material_id: u32,
+}
+
+impl EllipsoidPrimitive {
+    // Analytisk lösning av andragradsekvationen för en ellipsoid (Inga loopar!)
+    pub fn intersect(&self, ray: &Ray) -> Option<Interval> {
+        let o = ray.origin - self.position;
+        let d = ray.direction;
+
+        // Transformera strålen till den runda enhetssfärens koordinatsystem (1/r)
+        let inv_r = Vec3::ONE / self.radii;
+        let o_scaled = o * inv_r;
+        let d_scaled = d * inv_r;
+
+        let a = d_scaled.dot(d_scaled);
+        let b = 2.0 * o_scaled.dot(d_scaled);
+        let c = o_scaled.dot(o_scaled) - 1.0;
+        let discriminant = b * b - 4.0 * a * c;
+
+        if discriminant < 0.0 { return None; }
+
+        let t1 = (-b - discriminant.sqrt()) / (2.0 * a);
+        let t2 = (-b + discriminant.sqrt()) / (2.0 * a);
+
+        let p1 = ray.origin + ray.direction * t1;
+        let p2 = ray.origin + ray.direction * t2;
+
+        // Beräkna de exakta analytiska normalerna på ellipsoiden: 2*x / r^2
+        let n1 = (p1 - self.position) * (inv_r * inv_r) * 2.0;
+        let n2 = (p2 - self.position) * (inv_r * inv_r) * 2.0;
+
+        Some(Interval {
+            entry: Hit { t: t1, normal: n1.normalize(), material_id: self.material_id },
+            exit: Hit { t: t2, normal: n2.normalize(), material_id: self.material_id },
+        })
+    }
+}
+
+// Huvudfunktion för att spåra EN stråle genom N stycken subtraktioner
+pub fn trace_ray_with_n_subtractions(
+    ray: &Ray, 
+    base_obj: &BoxPrimitive, 
+    sub_primitives: &[EllipsoidPrimitive]
+) -> Option<Hit> {
+    // 1. Hämta ingångs- och utgångspunkt för boxen (analytiskt AABB-test)
+    // (Dummy-anrop för strukturexempel, implementeras via standard ray-box-intersector)
+    let initial_interval = base_obj.intersect(ray)?; 
+    
+    let mut valid_intervals = vec![initial_interval];
+
+    // 2. Kör genom den linjära N-loopen över alla subtraktioner
+    for sub_prim in sub_primitives.iter() {
+        if let Some(sub_interval) = sub_prim.intersect(ray) {
+            clip_intervals_with_subtraction(&mut valid_intervals, sub_interval);
+        }
+        if valid_intervals.is_empty() { return None; }
+    }
+
+    // 3. Returnera den första (närmaste) giltiga träffpunkten
+    valid_intervals.first().map(|interval| interval.entry)
+}
+Använd koden med försiktighet.
+4. Parallellisering på CPU (Hantera 1 Miljon strålar)
+För att utnyttja datorns alla CPU-kärnor direkt i webbläsaren aktiveras multithreading via Web Workers i Rust genom biblioteket rayon. Det gör att din miljon strålar delas upp och beräknas på bara några millisekunder.
+rust
+// Cargo.toml tillägg:
+// rayon = "1.8"
+
+use rayon::prelude::*;
+
+pub fn process_one_million_rays(rays: &[Ray], base_obj: &BoxPrimitive, subs: &[EllipsoidPrimitive]) -> Vec<Option<Hit>> {
+    // .par_iter() flyttar automatiskt beräkningen till tillgängliga trådar i WASM-miljön
+    rays.par_iter()
+        .map(|ray| {
+            if let Some(hit) = trace_ray_with_n_subtractions(ray, base_obj, subs) {
+                // Här kollar vi rollen på det sparade ShapeBinder-materialId:t
+                // match get_role_from_id(hit.material_id) { ... }
+                Some(hit)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+Använd koden med försiktighet.

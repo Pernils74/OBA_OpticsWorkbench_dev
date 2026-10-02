@@ -1,5 +1,5 @@
 # dialects/postgresql/asyncpg.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors <see AUTHORS
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors <see AUTHORS
 # file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -819,7 +819,7 @@ class AsyncAdapt_asyncpg_connection(AsyncAdapt_terminate, AdaptedConnection):
 
     async def _async_ping(self):
         if self._transaction is None and self.isolation_level != "autocommit":
-            # create a tranasction explicitly to support pgbouncer
+            # create a transaction explicitly to support pgbouncer
             # transaction mode.   See #10226
             tr = self._connection.transaction()
             await tr.start()
@@ -990,6 +990,9 @@ class AsyncAdapt_asyncpg_dbapi:
     class InternalServerError(InternalError):
         pass
 
+    class InternalClientError(InternalError):
+        pass
+
     class InvalidCachedStatementError(NotSupportedError):
         def __init__(self, message):
             super().__init__(
@@ -1014,6 +1017,7 @@ class AsyncAdapt_asyncpg_dbapi:
             asyncpg.exceptions.InterfaceError: self.InterfaceError,
             asyncpg.exceptions.InvalidCachedStatementError: self.InvalidCachedStatementError,  # noqa: E501
             asyncpg.exceptions.InternalServerError: self.InternalServerError,
+            asyncpg.exceptions.InternalClientError: self.InternalClientError,
         }
 
     def Binary(self, value):
@@ -1212,7 +1216,6 @@ class PGDialect_asyncpg(PGDialect):
         """
 
         asyncpg_connection = conn._connection
-        deserializer = self._json_deserializer or _py_json.loads
 
         def _jsonb_encoder(str_value):
             # \x01 is the prefix for jsonb used by PostgreSQL.

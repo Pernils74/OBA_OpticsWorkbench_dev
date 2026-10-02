@@ -1,5 +1,5 @@
 # dialects/postgresql/base.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -1198,6 +1198,48 @@ constraints, enabling table inheritance hierarchies in PostgreSQL.
 
     Table("some_table", metadata, ..., postgresql_inherits=("t1", "t2", ...))
 
+For schema-qualified parent table names, use :class:`.quoted_name` with
+``quote=False`` to prevent the dotted name from being quoted as a single
+identifier::
+
+    from sqlalchemy.sql import quoted_name
+
+    Table(
+        "some_table",
+        metadata,
+        ...,
+        postgresql_inherits=quoted_name(
+            "my_schema.some_supertable", quote=False
+        ),
+    )
+
+SQLAlchemy does not automatically copy the columns from the inherited tables
+mentioned in the ``postgresql_inherits`` argument into the new
+:class:`_schema.Table`. To populate the new table columns reflection may be
+used, or a function similar to the following one::
+
+    def get_parent_columns(tbl: sa.Table) -> list[sa.Column]:
+        return [
+            sa.Column(
+                c.name,
+                c.type,
+                key=c.key,
+                nullable=c.nullable,
+                # Set system=true to omit from the CREATE TABLE statement
+                system=True,
+            )
+            for c in tbl.columns
+        ]
+
+
+    documents = Table(
+        "some_table",
+        metadata,
+        *get_parent_columns(some_supertable),
+        # ... # add other columns here normally if needed
+        postgresql_inherits="some_supertable",
+    )
+
 ``ON COMMIT``
 ^^^^^^^^^^^^^
 
@@ -1388,6 +1430,29 @@ that are subject to the action::
       )
 
 .. versionadded:: 2.0.40
+
+
+``NULLS NOT DISTINCT``
+^^^^^^^^^^^^^^^^^^^^^^
+
+By default, two ``null`` values are not considered equal for unique constraints
+and indexes. Therefore, seemingly duplicate rows may be stored if one of the
+values in the constraint is ``null``. This default behavior is implementation
+defined, so other SQL dialects may behave differently than PostgreSQL.
+
+The ``NULLS NOT DISTINCT`` clause can be used to change this behavior, treating
+null values as equal and preventing unintended duplicate rows. The opposite
+``NULLS DISTINCT`` clause can also be used to make PostgreSQL's default behavior
+explict.
+
+The ``postgresql_nulls_not_distinct`` parameter can be set to ``True`` to
+add the ``NULLS NOT DISTINCT`` clause, or ``False`` to add ``NULLS DISTINCT``.
+Not setting it, or passing ``None``, will not add a clause and keep the default
+behavior.
+
+This feature requires PostgreSQL 15 or later.
+
+.. versionadded:: 2.0.16
 
 
 .. _postgresql_table_valued_overview:
@@ -1672,6 +1737,7 @@ from ...sql import coercions
 from ...sql import compiler
 from ...sql import elements
 from ...sql import expression
+from ...sql import functions
 from ...sql import roles
 from ...sql import sqltypes
 from ...sql import util as sql_util
@@ -1946,10 +2012,14 @@ class PGCompiler(compiler.SQLCompiler):
             and isinstance(binary.left.type, _json.JSONB)
             and self.dialect._supports_jsonb_subscripting
         ):
+            left = binary.left
+            if isinstance(left, (functions.FunctionElement, elements.Cast)):
+                left = elements.Grouping(left)
+
             # for pg14+JSONB use subscript notation: col['key'] instead
             # of col -> 'key'
             return "%s[%s]" % (
-                self.process(binary.left, **kw),
+                self.process(left, **kw),
                 self.process(binary.right, **kw),
             )
         else:
@@ -2092,7 +2162,9 @@ class PGCompiler(compiler.SQLCompiler):
         return "string_agg%s" % self.function_argspec(fn)
 
     def visit_sequence(self, seq, **kw):
-        return "nextval('%s')" % self.preparer.format_sequence(seq)
+        return "nextval(%s)" % self.preparer._format_sequence_string_literal(
+            seq
+        )
 
     def limit_clause(self, select, **kw):
         text = ""
@@ -2190,10 +2262,11 @@ class PGCompiler(compiler.SQLCompiler):
                 for c in clause.inferred_target_elements
             )
             if clause.inferred_target_whereclause is not None:
+                whereclause_kw = dict(kw)
+                whereclause_kw.update(include_table=False, use_schema=False)
                 target_text += " WHERE %s" % self.process(
                     clause.inferred_target_whereclause,
-                    include_table=False,
-                    use_schema=False,
+                    **whereclause_kw,
                 )
         else:
             target_text = ""
@@ -2220,6 +2293,8 @@ class PGCompiler(compiler.SQLCompiler):
 
         insert_statement = self.stack[-1]["selectable"]
         cols = insert_statement.table.c
+        set_kw = dict(kw)
+        set_kw.update(use_schema=False)
         for c in cols:
             col_key = c.key
 
@@ -2242,7 +2317,9 @@ class PGCompiler(compiler.SQLCompiler):
                 ):
                     value = value._clone()
                     value.type = c.type
-            value_text = self.process(value.self_group(), use_schema=False)
+            value_text = self.process(
+                value.self_group(), is_upsert_set=True, **set_kw
+            )
 
             key_text = self.preparer.quote(c.name)
             action_set_ops.append("%s = %s" % (key_text, value_text))
@@ -2265,14 +2342,17 @@ class PGCompiler(compiler.SQLCompiler):
                 )
                 value_text = self.process(
                     coercions.expect(roles.ExpressionElementRole, v),
-                    use_schema=False,
+                    is_upsert_set=True,
+                    **set_kw,
                 )
                 action_set_ops.append("%s = %s" % (key_text, value_text))
 
         action_text = ", ".join(action_set_ops)
         if clause.update_whereclause is not None:
+            where_kw = dict(kw)
+            where_kw.update(include_table=True, use_schema=False)
             action_text += " WHERE %s" % self.process(
-                clause.update_whereclause, include_table=True, use_schema=False
+                clause.update_whereclause, **where_kw
             )
 
         return "ON CONFLICT %s DO UPDATE SET %s" % (target_text, action_text)
@@ -2917,8 +2997,42 @@ class PGTypeCompiler(compiler.GenericTypeCompiler):
         return "JSONPATH"
 
 
+class _CompilerSequence:
+    """Minimal stand-in for :class:`.Sequence`.
+
+    Used for the implicit sequence behind a SERIAL column, where no
+    :class:`.Sequence` object exists but a name still has to be rendered
+    through :meth:`.IdentifierPreparer.format_sequence`.
+
+    """
+
+    __slots__ = ("name", "schema")
+
+    # the schema handed to us has already been resolved against the
+    # schema translate map, so don't let format_sequence() translate it
+    # a second time
+    _use_schema_map = False
+
+    def __init__(self, name, schema=None):
+        self.name = name
+        self.schema = schema
+
+
 class PGIdentifierPreparer(compiler.IdentifierPreparer):
     reserved_words = RESERVED_WORDS
+
+    def _format_sequence_string_literal(self, sequence):
+        """Render a sequence name as a SQL string literal.
+
+        ``nextval()`` and friends take the sequence as a string rather than
+        as an identifier, so the quoted identifier produced by
+        :meth:`.format_sequence` has to be escaped a second time for the
+        enclosing literal.
+
+        """
+        return "'%s'" % self.format_sequence(
+            sequence, use_schema=True
+        ).replace("'", "''")
 
     def _unquote_identifier(self, value):
         if value[0] == self.initial_quote:
@@ -3028,8 +3142,8 @@ class PGInspector(reflection.Inspector):
             * nullable - Indicates if this domain can be ``NULL``.
             * default - The default value of the domain or ``None`` if the
               domain has no default.
-            * constraints - A list of dict wit the constraint defined by this
-              domain. Each element constaints two keys: ``name`` of the
+            * constraints - A list of dict with the constraint defined by this
+              domain. Each element contains two keys: ``name`` of the
               constraint and ``check`` with the constraint text.
 
         :param schema: schema name.  If None, the default schema
@@ -3105,8 +3219,8 @@ class PGExecutionContext(default.DefaultExecutionContext):
     def fire_sequence(self, seq, type_):
         return self._execute_scalar(
             (
-                "select nextval('%s')"
-                % self.identifier_preparer.format_sequence(seq)
+                "select nextval(%s)"
+                % self.identifier_preparer._format_sequence_string_literal(seq)
             ),
             type_,
         )
@@ -3143,13 +3257,12 @@ class PGExecutionContext(default.DefaultExecutionContext):
                 else:
                     effective_schema = None
 
-                if effective_schema is not None:
-                    exc = 'select nextval(\'"%s"."%s"\')' % (
-                        effective_schema,
-                        seq_name,
+                exc = (
+                    "select nextval(%s)"
+                    % self.identifier_preparer._format_sequence_string_literal(
+                        _CompilerSequence(seq_name, effective_schema)
                     )
-                else:
-                    exc = "select nextval('\"%s\"')" % (seq_name,)
+                )
 
                 return self._execute_scalar(exc, column.type)
 
@@ -3465,7 +3578,11 @@ class PGDialect(default.DefaultDialect):
         self.do_begin(connection.connection)
 
     def do_prepare_twophase(self, connection, xid):
-        connection.exec_driver_sql("PREPARE TRANSACTION '%s'" % xid)
+        connection.execute(
+            sql.text("PREPARE TRANSACTION :xid").bindparams(
+                sql.bindparam("xid", xid, literal_execute=True)
+            )
+        )
 
     def do_rollback_twophase(
         self, connection, xid, is_prepared=True, recover=False
@@ -3477,7 +3594,11 @@ class PGDialect(default.DefaultDialect):
                 # Must find out a way how to make the dbapi not
                 # open a transaction.
                 connection.exec_driver_sql("ROLLBACK")
-            connection.exec_driver_sql("ROLLBACK PREPARED '%s'" % xid)
+            connection.execute(
+                sql.text("ROLLBACK PREPARED :xid").bindparams(
+                    sql.bindparam("xid", xid, literal_execute=True)
+                )
+            )
             connection.exec_driver_sql("BEGIN")
             self.do_rollback(connection.connection)
         else:
@@ -3489,7 +3610,11 @@ class PGDialect(default.DefaultDialect):
         if is_prepared:
             if recover:
                 connection.exec_driver_sql("ROLLBACK")
-            connection.exec_driver_sql("COMMIT PREPARED '%s'" % xid)
+            connection.execute(
+                sql.text("COMMIT PREPARED :xid").bindparams(
+                    sql.bindparam("xid", xid, literal_execute=True)
+                )
+            )
             connection.exec_driver_sql("BEGIN")
             self.do_rollback(connection.connection)
         else:
@@ -3629,7 +3754,11 @@ class PGDialect(default.DefaultDialect):
     def get_schema_names(self, connection, **kw):
         query = (
             select(pg_catalog.pg_namespace.c.nspname)
-            .where(pg_catalog.pg_namespace.c.nspname.not_like("pg_%"))
+            .where(
+                ~pg_catalog.pg_namespace.c.nspname.startswith(
+                    "pg_", autoescape=True
+                )
+            )
             .order_by(pg_catalog.pg_namespace.c.nspname)
         )
         return connection.scalars(query).all()
@@ -4134,7 +4263,7 @@ class PGDialect(default.DefaultDialect):
             if isinstance(coltype, DOMAIN):
                 if not default:
                     # domain can override the default value but
-                    # cant set it to None
+                    # can't set it to None
                     if coltype.default is not None:
                         default = coltype.default
 
@@ -4287,7 +4416,7 @@ class PGDialect(default.DefaultDialect):
                 # a sequential scan of pg_attribute.
                 # The condition in the con_sq subquery is not actually needed
                 # in pg15, but it may be needed in older versions. Keeping it
-                # does not seems to have any inpact in any case.
+                # does not seems to have any impact in any case.
                 con_sq.c.conrelid.in_(bindparam("oids"))
             )
             .subquery("attr")
@@ -4494,20 +4623,64 @@ class PGDialect(default.DefaultDialect):
     @util.memoized_property
     def _fk_regex_pattern(self):
         # optionally quoted token
-        qtoken = '(?:"[^"]+"|[A-Za-z0-9_]+?)'
+        qtoken = r'(?:"(?:[^"]|"")+"|[\w]+?)'
 
         # https://www.postgresql.org/docs/current/static/sql-createtable.html
         return re.compile(
             r"FOREIGN KEY \((.*?)\) "
             rf"REFERENCES (?:({qtoken})\.)?({qtoken})\(((?:{qtoken}(?: *, *)?)+)\)"  # noqa: E501
             r"[\s]?(MATCH (FULL|PARTIAL|SIMPLE)+)?"
-            r"[\s]?(ON UPDATE "
-            r"(CASCADE|RESTRICT|NO ACTION|SET NULL|SET DEFAULT)+)?"
-            r"[\s]?(ON DELETE "
+            r"[\s]?(?:ON (UPDATE|DELETE) "
+            r"(CASCADE|RESTRICT|NO ACTION|"
+            r"SET (?:NULL|DEFAULT)(?:\s\(.+\))?)+)?"
+            r"[\s]?(?:ON (UPDATE|DELETE) "
             r"(CASCADE|RESTRICT|NO ACTION|"
             r"SET (?:NULL|DEFAULT)(?:\s\(.+\))?)+)?"
             r"[\s]?(DEFERRABLE|NOT DEFERRABLE)?"
             r"[\s]?(INITIALLY (DEFERRED|IMMEDIATE)+)?"
+        )
+
+    def _parse_fk(self, condef):
+        FK_REGEX = self._fk_regex_pattern
+        m = re.search(FK_REGEX, condef).groups()
+
+        (
+            constrained_columns,
+            referred_schema,
+            referred_table,
+            referred_columns,
+            _,
+            match,
+            upddelkey1,
+            upddelval1,
+            upddelkey2,
+            upddelval2,
+            deferrable,
+            _,
+            initially,
+        ) = m
+
+        onupdate = (
+            upddelval1
+            if upddelkey1 == "UPDATE"
+            else upddelval2 if upddelkey2 == "UPDATE" else None
+        )
+        ondelete = (
+            upddelval1
+            if upddelkey1 == "DELETE"
+            else upddelval2 if upddelkey2 == "DELETE" else None
+        )
+
+        return (
+            constrained_columns,
+            referred_schema,
+            referred_table,
+            referred_columns,
+            match,
+            onupdate,
+            ondelete,
+            deferrable,
+            initially,
         )
 
     def get_multi_foreign_keys(
@@ -4526,8 +4699,6 @@ class PGDialect(default.DefaultDialect):
         query = self._foreing_key_query(schema, has_filter_names, scope, kind)
         result = connection.execute(query, params)
 
-        FK_REGEX = self._fk_regex_pattern
-
         fkeys = defaultdict(list)
         default = ReflectionDefaults.foreign_keys
         for table_name, conname, condef, conschema, comment in result:
@@ -4537,23 +4708,18 @@ class PGDialect(default.DefaultDialect):
                 fkeys[(schema, table_name)] = default()
                 continue
             table_fks = fkeys[(schema, table_name)]
-            m = re.search(FK_REGEX, condef).groups()
 
             (
                 constrained_columns,
                 referred_schema,
                 referred_table,
                 referred_columns,
-                _,
                 match,
-                _,
                 onupdate,
-                _,
                 ondelete,
                 deferrable,
-                _,
                 initially,
-            ) = m
+            ) = self._parse_fk(condef)
 
             if deferrable is not None:
                 deferrable = True if deferrable == "DEFERRABLE" else False
@@ -4964,7 +5130,7 @@ class PGDialect(default.DefaultDialect):
         default = ReflectionDefaults.unique_constraints
         for table_name, cols, con_name, comment, options in result:
             # ensure a list is created for each table. leave it empty if
-            # the table has no unique cosntraint
+            # the table has no unique constraint
             if con_name is None:
                 uniques[(schema, table_name)] = default()
                 continue
@@ -5129,9 +5295,7 @@ class PGDialect(default.DefaultDialect):
                 util.warn("Could not parse CHECK constraint text: %r" % src)
                 sqltext = ""
             else:
-                sqltext = re.compile(
-                    r"^[\s\n]*\((.+)\)[\s\n]*$", flags=re.DOTALL
-                ).sub(r"\1", m.group(1))
+                sqltext = util.strip_outer_parens(m.group(1))
             entry = {
                 "name": check_name,
                 "sqltext": sqltext,

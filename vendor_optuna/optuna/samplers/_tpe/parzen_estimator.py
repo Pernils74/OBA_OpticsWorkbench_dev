@@ -6,7 +6,6 @@ from typing import NamedTuple
 import numpy as np
 
 from optuna.distributions import BaseDistribution
-from optuna.distributions import CategoricalChoiceType
 from optuna.distributions import CategoricalDistribution
 from optuna.distributions import FloatDistribution
 from optuna.distributions import IntDistribution
@@ -30,9 +29,6 @@ class _ParzenEstimatorParameters(NamedTuple):
     consider_endpoints: bool
     weights: Callable[[int], np.ndarray]
     multivariate: bool
-    categorical_distance_func: dict[
-        str, Callable[[CategoricalChoiceType, CategoricalChoiceType], float]
-    ]
 
 
 class _ParzenEstimator:
@@ -149,17 +145,7 @@ class _ParzenEstimator:
             fill_value=parameters.prior_weight / n_kernels,
         )
         observed_indices = observations.astype(int)
-        if param_name in parameters.categorical_distance_func:
-            # TODO(nabenabe0928): Think about how to handle combinatorial explosion.
-            # The time complexity is O(n_choices * used_indices.size), so n_choices cannot be huge.
-            used_indices, rev_indices = np.unique(observed_indices, return_inverse=True)
-            dist_func = parameters.categorical_distance_func[param_name]
-            dists = np.array([[dist_func(choices[i], c) for c in choices] for i in used_indices])
-            coef = np.log(n_kernels / parameters.prior_weight) * np.log(n_choices) / np.log(6)
-            cat_weights = np.exp(-((dists / np.max(dists, axis=1)[:, np.newaxis]) ** 2) * coef)
-            weights[: len(observed_indices)] = cat_weights[rev_indices]
-        else:
-            weights[np.arange(len(observed_indices)), observed_indices] += 1
+        weights[np.arange(len(observed_indices)), observed_indices] += 1
 
         row_sums = weights.sum(axis=1, keepdims=True)
         weights /= np.where(row_sums == 0, 1, row_sums)
@@ -184,43 +170,27 @@ class _ParzenEstimator:
         mus = observations
 
         def compute_sigmas() -> np.ndarray:
-            if parameters.multivariate:
-                SIGMA0_MAGNITUDE = 0.2
-                sigma = (
-                    SIGMA0_MAGNITUDE
-                    * max(len(observations), 1) ** (-1.0 / (len(self._search_space) + 4))
-                    * (high - low)
-                )
-                sigmas = np.full(shape=(len(observations),), fill_value=sigma)
-            else:
-                # TODO(contramundum53): Remove dependency on prior_mu
-                prior_mu = 0.5 * (low + high)
-                mus_with_prior = np.append(mus, prior_mu)
+            sorted_indices = np.argsort(mus)
+            sorted_mus = mus[sorted_indices]
+            sorted_mus_with_endpoints = np.empty(len(mus) + 2, dtype=float)
+            sorted_mus_with_endpoints[0] = low
+            sorted_mus_with_endpoints[1:-1] = sorted_mus
+            sorted_mus_with_endpoints[-1] = high
 
-                sorted_indices = np.argsort(mus_with_prior)
-                sorted_mus = mus_with_prior[sorted_indices]
-                sorted_mus_with_endpoints = np.empty(len(mus_with_prior) + 2, dtype=float)
-                sorted_mus_with_endpoints[0] = low
-                sorted_mus_with_endpoints[1:-1] = sorted_mus
-                sorted_mus_with_endpoints[-1] = high
+            sorted_sigmas = np.maximum(
+                sorted_mus_with_endpoints[1:-1] - sorted_mus_with_endpoints[0:-2],
+                sorted_mus_with_endpoints[2:] - sorted_mus_with_endpoints[1:-1],
+            )
 
-                sorted_sigmas = np.maximum(
-                    sorted_mus_with_endpoints[1:-1] - sorted_mus_with_endpoints[0:-2],
-                    sorted_mus_with_endpoints[2:] - sorted_mus_with_endpoints[1:-1],
-                )
+            if not parameters.consider_endpoints and sorted_mus_with_endpoints.shape[0] >= 4:
+                sorted_sigmas[0] = sorted_mus_with_endpoints[2] - sorted_mus_with_endpoints[1]
+                sorted_sigmas[-1] = sorted_mus_with_endpoints[-2] - sorted_mus_with_endpoints[-3]
 
-                if not parameters.consider_endpoints and sorted_mus_with_endpoints.shape[0] >= 4:
-                    sorted_sigmas[0] = sorted_mus_with_endpoints[2] - sorted_mus_with_endpoints[1]
-                    sorted_sigmas[-1] = (
-                        sorted_mus_with_endpoints[-2] - sorted_mus_with_endpoints[-3]
-                    )
-
-                sigmas = sorted_sigmas[np.argsort(sorted_indices)][: len(observations)]
+            sigmas = sorted_sigmas[np.argsort(sorted_indices)]
 
             # We adjust the range of the 'sigmas' according to the 'consider_magic_clip' flag.
             maxsigma = high - low
             if parameters.consider_magic_clip:
-                # TODO(contramundum53): Remove dependency of minsigma on consider_prior.
                 n_kernels = len(observations) + 1  # NOTE(sawa3030): +1 for prior.
                 minsigma = (high - low) / min(100.0, (1.0 + n_kernels))
             else:

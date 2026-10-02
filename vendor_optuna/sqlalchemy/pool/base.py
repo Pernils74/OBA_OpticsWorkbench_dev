@@ -1,5 +1,5 @@
 # pool/base.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -34,6 +34,7 @@ from .. import log
 from .. import util
 from ..util.typing import Literal
 from ..util.typing import Protocol
+from ..util.typing import Self
 
 if TYPE_CHECKING:
     from ..engine.interfaces import DBAPIConnection
@@ -599,7 +600,7 @@ class ConnectionPoolEntry(ManagesConnection):
     connection on behalf of a :class:`_pool.Pool` instance.
 
     The :class:`.ConnectionPoolEntry` object represents the long term
-    maintainance of a particular connection for a pool, including expiring or
+    maintenance of a particular connection for a pool, including expiring or
     invalidating that connection to have it replaced with a new one, which will
     continue to be maintained by that same :class:`.ConnectionPoolEntry`
     instance. Compared to :class:`.PoolProxiedConnection`, which is the
@@ -899,18 +900,36 @@ class _ConnectionRecord(ConnectionPoolEntry):
             with util.safe_reraise():
                 pool.logger.debug("Error on connect(): %s", e)
         else:
-            # in SQLAlchemy 1.4 the first_connect event is not used by
-            # the engine, so this will usually not be set
-            if pool.dispatch.first_connect:
-                pool.dispatch.first_connect.for_modify(
-                    pool.dispatch
-                ).exec_once_unless_exception(self.dbapi_connection, self)
+            try:
+                # in SQLAlchemy 1.4 the first_connect event is not used by
+                # the engine, so this will usually not be set
+                if pool.dispatch.first_connect:
+                    pool.dispatch.first_connect.for_modify(
+                        pool.dispatch
+                    ).exec_once_unless_exception(self.dbapi_connection, self)
 
-            # init of the dialect now takes place within the connect
-            # event, so ensure a mutex is used on the first run
-            pool.dispatch.connect.for_modify(
-                pool.dispatch
-            )._exec_w_sync_on_first_run(self.dbapi_connection, self)
+                # init of the dialect now takes place within the connect
+                # event, so ensure a mutex is used on the first run
+                pool.dispatch.connect.for_modify(
+                    pool.dispatch
+                )._exec_w_sync_on_first_run(self.dbapi_connection, self)
+            except BaseException:
+                # the connection is established but the events that
+                # configure it did not complete; nothing else has a
+                # reference to it, so close it here or it is stranded.
+                # for an asyncio driver in particular there is no other
+                # opportunity, as the garbage collector cannot close a
+                # connection that needs the event loop
+                with util.safe_reraise():
+                    try:
+                        pool._close_connection(connection, terminate=True)
+                    except BaseException:
+                        pool.logger.exception(
+                            "Exception closing connection %r stranded by a "
+                            "failed connect event",
+                            connection,
+                        )
+                    self.dbapi_connection = None
 
 
 def _finalize_fairy(
@@ -1123,6 +1142,13 @@ class PoolProxiedConnection(ManagesConnection):
 
         """
         raise NotImplementedError()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        self.close()
+        return None
 
 
 class _AdhocProxiedConnection(PoolProxiedConnection):

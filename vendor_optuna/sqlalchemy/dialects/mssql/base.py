@@ -1,5 +1,5 @@
 # dialects/mssql/base.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -984,6 +984,7 @@ import codecs
 import datetime
 import operator
 import re
+from typing import Any
 from typing import overload
 from typing import TYPE_CHECKING
 from uuid import UUID as _python_UUID
@@ -1034,6 +1035,7 @@ from ...util import update_wrapper
 from ...util.typing import Literal
 
 if TYPE_CHECKING:
+    from ...sql.ddl import DropIndex
     from ...sql.dml import DMLState
     from ...sql.selectable import TableClause
 
@@ -1583,7 +1585,7 @@ class MSUUid(sqltypes.Uuid):
         if self.native_uuid:
 
             def process(value):
-                return f"""'{str(value).replace("''", "'")}'"""
+                return f"""'{str(value).replace("'", "''")}'"""
 
             return process
         else:
@@ -2064,8 +2066,8 @@ class MSSQLCompiler(compiler.SQLCompiler):
     def visit_aggregate_strings_func(self, fn, **kw):
         expr = fn.clauses.clauses[0]._compiler_dispatch(self, **kw)
         kw["literal_execute"] = True
-        delimeter = fn.clauses.clauses[1]._compiler_dispatch(self, **kw)
-        return f"string_agg({expr}, {delimeter})"
+        delimiter = fn.clauses.clauses[1]._compiler_dispatch(self, **kw)
+        return f"string_agg({expr}, {delimiter})"
 
     def visit_concat_op_expression_clauselist(
         self, clauselist, operator, **kw
@@ -2700,11 +2702,13 @@ class MSDDLCompiler(compiler.DDLCompiler):
 
         return text
 
-    def visit_drop_index(self, drop, **kw):
-        return "\nDROP INDEX %s ON %s" % (
-            self._prepared_index_name(drop.element, include_schema=False),
-            self.preparer.format_table(drop.element.table),
+    def visit_drop_index(self, drop: DropIndex, **kw: Any) -> str:
+        index_name = self._prepared_index_name(
+            drop.element, include_schema=False
         )
+        table_name = self.preparer.format_table(drop.element.table)
+        if_exists = " IF EXISTS" if drop.if_exists else ""
+        return f"\nDROP INDEX{if_exists} {index_name} ON {table_name}"
 
     def visit_primary_key_constraint(self, constraint, **kw):
         if len(constraint) == 0:
@@ -3216,8 +3220,7 @@ class MSDialect(default.DefaultDialect):
 
             view_name = f"sys.{row[0]}"
 
-            cursor.execute(
-                """
+            cursor.execute("""
                     SELECT CASE transaction_isolation_level
                     WHEN 0 THEN NULL
                     WHEN 1 THEN 'READ UNCOMMITTED'
@@ -3228,10 +3231,7 @@ class MSDialect(default.DefaultDialect):
                     AS TRANSACTION_ISOLATION_LEVEL
                     FROM {}
                     where session_id = @@SPID
-                """.format(
-                    view_name
-                )
-            )
+                """.format(view_name))
         except self.dbapi.Error as err:
             raise NotImplementedError(
                 "Can't fetch isolation level;  encountered error {} when "
@@ -3250,13 +3250,6 @@ class MSDialect(default.DefaultDialect):
         self._setup_supports_comments(connection)
 
     def _setup_version_attributes(self):
-        if self.server_version_info[0] not in list(range(8, 17)):
-            util.warn(
-                "Unrecognized server version info '%s'.  Some SQL Server "
-                "features may not function properly."
-                % ".".join(str(x) for x in self.server_version_info)
-            )
-
         if self.server_version_info >= MS_2008_VERSION:
             self.supports_multivalues_insert = True
         else:
@@ -3435,8 +3428,7 @@ class MSDialect(default.DefaultDialect):
             else "NULL as filter_definition"
         )
         rp = connection.execution_options(future_result=True).execute(
-            sql.text(
-                f"""
+            sql.text(f"""
 select
     ind.index_id,
     ind.is_unique,
@@ -3456,8 +3448,7 @@ where
     and ind.type != 0
 order by
     ind.name
-                """
-            )
+                """)
             .bindparams(
                 sql.bindparam("tabname", tablename, ischema.CoerceUnicode()),
                 sql.bindparam("schname", owner, ischema.CoerceUnicode()),
@@ -3485,8 +3476,7 @@ order by
                 do["mssql_where"] = row["filter_definition"]
 
         rp = connection.execution_options(future_result=True).execute(
-            sql.text(
-                """
+            sql.text("""
 select
     ind_col.index_id,
     col.name,
@@ -3506,8 +3496,7 @@ where
 order by
     ind_col.index_id,
     ind_col.key_ordinal
-            """
-            )
+            """)
             .bindparams(
                 sql.bindparam("tabname", tablename, ischema.CoerceUnicode()),
                 sql.bindparam("schname", owner, ischema.CoerceUnicode()),
@@ -3637,6 +3626,7 @@ order by
     def get_columns(self, connection, tablename, dbname, owner, schema, **kw):
         sys_columns = ischema.sys_columns
         sys_types = ischema.sys_types
+        sys_base_types = ischema.sys_types.alias("base_types")
         sys_default_constraints = ischema.sys_default_constraints
         computed_cols = ischema.computed_columns
         identity_cols = ischema.identity_columns
@@ -3678,6 +3668,7 @@ order by
             sql.select(
                 sys_columns.c.name,
                 sys_types.c.name,
+                sys_base_types.c.name.label("base_type"),
                 sys_columns.c.is_nullable,
                 sys_columns.c.max_length,
                 sys_columns.c.precision,
@@ -3696,6 +3687,15 @@ order by
                 sys_types,
                 onclause=sys_columns.c.user_type_id
                 == sys_types.c.user_type_id,
+            )
+            .outerjoin(
+                sys_base_types,
+                onclause=sql.and_(
+                    sys_types.c.system_type_id
+                    == sys_base_types.c.system_type_id,
+                    sys_base_types.c.user_type_id
+                    == sys_base_types.c.system_type_id,
+                ),
             )
             .outerjoin(
                 sys_default_constraints,
@@ -3743,6 +3743,7 @@ order by
         for row in c.mappings():
             name = row[sys_columns.c.name]
             type_ = row[sys_types.c.name]
+            base_type = row["base_type"]
             nullable = row[sys_columns.c.is_nullable] == 1
             maxlen = row[sys_columns.c.max_length]
             numericprec = row[sys_columns.c.precision]
@@ -3756,7 +3757,17 @@ order by
             identity_increment = row[identity_cols.c.increment_value]
             comment = row[extended_properties.c.value]
 
+            # Try to resolve the user type first (e.g., "sysname"),
+            # then fall back to the base type (e.g., "nvarchar").
+            # base_type may be None for CLR types (geography, geometry,
+            # hierarchyid) which have no corresponding base type.
             coltype = self.ischema_names.get(type_, None)
+            if (
+                coltype is None
+                and base_type is not None
+                and base_type != type_
+            ):
+                coltype = self.ischema_names.get(base_type, None)
 
             kwargs = {}
 
@@ -3769,7 +3780,6 @@ order by
             elif coltype in (
                 MSString,
                 MSChar,
-                MSText,
             ):
                 kwargs["length"] = maxlen if maxlen != -1 else None
                 if collation:
@@ -3777,17 +3787,32 @@ order by
             elif coltype in (
                 MSNVarchar,
                 MSNChar,
-                MSNText,
             ):
                 kwargs["length"] = maxlen // 2 if maxlen != -1 else None
                 if collation:
                     kwargs["collation"] = collation
+            elif coltype in (
+                MSText,
+                MSNText,
+            ):
+                # TEXT / NTEXT are unlengthed LOB types.
+                # sys.columns.max_length reports 16 for these, which is the
+                # size of the in-row LOB pointer and not a character length,
+                # so no length is applied.
+                if collation:
+                    kwargs["collation"] = collation
 
             if coltype is None:
-                util.warn(
-                    "Did not recognize type '%s' of column '%s'"
-                    % (type_, name)
-                )
+                if base_type is not None and base_type != type_:
+                    util.warn(
+                        "Did not recognize type '%s' (user type) or '%s' "
+                        "(base type) of column '%s'" % (type_, base_type, name)
+                    )
+                else:
+                    util.warn(
+                        "Did not recognize type '%s' of column '%s'"
+                        % (type_, name)
+                    )
                 coltype = sqltypes.NULLTYPE
             else:
                 if issubclass(coltype, sqltypes.Numeric):
@@ -3905,8 +3930,7 @@ order by
     ):
         # Foreign key constraints
         s = (
-            text(
-                """\
+            text("""\
 WITH fk_info AS (
     SELECT
         ischema_ref_con.constraint_schema,
@@ -4006,8 +4030,7 @@ index_info AS (
 
     ORDER BY fk_info.constraint_schema, fk_info.constraint_name,
         fk_info.ordinal_position
-"""
-            )
+""")
             .bindparams(
                 sql.bindparam("tablename", tablename, ischema.CoerceUnicode()),
                 sql.bindparam("owner", owner, ischema.CoerceUnicode()),

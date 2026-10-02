@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import functools
-from typing import Optional
+from typing import Any
+from typing import Literal
 from typing import TYPE_CHECKING
 from typing import Union
 
@@ -14,7 +15,10 @@ from sqlalchemy import types as sqltypes
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.schema import Column
 from sqlalchemy.schema import DDLElement
+from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.elements import quoted_name
+from sqlalchemy.sql.elements import TextClause
+from sqlalchemy.sql.schema import FetchedValue
 
 from ..util.sqla_compat import _columns_for_constraint  # noqa
 from ..util.sqla_compat import _find_columns  # noqa
@@ -23,20 +27,17 @@ from ..util.sqla_compat import _is_type_bound  # noqa
 from ..util.sqla_compat import _table_for_constraint  # noqa
 
 if TYPE_CHECKING:
-    from typing import Any
 
     from sqlalchemy import Computed
     from sqlalchemy import Identity
     from sqlalchemy.sql.compiler import Compiled
     from sqlalchemy.sql.compiler import DDLCompiler
-    from sqlalchemy.sql.elements import TextClause
-    from sqlalchemy.sql.functions import Function
-    from sqlalchemy.sql.schema import FetchedValue
     from sqlalchemy.sql.type_api import TypeEngine
 
     from .impl import DefaultImpl
 
-_ServerDefault = Union["TextClause", "FetchedValue", "Function[Any]", str]
+_ServerDefaultType = Union[FetchedValue, str, TextClause, ColumnElement[Any]]
+_ServerDefaultArgument = Union[_ServerDefaultType, Literal[False], None]
 
 
 class AlterTable(DDLElement):
@@ -50,7 +51,7 @@ class AlterTable(DDLElement):
     def __init__(
         self,
         table_name: str,
-        schema: Optional[Union[quoted_name, str]] = None,
+        schema: quoted_name | str | None = None,
     ) -> None:
         self.table_name = table_name
         self.schema = schema
@@ -60,8 +61,8 @@ class RenameTable(AlterTable):
     def __init__(
         self,
         old_table_name: str,
-        new_table_name: Union[quoted_name, str],
-        schema: Optional[Union[quoted_name, str]] = None,
+        new_table_name: quoted_name | str,
+        schema: quoted_name | str | None = None,
     ) -> None:
         super().__init__(old_table_name, schema=schema)
         self.new_table_name = new_table_name
@@ -72,11 +73,11 @@ class AlterColumn(AlterTable):
         self,
         name: str,
         column_name: str,
-        schema: Optional[str] = None,
-        existing_type: Optional[TypeEngine] = None,
-        existing_nullable: Optional[bool] = None,
-        existing_server_default: Optional[_ServerDefault] = None,
-        existing_comment: Optional[str] = None,
+        schema: str | None = None,
+        existing_type: TypeEngine | None = None,
+        existing_nullable: bool | None = None,
+        existing_server_default: _ServerDefaultType | None = None,
+        existing_comment: str | None = None,
     ) -> None:
         super().__init__(name, schema=schema)
         self.column_name = column_name
@@ -119,7 +120,7 @@ class ColumnDefault(AlterColumn):
         self,
         name: str,
         column_name: str,
-        default: Optional[_ServerDefault],
+        default: _ServerDefaultType | None,
         **kw,
     ) -> None:
         super().__init__(name, column_name, **kw)
@@ -128,7 +129,7 @@ class ColumnDefault(AlterColumn):
 
 class ComputedColumnDefault(AlterColumn):
     def __init__(
-        self, name: str, column_name: str, default: Optional[Computed], **kw
+        self, name: str, column_name: str, default: Computed | None, **kw
     ) -> None:
         super().__init__(name, column_name, **kw)
         self.default = default
@@ -139,7 +140,7 @@ class IdentityColumnDefault(AlterColumn):
         self,
         name: str,
         column_name: str,
-        default: Optional[Identity],
+        default: Identity | None,
         impl: DefaultImpl,
         **kw,
     ) -> None:
@@ -153,12 +154,16 @@ class AddColumn(AlterTable):
         self,
         name: str,
         column: Column[Any],
-        schema: Optional[Union[quoted_name, str]] = None,
-        if_not_exists: Optional[bool] = None,
+        schema: quoted_name | str | None = None,
+        if_not_exists: bool | None = None,
+        inline_references: bool | None = None,
+        inline_primary_key: bool | None = None,
     ) -> None:
         super().__init__(name, schema=schema)
         self.column = column
         self.if_not_exists = if_not_exists
+        self.inline_references = inline_references
+        self.inline_primary_key = inline_primary_key
 
 
 class DropColumn(AlterTable):
@@ -166,8 +171,8 @@ class DropColumn(AlterTable):
         self,
         name: str,
         column: Column[Any],
-        schema: Optional[str] = None,
-        if_exists: Optional[bool] = None,
+        schema: str | None = None,
+        if_exists: bool | None = None,
     ) -> None:
         super().__init__(name, schema=schema)
         self.column = column
@@ -176,7 +181,7 @@ class DropColumn(AlterTable):
 
 class ColumnComment(AlterColumn):
     def __init__(
-        self, name: str, column_name: str, comment: Optional[str], **kw
+        self, name: str, column_name: str, comment: str | None, **kw
     ) -> None:
         super().__init__(name, column_name, **kw)
         self.comment = comment
@@ -197,7 +202,12 @@ def visit_add_column(element: AddColumn, compiler: DDLCompiler, **kw) -> str:
     return "%s %s" % (
         alter_table(compiler, element.table_name, element.schema),
         add_column(
-            compiler, element.column, if_not_exists=element.if_not_exists, **kw
+            compiler,
+            element.column,
+            if_not_exists=element.if_not_exists,
+            inline_references=element.inline_references,
+            inline_primary_key=element.inline_primary_key,
+            **kw,
         ),
     )
 
@@ -278,8 +288,8 @@ def visit_identity_column(
 
 
 def quote_dotted(
-    name: Union[quoted_name, str], quote: functools.partial
-) -> Union[quoted_name, str]:
+    name: quoted_name | str, quote: functools.partial
+) -> quoted_name | str:
     """quote the elements of a dotted name"""
 
     if isinstance(name, quoted_name):
@@ -290,9 +300,9 @@ def quote_dotted(
 
 def format_table_name(
     compiler: Compiled,
-    name: Union[quoted_name, str],
-    schema: Optional[Union[quoted_name, str]],
-) -> Union[quoted_name, str]:
+    name: quoted_name | str,
+    schema: quoted_name | str | None,
+) -> quoted_name | str:
     quote = functools.partial(compiler.preparer.quote)
     if schema:
         return quote_dotted(schema, quote) + "." + quote(name)
@@ -301,14 +311,14 @@ def format_table_name(
 
 
 def format_column_name(
-    compiler: DDLCompiler, name: Optional[Union[quoted_name, str]]
-) -> Union[quoted_name, str]:
+    compiler: DDLCompiler, name: quoted_name | str | None
+) -> quoted_name | str:
     return compiler.preparer.quote(name)  # type: ignore[arg-type]
 
 
 def format_server_default(
     compiler: DDLCompiler,
-    default: Optional[_ServerDefault],
+    default: _ServerDefaultType | None,
 ) -> str:
     # this can be updated to use compiler.render_default_string
     # for SQLAlchemy 2.0 and above; not in 1.4
@@ -326,13 +336,13 @@ def format_type(compiler: DDLCompiler, type_: TypeEngine) -> str:
 def alter_table(
     compiler: DDLCompiler,
     name: str,
-    schema: Optional[str],
+    schema: str | None,
 ) -> str:
     return "ALTER TABLE %s" % format_table_name(compiler, name, schema)
 
 
 def drop_column(
-    compiler: DDLCompiler, name: str, if_exists: Optional[bool] = None, **kw
+    compiler: DDLCompiler, name: str, if_exists: bool | None = None, **kw
 ) -> str:
     return "DROP COLUMN %s%s" % (
         "IF EXISTS " if if_exists else "",
@@ -347,13 +357,49 @@ def alter_column(compiler: DDLCompiler, name: str) -> str:
 def add_column(
     compiler: DDLCompiler,
     column: Column[Any],
-    if_not_exists: Optional[bool] = None,
+    if_not_exists: bool | None = None,
+    inline_references: bool | None = None,
+    inline_primary_key: bool | None = None,
     **kw,
 ) -> str:
     text = "ADD COLUMN %s%s" % (
         "IF NOT EXISTS " if if_not_exists else "",
         compiler.get_column_specification(column, **kw),
     )
+
+    if inline_primary_key and column.primary_key:
+        text += " PRIMARY KEY"
+
+    # Handle inline REFERENCES if requested
+    # Only render inline if there's exactly one foreign key AND the
+    # ForeignKeyConstraint is single-column, to avoid non-deterministic
+    # behavior with sets and to ensure proper syntax
+    if (
+        inline_references
+        and len(column.foreign_keys) == 1
+        and (fk := list(column.foreign_keys)[0])
+        and fk.constraint is not None
+        and len(fk.constraint.columns) == 1
+    ):
+        ref_col = fk.column
+        ref_table = ref_col.table
+
+        # Format with proper quoting
+        if ref_table.schema:
+            table_name = "%s.%s" % (
+                compiler.preparer.quote_schema(ref_table.schema),
+                compiler.preparer.quote(ref_table.name),
+            )
+        else:
+            table_name = compiler.preparer.quote(ref_table.name)
+
+        text += " REFERENCES %s (%s)" % (
+            table_name,
+            compiler.preparer.quote(ref_col.name),
+        )
+        text += compiler.define_constraint_match(fk.constraint)
+        text += compiler.define_constraint_cascades(fk.constraint)
+        text += compiler.define_constraint_deferrability(fk.constraint)
 
     const = " ".join(
         compiler.process(constraint) for constraint in column.constraints

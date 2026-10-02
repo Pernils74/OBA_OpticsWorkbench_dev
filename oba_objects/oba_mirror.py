@@ -14,7 +14,7 @@ OPTICAL_PROPERTIES = [
         "name": "Reflectivity",
         "type": "App::PropertyFloat",
         "group": "Mirror",
-        "default": 0.95,
+        "default": 1.00,
     },
     {
         "name": "Transmissivity",

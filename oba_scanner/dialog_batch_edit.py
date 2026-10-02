@@ -148,7 +148,7 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         row = QtWidgets.QHBoxLayout()
 
         self.btn_add = QtWidgets.QPushButton("Add Step")
-        self.btn_run = QtWidgets.QPushButton("Run")
+        self.btn_run = QtWidgets.QPushButton("Re Run")
         self.btn_stop = QtWidgets.QPushButton("Stop")
         self.btn_heatmap = QtWidgets.QPushButton("Heatmap")
         self.btn_xyz_list = QtWidgets.QPushButton("DB XYZ list")
@@ -184,7 +184,7 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         self.btn_db_reset.clicked.connect(self._reset_db)
         self.btn_db_clear.clicked.connect(self._clear_db)
         self.btn_add.clicked.connect(self._add_step)
-        self.btn_run.clicked.connect(self._run)
+        self.btn_run.clicked.connect(self._re_run)
         self.btn_stop.clicked.connect(self._stop)
         self.btn_heatmap.clicked.connect(self._open_heatmap)
         self.btn_xyz_list.clicked.connect(self._open_xyz_list)
@@ -217,7 +217,7 @@ class BatchGroupDock(QtWidgets.QDockWidget):
             db.close()
             self._update_db_label()
             self.refresh_list()
-            QtWidgets.QMessageBox.information(self, "DB", "All scan data cleared.")
+            # QtWidgets.QMessageBox.information(self, "DB", "All scan data cleared.")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "DB error", str(e))
 
@@ -253,7 +253,47 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         from .scan_db import get_doc_db_path, HitsDB
 
         path = get_doc_db_path()
+        if not path:
+            QtWidgets.QMessageBox.warning(self, "DB", "No database path")
+            return
 
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Recreate DB",
+            f"This will DELETE all data in:\n\n{path}\n\nContinue?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+        )
+
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+        try:
+            # 1. 🔴 STÄNG den aktiva anslutningen först (VIKTIGT!)
+            # Justera 'self.db' till det variabelnamn din klass använder för HitsDB-instansen
+            if hasattr(self, "db") and self.db:
+                try:
+                    self.db.close()
+                except Exception:
+                    pass
+                self.db = None  # Nollställ referensen
+            # 2. ✅ Ta bort filen nu när låsningen är släppt
+            if os.path.exists(path):
+                os.remove(path)
+            # 3. 🆕 Skapa en helt ny, tom databas (som kör _init_schema)
+            # Spara instansen direkt på klassen (t.ex. self.db) så applikationen kan använda den direkt
+            self.db = HitsDB(path)
+            # (Valfritt) Om du vill verifiera att den skapades och stänga direkt enligt din logik:
+            # db = HitsDB(path)
+            # db.close()
+            self._update_db_label()
+            QtWidgets.QMessageBox.information(self, "DB", "Database recreated.")
+
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "DB error", f"Could not reset database: {str(e)}")
+
+    def _reset_db_old(self):
+        from .scan_db import get_doc_db_path, HitsDB
+
+        path = get_doc_db_path()
         if not path:
             QtWidgets.QMessageBox.warning(self, "DB", "No database path")
             return
@@ -334,16 +374,19 @@ class BatchGroupDock(QtWidgets.QDockWidget):
             step.StepOffset = App.Vector(values[12], values[13], values[14])
 
             data = {
-                "plan": values[2],
-                "move": values[3],
-                "move1": values[4],
-                "move2": values[5],
-                "angle": values[6],
-                "rf": values[7],
-                "rt": values[8],
-                "rs": values[9],
-                "rotAxis": values[10],
-                "rotAngle": values[11],
+                "scanPlane": values[2],
+                "moveObject1": values[3],
+                "moveObject2": values[4],
+                "moveObject3": values[5],
+                # "opticalTarget1": values[6],
+                # "opticalTarget2": values[7],
+                # "opticalTarget3": values[8],
+                "pointsPerCircle": values[6],
+                "startRadius": values[7],
+                "endRadius": values[8],
+                "radialSteps": values[9],
+                "rotationAxis": values[10],
+                "rotationAngleDeg": values[11],
             }
 
             step.DataJSON = json.dumps(data, indent=2)
@@ -377,37 +420,45 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         dlg.editID.setText(step.Id or "")
         dlg.chkActive.setChecked(step.Active)
 
-        dlg.plan.setCurrentText(data.get("plan", "XY"))
-        dlg.move.setCurrentText(data.get("move", "none"))
-        dlg.move1.setCurrentText(data.get("move1", "none"))
-        dlg.move2.setCurrentText(data.get("move2", "none"))
-        dlg.angle.setValue(int(data.get("angle", 4)))
-        dlg.rf.setValue(float(data.get("rf", 0)))
-        dlg.rt.setValue(float(data.get("rt", 0.4)))
-        dlg.rs.setValue(int(data.get("rs", 4)))
-        dlg.rotAxis.setCurrentText(data.get("rotAxis", "X"))
-        dlg.rotAngle.setValue(float(data.get("rotAngle", 0.0)))
+        dlg.plan.setCurrentText(data.get("scanPlane", "XY"))
+        dlg.move1.setCurrentText(data.get("moveObject1", "none"))
+        dlg.move2.setCurrentText(data.get("moveObject2", "none"))
+        dlg.move3.setCurrentText(data.get("moveObject3", "none"))
 
-        step_offset = getattr(step, "StepOffset", App.Vector(0, 0, 0))
+        # dlg.optical1.setCurrentText(data.get("opticalTarget1", "none"))
+        # dlg.optical2.setCurrentText(data.get("opticalTarget2", "none"))
+        # dlg.optical3.setCurrentText(data.get("opticalTarget3", "none"))
 
-        dlg.offX.setValue(step_offset.x)
-        dlg.offY.setValue(step_offset.y)
-        dlg.offZ.setValue(step_offset.z)
+        dlg.angle.setValue(int(data.get("pointsPerCircle", 4)))
+        dlg.rf.setValue(float(data.get("startRadius", 0)))
+        dlg.rt.setValue(float(data.get("endRadius", 0.4)))
+        dlg.rs.setValue(int(data.get("radialSteps", 4)))
+        dlg.rotAxis.setCurrentText(data.get("rotationAxis", "X"))
+        dlg.rotAngle.setValue(float(data.get("rotationAngleDeg", 0.0)))
+
+        step.StepOffset = getattr(step, "StepOffset", App.Vector(0, 0, 0))
+
+        dlg.offX.setValue(step.StepOffset.x)
+        dlg.offY.setValue(step.StepOffset.y)
+        dlg.offZ.setValue(step.StepOffset.z)
 
         if dlg.exec_():
             values = dlg.values()
             step.DataJSON = json.dumps(
                 {
-                    "plan": values[2],
-                    "move": values[3],
-                    "move1": values[4],
-                    "move2": values[5],
-                    "angle": values[6],
-                    "rf": values[7],
-                    "rt": values[8],
-                    "rs": values[9],
-                    "rotAxis": values[10],
-                    "rotAngle": values[11],
+                    "scanPlane": values[2],
+                    "moveObject1": values[3],
+                    "moveObject2": values[4],
+                    "moveObject3": values[5],
+                    # "opticalTarget1": values[6],
+                    # "opticalTarget2": values[7],
+                    # "opticalTarget3": values[8],
+                    "pointsPerCircle": values[6],
+                    "startRadius": values[7],
+                    "endRadius": values[8],
+                    "radialSteps": values[9],
+                    "rotationAxis": values[10],
+                    "rotationAngleDeg": values[11],
                 },
                 indent=2,
             )
@@ -443,7 +494,9 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         self.refresh_list()
 
     # --------------------------------------------------
-    def _run(self):
+    def _re_run(self):
+        self._clear_db()
+
         self._cancel = False
 
         batch = self._get_batch()
@@ -477,6 +530,59 @@ class BatchGroupDock(QtWidgets.QDockWidget):
 # --------------------------------------------------
 # Utilities
 # --------------------------------------------------
+
+
+def find_optical_target(move_obj):
+    if not move_obj:
+        return None
+    # 1. Objektet själv
+    if hasattr(move_obj, "OpticalType"):
+        return move_obj
+
+    # 2. Förälder uppåt
+    try:
+        for parent in move_obj.InList:
+            if hasattr(parent, "OpticalType"):
+                return parent
+    except Exception:
+        pass
+
+    # 3. ShapeBinder-spårning
+
+    doc = move_obj.Document
+    for obj in doc.Objects:
+        if not hasattr(obj, "OpticalType"):
+            continue
+
+        # leta ShapeBinders under opticalobjektet
+        children = []
+
+        if hasattr(obj, "Group"):
+            children = obj.Group
+
+        for child in children:
+            support = getattr(child, "Support", None)
+            if not support:
+                continue
+
+            for sup in support:
+                src = sup[0]
+                # Matcher direkt Body eller Feature
+                if src == move_obj:
+                    return obj
+
+                # Matcher Body som äger featuren
+                try:
+                    body = move_obj.getParentGeoFeatureGroup()
+
+                    if body and src == body:
+                        return obj
+                except Exception:
+                    pass
+
+    return None
+
+
 def create_step_object(parent_group):
     doc = parent_group.Document
     step = doc.addObject("App::FeaturePython", "Step")
@@ -485,7 +591,7 @@ def create_step_object(parent_group):
     step.addProperty("App::PropertyString", "Id")
     step.addProperty("App::PropertyString", "DataJSON")
     step.addProperty("App::PropertyBool", "Active")
-    step.addProperty("App::PropertyVector", "StepOffset")
+    step.addProperty("App::PropertyVectorDistance", "StepOffset")
     step.StepOffset = App.Vector(0, 0, 0)
 
     step.Title = "Step"

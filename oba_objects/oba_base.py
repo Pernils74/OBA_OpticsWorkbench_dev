@@ -1,4 +1,4 @@
-# oba_ray_base.py
+# oba_base.py
 
 # Document
 #  ├─ OBAElementProxy        ← optisk logik
@@ -47,17 +47,8 @@ def _trigger_ray_engine(reason="", source=None, force=False):
     - Innehåller ALL routing, debug och policy
     """
 
-    doc = source.Document if source else App.ActiveDocument
-    if not doc:
-        return
-
-    # if hasattr(App, "_OBARealtimeObserver"):
-    #     if App._OBARealtimeObserver.drag_active:
-    #         # 🔕 All ray triggers blocked during drag
-    #         return
-
-    # engine = doc.getObject("OBARayConfig")  # framtida RayConfig
-    # if not engine or not hasattr(engine.Proxy, "trigger_recompute"):
+    # doc = source.Document if source else App.ActiveDocument
+    # if not doc:
     #     return
 
     # --------------------------------------------------
@@ -70,12 +61,8 @@ def _trigger_ray_engine(reason="", source=None, force=False):
     # )
 
     # --------------------------------------------------
-    # 🔥 DELEGATION – här slutar observerns ansvar
+    # 🔥 Kör tracing ....
     # --------------------------------------------------
-    # engine.Proxy.trigger_recompute()
-
-    # if reason == "show_surface_normal_toggled":
-    #     OBARayEngine.instance()._visualize_surface_normals(source)
 
     OBARayEngine.instance().notify_event(
         reason=reason,
@@ -89,33 +76,33 @@ def _trigger_ray_engine(reason="", source=None, force=False):
 # ============================================================
 
 
-def is_interactive_transform():
-    # 1. GUI‑kommandon (kan vara instabila!)
-    cmds = (
-        "Std_TransformManip",
-        "Std_Transform",
-        "Draft_Move",
-        "Draft_Rotate",
-        "Draft_Translate",
-    )
+# def is_interactive_transform():
+#     # 1. GUI‑kommandon (kan vara instabila!)
+#     cmds = (
+#         "Std_TransformManip",
+#         "Std_Transform",
+#         "Draft_Move",
+#         "Draft_Rotate",
+#         "Draft_Translate",
+#     )
 
-    active_cmd = False
-    for cmd in cmds:
-        try:
-            if Gui.isCommandActive(cmd):
-                active_cmd = True
-                break
-        except Exception:
-            # FreeCAD GUI är inte redo / kommando saknas
-            continue
+#     active_cmd = False
+#     for cmd in cmds:
+#         try:
+#             if Gui.isCommandActive(cmd):
+#                 active_cmd = True
+#                 break
+#         except Exception:
+#             # FreeCAD GUI är inte redo / kommando saknas
+#             continue
 
-    # 2. Aktiv dialog (TaskPanel)
-    try:
-        is_editing = Gui.Control.activeDialog() is not None
-    except Exception:
-        is_editing = False
+#     # 2. Aktiv dialog (TaskPanel)
+#     try:
+#         is_editing = Gui.Control.activeDialog() is not None
+#     except Exception:
+#         is_editing = False
 
-    return active_cmd or is_editing
+#     return active_cmd or is_editing
 
 
 # för att hantera drag/placement
@@ -147,38 +134,6 @@ class OBARealtimeObserver:
     # HUVUDEVENT: objekt ändrat
     # --------------------------------------------------
 
-    def is_manual_translation_old(self):
-        import FreeCADGui as Gui
-
-        # 1. Kolla om ett relevant GUI-kommando körs
-        active_cmd = any(Gui.isCommandActive(cmd) for cmd in ("Std_TransformManip", "Std_Transform", "Draft_Move", "Draft_Rotate"))
-
-        # 2. Kolla om användaren aktivt redigerar ett värde i Task-panelen
-        # (Hjälper om de ändrar Placement manuellt i panelen)
-        is_editing = Gui.Control.activeDialog() is not None
-
-        return active_cmd or is_editing
-
-    def is_manual_translation(self):
-        import FreeCADGui as Gui
-
-        # 1. Kolla om ett relevant GUI-kommando körs (med felsäkring)
-        active_cmd = False
-        for cmd_name in ("Std_TransformManip", "Std_Transform", "Draft_Move", "Draft_Rotate"):
-            try:
-                # Kontrollera först att kommandot finns för att undvika 'NoneType'-fel internt
-                cmd = Gui.Command.get(cmd_name)
-                if cmd and Gui.isCommandActive(cmd_name):
-                    active_cmd = True
-                    break
-            except Exception:
-                continue
-
-        # 2. Kolla om användaren aktivt redigerar ett värde i Task-panelen
-        is_editing = Gui.Control.activeDialog() is not None
-
-        return active_cmd or is_editing
-
     def slotChangedObject(self, obj, prop):
         if not self.enabled:
             return
@@ -187,20 +142,18 @@ class OBARealtimeObserver:
             return
 
         doc = obj.Document
-        if not doc:
-            return
+        # if not doc:
+        #     return
 
+        # print("[CHANGED]", obj.Name, obj.TypeId)
         # print("[oba base] slotchangedobject", obj.Name, prop, is_interactive_transform())
 
         affected = self._affected_optical_objects(doc, obj)
+
         if not affected:
             return
 
-        # ✅ GUARD: endast MANUELL translation
-        if not self.is_manual_translation():
-            # Python / script / recompute → ignorera
-            # print("[oba base] manual translation")
-            return
+        # print("[OBSERVER]", obj.Name, obj.TypeId, prop)
 
         # print("\n drag_körs..")
 
@@ -237,27 +190,6 @@ class OBARealtimeObserver:
                 if changed_obj.isDerivedFrom("PartDesign::Body") and src.isDerivedFrom("PartDesign::Feature") and src.getParentGeoFeatureGroup() is changed_obj:
                     affected.append(opt)
                     break
-        return affected
-
-    def _affected_optical_objects_old(self, doc, changed_obj):
-        """
-        Returnerar lista av optiska objekt som påverkas
-        av förändringen i changed_obj.
-        """
-        affected = []
-        for opt in doc.findObjects("App::DocumentObjectGroupPython"):
-            if not hasattr(opt, "Binders"):
-                continue
-            for b in opt.Binders:
-                if not b.Support:
-                    continue
-                src = b.Support[0][0]
-                print(f"Checking {opt.Name} binder source {src.Name} against changed {changed_obj.Name}, src type {type(src)}, changed type {type(changed_obj)}")
-
-                if src is changed_obj:
-                    affected.append(opt)
-                    break
-
         return affected
 
     # --------------------------------------------------
@@ -303,44 +235,36 @@ class OBARealtimeObserver:
         if not doc:
             self._dirty_sources.clear()
             return
+
+        cfg = doc.getObject("OBARayConfig")
+        if cfg and cfg.RunMode == "MANUAL":
+            self.drag_active = False
+            self._dirty_sources.clear()
+            return
+
+        # print("[FLUSH]", "drag_active=", self.drag_active, "dirty=", len(self._dirty_sources))
+
         # plocka EN representativ källa
         source = next(iter(self._dirty_sources))
         self._dirty_sources.clear()
 
         # 🔑 DETTA ÄR NYCKELN
         # exakt samma effekt som gamla RayCollector
-        try:
-            App.Console.PrintLog("[OBA] Commit recompute before trace\n")
-            doc.recompute()
-        except Exception:
-            pass
+        # try:
+        #     App.Console.PrintLog("[OBA] Commit recompute before trace\n")
+        #     doc.recompute()
+        # except Exception:
+        #     pass
         # print("\n flush_körs")
         # 👉 NU är geometrin konsistent
 
         self.drag_active = False  # ✅ drag slutar HÄR
 
-        _trigger_ray_engine(
-            reason="geometry_committed",
-            source=source,
-        )
+        _trigger_ray_engine(reason="geometry_committed_from_FLUSH", source=source, force=False)
 
     # --------------------------------------------------
     # OPTIONAL: deletion (kan förenklas eller tas bort)
     # --------------------------------------------------
-
-    def slotDeletedObject_old(self, obj):
-        if not self.enabled:
-            return
-        doc = App.ActiveDocument
-        if not doc:
-            return
-        # Endast optiskt relevanta objekt
-        if not hasattr(obj, "OpticalType"):
-            return
-        _trigger_ray_engine(
-            reason=f"object_deleted:{obj.Name}",
-            source=obj,
-        )
 
     def slotDeletedObject(self, obj):
         if not self.enabled:
@@ -585,6 +509,29 @@ class OBAElementProxy:
 # ============================================================
 
 
+def get_optical_icon_path(obj):
+    try:
+        ot = getattr(obj, "OpticalType", "").lower()
+
+        if not ot:
+            return None
+
+        path = os.path.join(
+            BASE_PATH,
+            "..",
+            "icons",
+            f"oba_{ot}.svg",
+        )
+
+        if os.path.exists(path):
+            return path
+
+    except Exception:
+        pass
+
+    return None
+
+
 class OBAViewProviderBase:
     """
     Hanterar ikon + dubbelklick
@@ -614,19 +561,22 @@ class OBAViewProviderBase:
             self._final_root = None
 
     def getIcon(self):
-        try:
-            obj = self.Object
-            ot = getattr(obj, "OpticalType", "").lower()
-            if not ot:
-                return ""
+        return get_optical_icon_path(self.Object) or ""
 
-            # print("ikooon", ot)
-            path = os.path.join(BASE_PATH, "..", "icons", f"oba_{ot}.svg")
-            if os.path.exists(path):
-                return path
-        except Exception:
-            pass
-        return ""
+    # def getIcon(self):
+    #     try:
+    #         obj = self.Object
+    #         ot = getattr(obj, "OpticalType", "").lower()
+    #         if not ot:
+    #             return ""
+
+    #         # print("ikooon", ot)
+    #         path = os.path.join(BASE_PATH, "..", "icons", f"oba_{ot}.svg")
+    #         if os.path.exists(path):
+    #             return path
+    #     except Exception:
+    #         pass
+    #     return ""
 
     def doubleClicked(self, vobj):
         try:

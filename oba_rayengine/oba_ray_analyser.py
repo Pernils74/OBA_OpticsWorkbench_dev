@@ -139,6 +139,7 @@ def aggregate_interaction_clusters(
                     extra.get("power_in", 0.0),
                     extra.get("power_out", 0.0),
                     extra.get("absorbed_power", 0.0),
+                    extra.get("surface_center"),
                 )
             )
 
@@ -152,12 +153,13 @@ def aggregate_interaction_clusters(
         if len(items) < min_hits:
             continue
 
-        pts = np.array([p for _, p, *_ in items], dtype=float)
+        # pts = np.array([p for _, p, *_ in items], dtype=float)
+        pts = np.array([p for _, p, _, _, _, _ in items], dtype=float)
 
         # --- power ---
-        power_in = sum(pin for _, _, pin, _, _ in items)
-        power_out = sum(pout for _, _, _, pout, _ in items)
-        power_abs = sum(pabs for _, _, _, _, pabs in items)
+        power_in = sum(pin for _, _, pin, _, _, _ in items)
+        power_out = sum(pout for _, _, _, pout, _, _ in items)
+        power_abs = sum(pabs for _, _, _, _, pabs, _ in items)
 
         power_efficiency = power_out / (power_in + 1e-9)
 
@@ -232,6 +234,11 @@ def aggregate_interaction_clusters(
         cluster_id = f"{idx}:{obj}:B{bounce}:P{prev_hit_label}"
         idx += 1
 
+        surface_centers = [sc for _, _, _, _, _, sc in items if sc is not None]
+        target_center = None
+        if surface_centers:
+            target_center = np.median(np.asarray(surface_centers, dtype=float), axis=0)
+
         clusters[cluster_id] = {
             # --------------------------------------------------
             # CORE DATA
@@ -248,6 +255,10 @@ def aggregate_interaction_clusters(
                 "absorbed": float(power_abs),
                 "efficiency": float(power_efficiency),
             },
+            # träff molnets centrum
+            "target_center": (tuple(map(float, target_center)) if target_center is not None else None),
+            # alla inblandade ytors centra
+            "surface_centers": [tuple(map(float, sc)) for sc in surface_centers],
             # --------------------------------------------------
             # POSITION
             # --------------------------------------------------
@@ -382,6 +393,23 @@ def debug_print_surface_clusters(
     print("\n" + "=" * 60)
     print(f"[DEBUG] Total clusters: {len(clusters)}")
     print("=" * 60 + "\n")
+
+
+def get_emitted_power(emitter_id=None, mode="final"):
+    rm = OBARayManager()
+    stats = rm.get_emitted_stats(mode)
+    if emitter_id:
+        s = stats.get(emitter_id, {})
+
+        return (
+            s.get("emitted_power", 0.0),
+            s.get("emitted_rays", 0),
+        )
+
+    emitted_power = sum(v["emitted_power"] for v in stats.values())
+    emitted_rays = sum(v["emitted_rays"] for v in stats.values())
+
+    return emitted_power, emitted_rays
 
 
 # ===============================================

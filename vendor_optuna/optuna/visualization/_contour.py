@@ -1,20 +1,24 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 import math
 from typing import Any
 from typing import NamedTuple
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from optuna._warnings import optuna_warn
 from optuna.logging import get_logger
-from optuna.samplers._base import _CONSTRAINTS_KEY
 from optuna.study import Study
 from optuna.study import StudyDirection
 from optuna.trial import FrozenTrial
 from optuna.trial import TrialState
 from optuna.visualization._plotly_imports import _imports
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 from optuna.visualization._utils import _check_plot_args
 from optuna.visualization._utils import _filter_nonfinite
 from optuna.visualization._utils import _is_log_scale
@@ -276,7 +280,7 @@ def _get_contour_info(
 
         for input_p_name in params:
             if input_p_name not in all_params:
-                raise ValueError("Parameter {} does not exist in your study.".format(input_p_name))
+                raise ValueError(f"Parameter {input_p_name} does not exist in your study.")
         sorted_params = sorted(set(params))
 
     sub_plot_infos: list[list[_SubContourInfo]]
@@ -317,10 +321,10 @@ def _get_contour_subplot_info(
         return _SubContourInfo(xaxis=xaxis, yaxis=yaxis, z_values={})
 
     if len(xaxis.indices) < 2:
-        _logger.warning("Param {} unique value length is less than 2.".format(x_param))
+        _logger.warning(f"Param {x_param} unique value length is less than 2.")
         return _SubContourInfo(xaxis=xaxis, yaxis=yaxis, z_values={})
     if len(yaxis.indices) < 2:
-        _logger.warning("Param {} unique value length is less than 2.".format(y_param))
+        _logger.warning(f"Param {y_param} unique value length is less than 2.")
         return _SubContourInfo(xaxis=xaxis, yaxis=yaxis, z_values={})
 
     z_values: dict[tuple[int, int], float] = {}
@@ -361,8 +365,7 @@ def _get_contour_subplot_info(
 
 
 def _satisfy_constraints(trial: FrozenTrial) -> bool:
-    constraints = trial.system_attrs.get(_CONSTRAINTS_KEY)
-    return constraints is None or all([x <= 0.0 for x in constraints])
+    return all(x <= 0.0 for x in trial.constraints.values())
 
 
 def _get_axis_info(trials: list[FrozenTrial], param_name: str) -> _AxisInfo:

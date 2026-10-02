@@ -1,5 +1,5 @@
 # sql/lambdas.py
-# Copyright (C) 2005-2025 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2026 the SQLAlchemy authors and contributors
 # <see AUTHORS file>
 #
 # This module is part of SQLAlchemy and is released under
@@ -43,7 +43,6 @@ from .. import exc
 from .. import inspection
 from .. import util
 from ..util.typing import Literal
-
 
 if TYPE_CHECKING:
     from .elements import BindParameter
@@ -301,7 +300,7 @@ class LambdaElement(elements.ClauseElement):
                 rec = lambda_element._rec
                 if rec.bindparam_trackers:
                     tracker_instrumented_fn = (
-                        rec.tracker_instrumented_fn  # type:ignore [union-attr] # noqa: E501
+                        rec.tracker_instrumented_fn  # type: ignore [union-attr] # noqa: E501
                     )
                     for tracker in rec.bindparam_trackers:
                         tracker(
@@ -314,7 +313,7 @@ class LambdaElement(elements.ClauseElement):
         return rec
 
     def __getattr__(self, key):
-        return getattr(self._rec.expected_expr, key)
+        return getattr(self._resolved, key)
 
     @property
     def _is_sequence(self):
@@ -1201,7 +1200,7 @@ class AnalyzedFunction:
         """Run the tracker-generated expression through coercion rules.
 
         After the user-defined lambda has been invoked to produce a statement
-        for re-use, run it through coercion rules to both check that it's the
+        for reuse, run it through coercion rules to both check that it's the
         correct type of object and also to coerce it to its useful form.
 
         """

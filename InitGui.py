@@ -127,13 +127,36 @@ if IS_ACTIVE:
                 pixmap=get_icon("oba_optical_object.svg"),
             )
 
-            # hot_reload.register_command(
-            #     command="OBA_CreateMirrorBuilder",
-            #     impl_module="oba_objects.oba_mirrorbuilder",
-            #     menu="Mirror builder",
-            #     tooltip="Mirror builder",
-            #     pixmap=get_icon("oba_mirrorbuilder.svg"),
-            # )
+            hot_reload.register_command(
+                command="OBA_CreateEllipsoid",
+                impl_module="TOOLBOX.oba_ellipsoid",
+                menu="Ellipsoid builder",
+                tooltip="Ellipsoid builder",
+                pixmap=get_icon("oba_mirrorbuilder2.svg"),
+            )
+
+            hot_reload.register_command(
+                command="OBA_CreateMainMirror",
+                impl_module="TOOLBOX.oba_main_mirror",
+                menu="Main mirror builder",
+                tooltip="Main mirror builder",
+                pixmap=get_icon("oba_mirrorbuilder2.svg"),
+            )
+
+            hot_reload.register_command(
+                command="OBA_CreateCompMirror",
+                impl_module="TOOLBOX.oba_comp_mirror",
+                menu="Component mirror builder",
+                tooltip="Component mirror builder",
+                pixmap=get_icon("oba_mirrorbuilder2.svg"),
+            )
+            hot_reload.register_command(
+                command="OBA_CreateWhiteCell",
+                impl_module="TOOLBOX.oba_white_cell",
+                menu="White cell builder",
+                tooltip="White cell builder",
+                pixmap=get_icon("oba_mirrorbuilder2.svg"),
+            )
 
             # hot_reload.register_command(
             #     command="OBA_CreateLensBuilder",
@@ -150,6 +173,17 @@ if IS_ACTIVE:
             #     tooltip="Plane builder",
             #     pixmap=get_icon("oba_planebuilder.svg"),
             # )
+
+            # -------------------------
+            # --------- XGBoost --------
+            # -------------------------
+            hot_reload.register_command(
+                command="OBA_CreateXGBoostTrainingDialog",
+                impl_module="TOOLBOX.xgboost_training_dialog",
+                menu="XGBoost training",
+                tooltip="XGBoost training",
+                pixmap=get_icon("oba_mirrorbuilder2.svg"),
+            )
 
             # -------------------------
             # --------- Utils --------
@@ -319,6 +353,12 @@ if IS_ACTIVE:
                 SEP(),
                 "ShowOptimizeDialog",
                 SEP(),
+                "OBA_CreateEllipsoid",
+                "OBA_CreateMainMirror",
+                "OBA_CreateCompMirror",
+                "OBA_CreateWhiteCell",
+                SEP(),
+                "OBA_CreateXGBoostTrainingDialog",
                 SEP(),
                 "OBA_ShowBatchDialog",
                 "OBA_ShowXYZLiveList",

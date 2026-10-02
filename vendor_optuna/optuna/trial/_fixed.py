@@ -1,22 +1,27 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 import datetime
+import math
 from typing import Any
 from typing import overload
+from typing import TYPE_CHECKING
 
 from optuna import distributions
-from optuna._convert_positional_args import convert_positional_args
 from optuna._deprecated import deprecated_func
 from optuna._warnings import optuna_warn
-from optuna.distributions import BaseDistribution
-from optuna.distributions import CategoricalChoiceType
 from optuna.distributions import CategoricalDistribution
 from optuna.distributions import FloatDistribution
 from optuna.distributions import IntDistribution
-from optuna.trial._base import _SUGGEST_INT_POSITIONAL_ARGS
+from optuna.study._constrained_optimization import _CONSTRAINTS_KEY
+from optuna.study._constrained_optimization import _get_constraints_from_system_attrs
 from optuna.trial._base import BaseTrial
 
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from optuna.distributions import BaseDistribution
+    from optuna.distributions import CategoricalChoiceType
 
 _suggest_deprecated_msg = "Use suggest_float{args} instead."
 
@@ -91,11 +96,6 @@ class FixedTrial(BaseTrial):
     def suggest_discrete_uniform(self, name: str, low: float, high: float, q: float) -> float:
         return self.suggest_float(name, low, high, step=q)
 
-    @convert_positional_args(
-        previous_positional_arg_names=_SUGGEST_INT_POSITIONAL_ARGS,
-        deprecated_version="3.5.0",
-        removed_version="5.0.0",
-    )
     def suggest_int(
         self, name: str, low: int, high: int, *, step: int = 1, log: bool = False
     ) -> int:
@@ -134,10 +134,6 @@ class FixedTrial(BaseTrial):
 
     def set_user_attr(self, key: str, value: Any) -> None:
         self._user_attrs[key] = value
-
-    @deprecated_func("3.1.0", "5.0.0")
-    def set_system_attr(self, key: str, value: Any) -> None:
-        self._system_attrs[key] = value
 
     def _suggest(self, name: str, distribution: BaseDistribution) -> Any:
         if name not in self._params:
@@ -185,3 +181,49 @@ class FixedTrial(BaseTrial):
     @property
     def number(self) -> int:
         return self._number
+
+    @property
+    def constraints(self) -> dict[str, float]:
+        """Returns constraint values.
+
+        The trial is considered feasible when all constraint values are zero or less.
+
+        Returns:
+            constraint values of trial.
+        """
+
+        return _get_constraints_from_system_attrs(self.system_attrs)
+
+    def set_constraint(self, key: str, value: float) -> None:
+        """Set a constraint value for the trial.
+
+        Args:
+            key:
+                A constraint name.
+            value:
+                A constraint value. The trial is considered feasible when all constraint values
+                are zero or less.
+        """
+
+        try:
+            # For convenience, we allow users to set a value that can be cast to `float`.
+            value = float(value)
+        except (TypeError, ValueError):
+            message = (
+                f"The `value` argument is of type '{type(value)}' but supposed to be a float."
+            )
+            raise TypeError(message) from None
+
+        if math.isnan(value):
+            raise ValueError(f"Attempted to set a constraint for {key!r}, but NaN is not allowed.")
+
+        constraint_key = f"{_CONSTRAINTS_KEY}:{key}"
+
+        if constraint_key in self._system_attrs:
+            # Do nothing if already set.
+            optuna_warn(
+                f"The constraint value is ignored because this constraint `{key=}` is already set."
+            )
+            return
+
+        self._system_attrs[constraint_key] = value

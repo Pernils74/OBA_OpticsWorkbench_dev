@@ -46,19 +46,19 @@ class StepEditDialog(QtWidgets.QDialog):
         common_items = ["none"] + self._beams + self._bodies + self._compounds + self._features
 
         form = QtWidgets.QFormLayout()
-        self.move = QtWidgets.QComboBox()
         self.move1 = QtWidgets.QComboBox()
         self.move2 = QtWidgets.QComboBox()
+        self.move3 = QtWidgets.QComboBox()
 
-        for cb in (self.move, self.move1, self.move2):
+        for cb in (self.move1, self.move2, self.move3):
             cb.addItems(common_items)
 
-        for cb in (self.move, self.move1, self.move2):
+        for cb in (self.move1, self.move2, self.move3):
             self._decorate_target_combobox(cb)
 
-        form.addRow("Move target:", self.move)
         form.addRow("Move target 1:", self.move1)
         form.addRow("Move target 2:", self.move2)
+        form.addRow("Move target 3:", self.move3)
         layout.addLayout(form)
 
         # --------------------------------------------------------
@@ -77,7 +77,7 @@ class StepEditDialog(QtWidgets.QDialog):
 
         self.angle = QtWidgets.QSpinBox()
         self.angle.setRange(1, 360)
-        self.angle.setValue(8)
+        self.angle.setValue(4)
 
         self.rf = QtWidgets.QDoubleSpinBox()
         self.rf.setRange(0, 9999)
@@ -90,7 +90,7 @@ class StepEditDialog(QtWidgets.QDialog):
 
         self.rs = QtWidgets.QSpinBox()
         self.rs.setRange(1, 2000)
-        self.rs.setValue(4)
+        self.rs.setValue(6)
 
         self.rotAxis = QtWidgets.QComboBox()
         self.rotAxis.addItems(["X", "Y", "Z"])
@@ -150,7 +150,7 @@ class StepEditDialog(QtWidgets.QDialog):
     # Accept with validation ✅
     # ------------------------------------------------------------
     def _on_accept(self):
-        if self.move.currentText() == "none" and self.move1.currentText() == "none" and self.move2.currentText() == "none":
+        if self.move1.currentText() == "none" and self.move2.currentText() == "none" and self.move3.currentText() == "none":
             QtWidgets.QMessageBox.warning(self, "No valid target selected", "You must select at least one object:\n\n" "• Move target\n" "• Move target 1\n" "• Move target 2")
             return  # 🔴 Stop accept
 
@@ -171,9 +171,9 @@ class StepEditDialog(QtWidgets.QDialog):
             self.editID.text().strip(),
             self.chkActive.isChecked(),
             self.plan.currentText(),
-            self.move.currentText(),
             self.move1.currentText(),
             self.move2.currentText(),
+            self.move3.currentText(),
             self.angle.value(),
             self.rf.value(),
             self.rt.value(),

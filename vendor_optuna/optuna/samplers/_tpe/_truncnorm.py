@@ -36,6 +36,7 @@ from __future__ import annotations
 import functools
 import math
 import sys
+from typing import cast
 
 import numpy as np
 
@@ -45,7 +46,6 @@ from optuna.samplers._tpe._erf import erf
 _norm_pdf_C = math.sqrt(2 * math.pi)
 _norm_pdf_logC = math.log(_norm_pdf_C)
 _ndtri_exp_approx_C = math.sqrt(3) / math.pi
-_log_2 = math.log(2)
 
 
 def _log_sum(log_p: np.ndarray, log_q: np.ndarray) -> np.ndarray:
@@ -103,7 +103,7 @@ def _log_ndtr_single(a: float) -> float:
 
 
 def _log_ndtr(a: np.ndarray) -> np.ndarray:
-    return np.frompyfunc(_log_ndtr_single, 1, 1)(a).astype(float)
+    return cast(np.ndarray, np.frompyfunc(_log_ndtr_single, 1, 1)(a)).astype(float)
 
 
 def _norm_logpdf(x: np.ndarray) -> np.ndarray:

@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from collections.abc import Sequence
 from typing import Any
 from typing import TYPE_CHECKING
 
-import numpy as np
-
+from optuna import _deprecated
 from optuna._experimental import experimental_class
-from optuna.distributions import BaseDistribution
+from optuna._warnings import optuna_warn
 from optuna.samplers._ga import BaseGASampler
 from optuna.samplers._lazy_random_state import LazyRandomState
 from optuna.samplers._nsgaiii._elite_population_selection_strategy import (
@@ -19,12 +16,19 @@ from optuna.samplers.nsgaii._after_trial_strategy import NSGAIIAfterTrialStrateg
 from optuna.samplers.nsgaii._child_generation_strategy import NSGAIIChildGenerationStrategy
 from optuna.samplers.nsgaii._crossovers._base import BaseCrossover
 from optuna.samplers.nsgaii._crossovers._uniform import UniformCrossover
+from optuna.samplers.nsgaii._mutations._base import BaseMutation
 from optuna.search_space import IntersectionSearchSpace
 from optuna.trial import FrozenTrial
 from optuna.trial import TrialState
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from collections.abc import Sequence
+
+    import numpy as np
+
+    from optuna.distributions import BaseDistribution
     from optuna.study import Study
 
 
@@ -34,6 +38,17 @@ class NSGAIIISampler(BaseGASampler):
 
     NSGA-III stands for "Nondominated Sorting Genetic Algorithm III",
     which is a modified version of NSGA-II for many objective optimization problem.
+
+    .. note::
+        When optimizing many objectives, a large fraction of trials may become non-dominated
+        in general due to the curse of dimensionality in the objective space. If possible, consider
+        modeling some objectives as constraints. Constraints can be set within the objective
+        function using the :meth:`~optuna.trial.Trial.set_constraint` method.
+        :class:`~optuna.samplers.NSGAIISampler`, :class:`~optuna.samplers.TPESampler`, and
+        :class:`~optuna.samplers.GPSampler` also support constrained multi-objective optimization.
+        Since Bayesian optimization is often sample efficient, it is worth considering
+        :class:`~optuna.samplers.TPESampler`, or :class:`~optuna.samplers.GPSampler` for
+        ``n_trials < 1000``.
 
     For further information about NSGA-III, please refer to the following papers:
 
@@ -71,6 +86,7 @@ class NSGAIIISampler(BaseGASampler):
         self,
         *,
         population_size: int = 50,
+        mutation: BaseMutation | None = None,
         mutation_prob: float | None = None,
         crossover: BaseCrossover | None = None,
         crossover_prob: float = 0.9,
@@ -94,6 +110,12 @@ class NSGAIIISampler(BaseGASampler):
 
         if population_size < 2:
             raise ValueError("`population_size` must be greater than or equal to 2.")
+
+        if constraints_func is not None:
+            msg = _deprecated._DEPRECATION_WARNING_TEMPLATE.format(
+                name="`constraints_func`", d_ver="5.0.0", r_ver="7.0.0"
+            )
+            optuna_warn(f"{msg} Use `optuna.trial.Trial.set_constraint` instead.", FutureWarning)
 
         if crossover is None:
             crossover = UniformCrossover(swapping_prob)
@@ -132,6 +154,7 @@ class NSGAIIISampler(BaseGASampler):
             child_generation_strategy
             or NSGAIIChildGenerationStrategy(
                 crossover_prob=crossover_prob,
+                mutation=mutation,
                 mutation_prob=mutation_prob,
                 swapping_prob=swapping_prob,
                 crossover=crossover,

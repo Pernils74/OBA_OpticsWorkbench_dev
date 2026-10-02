@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 from collections import UserDict
-from collections.abc import Sequence
 import copy
-import datetime
+import math
 from typing import Any
 from typing import overload
+from typing import TYPE_CHECKING
 
 import optuna
 from optuna import distributions
 from optuna import logging
 from optuna import pruners
-from optuna._convert_positional_args import convert_positional_args
 from optuna._deprecated import deprecated_func
 from optuna._warnings import optuna_warn
 from optuna.distributions import BaseDistribution
@@ -19,9 +18,17 @@ from optuna.distributions import CategoricalChoiceType
 from optuna.distributions import CategoricalDistribution
 from optuna.distributions import FloatDistribution
 from optuna.distributions import IntDistribution
-from optuna.trial import FrozenTrial
-from optuna.trial._base import _SUGGEST_INT_POSITIONAL_ARGS
+from optuna.study._constrained_optimization import _CONSTRAINTS_KEY
+from optuna.study._constrained_optimization import _get_constraints_from_system_attrs
 from optuna.trial._base import BaseTrial
+
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    import datetime
+
+    from optuna.study import Study
+    from optuna.trial import FrozenTrial
 
 
 _logger = logging.get_logger(__name__)
@@ -47,7 +54,7 @@ class Trial(BaseTrial):
 
     """
 
-    def __init__(self, study: "optuna.study.Study", trial_id: int) -> None:
+    def __init__(self, study: Study, trial_id: int) -> None:
         self.study = study
         self._trial_id = trial_id
 
@@ -237,11 +244,6 @@ class Trial(BaseTrial):
 
         return self.suggest_float(name, low, high, step=q)
 
-    @convert_positional_args(
-        previous_positional_arg_names=_SUGGEST_INT_POSITIONAL_ARGS,
-        deprecated_version="3.5.0",
-        removed_version="5.0.0",
-    )
     def suggest_int(
         self, name: str, low: int, high: int, *, step: int = 1, log: bool = False
     ) -> int:
@@ -472,7 +474,7 @@ class Trial(BaseTrial):
                 assume that ``step`` starts at zero. For example,
                 :class:`~optuna.pruners.MedianPruner` simply checks if ``step`` is less than
                 ``n_warmup_steps`` as the warmup mechanism.
-                ``step`` must be a positive integer.
+                ``step`` must be a non-negative integer.
         """
 
         if len(self.study.directions) > 1:
@@ -496,12 +498,12 @@ class Trial(BaseTrial):
             raise TypeError(message) from None
 
         if step < 0:
-            raise ValueError(f"The `step` argument is {step} but cannot be negative.")
+            raise ValueError(f"`{step=}` must be non-negative.")
 
         if step in self._cached_frozen_trial.intermediate_values:
             # Do nothing if already reported.
             optuna_warn(
-                f"The reported value is ignored because this `step` {step} is already reported."
+                f"The reported value is ignored because this `{step=}` is already reported."
             )
             return
 
@@ -597,24 +599,6 @@ class Trial(BaseTrial):
         self.storage.set_trial_user_attr(self._trial_id, key, value)
         self._cached_frozen_trial.user_attrs[key] = value
 
-    @deprecated_func("3.1.0", "5.0.0")
-    def set_system_attr(self, key: str, value: Any) -> None:
-        """Set system attributes to the trial.
-
-        Note that Optuna internally uses this method to save system messages such as failure
-        reason of trials. Please use :func:`~optuna.trial.Trial.set_user_attr` to set users'
-        attributes.
-
-        Args:
-            key:
-                A key string of the attribute.
-            value:
-                A value of the attribute. The value should be JSON serializable.
-        """
-
-        self.storage.set_trial_system_attr(self._trial_id, key, value)
-        self._cached_frozen_trial.system_attrs[key] = value
-
     def _suggest(self, name: str, distribution: BaseDistribution) -> Any:
         storage = self.storage
         trial_id = self._trial_id
@@ -656,9 +640,8 @@ class Trial(BaseTrial):
         contained = distribution._contains(param_value_in_internal_repr)
         if not contained:
             optuna_warn(
-                "Fixed parameter '{}' with value {} is out of range for distribution {}.".format(
-                    name, param_value, distribution
-                )
+                f"Fixed parameter {name} with value {param_value} is out of range "
+                f"for distribution {distribution}."
             )
         return True
 
@@ -670,8 +653,8 @@ class Trial(BaseTrial):
 
         if name not in self.relative_search_space:
             raise ValueError(
-                "The parameter '{}' was sampled by `sample_relative` method "
-                "but it is not contained in the relative search space.".format(name)
+                f"The parameter {name} was sampled by `sample_relative` method "
+                "but it is not contained in the relative search space."
             )
 
         relative_distribution = self.relative_search_space[name]
@@ -685,18 +668,17 @@ class Trial(BaseTrial):
         old_distribution = self._cached_frozen_trial.distributions.get(name, distribution)
         if old_distribution != distribution:
             optuna_warn(
-                'Inconsistent parameter values for distribution with name "{}"! '
+                f'Inconsistent parameter values for distribution with name "{name}"! '
                 "This might be a configuration mistake. "
                 "Optuna allows to call the same distribution with the same "
                 "name more than once in a trial. "
                 "When the parameter values are inconsistent optuna only "
                 "uses the values of the first call and ignores all following. "
-                "Using these values: {}".format(name, old_distribution._asdict()),
+                f"Using these values: {old_distribution._asdict()}",
                 RuntimeWarning,
             )
 
     def _get_latest_trial(self) -> FrozenTrial:
-        # TODO(eukaryo): Remove this method after `system_attrs` property is removed.
         latest_trial = copy.copy(self._cached_frozen_trial)
         latest_trial.system_attrs = _LazyTrialSystemAttrs(self._trial_id, self.storage)
         return latest_trial
@@ -732,17 +714,6 @@ class Trial(BaseTrial):
         return copy.deepcopy(self._cached_frozen_trial.user_attrs)
 
     @property
-    @deprecated_func("3.1.0", "5.0.0")
-    def system_attrs(self) -> dict[str, Any]:
-        """Return system attributes.
-
-        Returns:
-            A dictionary containing all system attributes.
-        """
-
-        return copy.deepcopy(self.storage.get_trial_system_attrs(self._trial_id))
-
-    @property
     def datetime_start(self) -> datetime.datetime | None:
         """Return start datetime.
 
@@ -760,6 +731,55 @@ class Trial(BaseTrial):
         """
 
         return self._cached_frozen_trial.number
+
+    @property
+    def constraints(self) -> dict[str, float]:
+        """Returns constraint values.
+
+        The trial is considered feasible when all constraint values are zero or less.
+
+        Returns:
+            constraint values of trial.
+        """
+
+        system_attrs = self.storage.get_trial_system_attrs(self._trial_id)
+        return _get_constraints_from_system_attrs(system_attrs)
+
+    def set_constraint(self, key: str, value: float) -> None:
+        """Set a constraint value for the trial.
+
+        Args:
+            key:
+                A constraint name.
+            value:
+                A constraint value. The trial is considered feasible when all constraint values
+                are zero or less.
+        """
+
+        try:
+            # For convenience, we allow users to set a value that can be cast to `float`.
+            value = float(value)
+        except (TypeError, ValueError):
+            message = (
+                f"The `value` argument is of type '{type(value)}' but supposed to be a float."
+            )
+            raise TypeError(message) from None
+
+        if math.isnan(value):
+            raise ValueError(f"Attempted to set a constraint for {key!r}, but NaN is not allowed.")
+
+        constraint_key = f"{_CONSTRAINTS_KEY}:{key}"
+
+        system_attrs = self.storage.get_trial_system_attrs(self._trial_id)
+        if constraint_key in system_attrs:
+            # Do nothing if already set.
+            optuna_warn(
+                f"The constraint value is ignored because this constraint `{key=}` is already set."
+            )
+            return
+
+        self.storage.set_trial_system_attr(self._trial_id, constraint_key, value)
+        self._cached_frozen_trial.system_attrs[constraint_key] = value
 
 
 class _LazyTrialSystemAttrs(UserDict):

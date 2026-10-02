@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -13,8 +13,13 @@ from optuna.importance._base import _get_trans_params
 from optuna.importance._base import _param_importances_to_dict
 from optuna.importance._base import _sort_dict_by_importance
 from optuna.importance._base import BaseImportanceEvaluator
-from optuna.study import Study
-from optuna.trial import FrozenTrial
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from optuna.study import Study
+    from optuna.trial import FrozenTrial
 
 
 with try_import() as _imports:
@@ -79,6 +84,8 @@ class MeanDecreaseImpurityImportanceEvaluator(BaseImportanceEvaluator):
             return {}
 
         trials: list[FrozenTrial] = _get_filtered_trials(study, params=params, target=target)
+        if len(trials) <= 1:
+            return {k: 0.0 for k in params}
         trans = _SearchSpaceTransform(distributions, transform_log=False, transform_step=False)
         trans_params: np.ndarray = _get_trans_params(trials, trans)
         target_values: np.ndarray = _get_target_values(trials, target)

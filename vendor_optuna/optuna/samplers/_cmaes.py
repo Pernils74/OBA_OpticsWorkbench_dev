@@ -1,24 +1,22 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 import copy
 import math
 import pickle
 from typing import Any
 from typing import cast
 from typing import TYPE_CHECKING
-from typing import Union
 
 import numpy as np
 
 import optuna
 from optuna import _deprecated
 from optuna import logging
+from optuna._convert_positional_args import convert_positional_args
 from optuna._experimental import warn_experimental_argument
 from optuna._imports import _LazyImport
 from optuna._transform import _SearchSpaceTransform
 from optuna._warnings import optuna_warn
-from optuna.distributions import BaseDistribution
 from optuna.distributions import FloatDistribution
 from optuna.distributions import IntDistribution
 from optuna.samplers import BaseSampler
@@ -26,14 +24,19 @@ from optuna.samplers._base import _INDEPENDENT_SAMPLING_WARNING_TEMPLATE
 from optuna.samplers._lazy_random_state import LazyRandomState
 from optuna.search_space import IntersectionSearchSpace
 from optuna.study._study_direction import StudyDirection
-from optuna.trial import FrozenTrial
 from optuna.trial import TrialState
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from typing import TypeAlias
+
     import cmaes
 
-    CmaClass = Union[cmaes.CMA, cmaes.SepCMA, cmaes.CMAwM]
+    from optuna.distributions import BaseDistribution
+    from optuna.trial import FrozenTrial
+
+    CmaClass: TypeAlias = cmaes.CMA | cmaes.SepCMA | cmaes.CMAwM
 else:
     cmaes = _LazyImport("cmaes")
 
@@ -47,13 +50,13 @@ _SYSTEM_ATTR_MAX_LENGTH = 2045
 class CmaEsSampler(BaseSampler):
     """A sampler using `cmaes <https://github.com/CyberAgentAILab/cmaes>`__ as the backend.
 
+    .. note::
+        This sampler requires ``cmaes``.
+        You can install this dependency with ``pip install cmaes``.
+
     Example:
 
         Optimize a simple quadratic function by using :class:`~optuna.samplers.CmaEsSampler`.
-
-        .. code-block:: console
-
-           $ pip install cmaes
 
         .. testcode::
 
@@ -71,13 +74,10 @@ class CmaEsSampler(BaseSampler):
             study.optimize(objective, n_trials=20)
 
     Please note that this sampler does not support CategoricalDistribution.
-    However, :class:`~optuna.distributions.FloatDistribution` with ``step``,
-    (:func:`~optuna.trial.Trial.suggest_float`) and
-    :class:`~optuna.distributions.IntDistribution` (:func:`~optuna.trial.Trial.suggest_int`)
-    are supported.
+    If your search space includes categorical parameters, it is recommended to use
+    `CatCmawmSampler <https://hub.optuna.org/samplers/catcmawm/>`__ available on
+    `OptunaHub <https://hub.optuna.org/>`__.
 
-    If your search space contains categorical parameters, I recommend you
-    to use :class:`~optuna.samplers.TPESampler` instead.
     Furthermore, there is room for performance improvements in parallel
     optimization settings. This sampler cannot use some trials for updating
     the parameters of multivariate normal distribution.
@@ -110,17 +110,6 @@ class CmaEsSampler(BaseSampler):
 
     Args:
 
-        x0:
-            A dictionary of an initial parameter values for CMA-ES. By default, the mean of ``low``
-            and ``high`` for each distribution is used. Note that ``x0`` is sampled uniformly
-            within the search space domain for each restart if you specify ``restart_strategy``
-            argument.
-
-        sigma0:
-            Initial standard deviation of CMA-ES. By default, ``sigma0`` is set to
-            ``min_range / 6``, where ``min_range`` denotes the minimum range of the distributions
-            in the search space.
-
         seed:
             A random seed for CMA-ES.
 
@@ -150,37 +139,8 @@ class CmaEsSampler(BaseSampler):
             Note that the parameters of the first trial in a study are always sampled
             via an independent sampler, so no warning messages are emitted in this case.
 
-        restart_strategy:
-            Strategy for restarting CMA-ES optimization when converges to a local minimum.
-            If :obj:`None` is given, CMA-ES will not restart (default).
-            If 'ipop' is given, CMA-ES will restart with increasing population size.
-            if 'bipop' is given, CMA-ES will restart with the population size
-            increased or decreased.
-            Please see also ``inc_popsize`` parameter.
-
-            .. warning::
-                Deprecated in v4.4.0. ``restart_strategy`` argument will be removed in the future.
-                The removal of this feature is currently scheduled for v6.0.0,
-                but this schedule is subject to change.
-                From v4.4.0 onward, ``restart_strategy`` automatically falls back to ``None``, and
-                ``restart_strategy`` will be supported in OptunaHub.
-                See https://github.com/optuna/optuna/releases/tag/v4.4.0.
-
         popsize:
             A population size of CMA-ES.
-
-        inc_popsize:
-            Multiplier for increasing population size before each restart.
-            This argument will be used when ``restart_strategy = 'ipop'``
-            or ``restart_strategy = 'bipop'`` is specified.
-
-            .. warning::
-                Deprecated in v4.4.0. ``inc_popsize`` argument will be removed in the future.
-                The removal of this feature is currently scheduled for v6.0.0,
-                but this schedule is subject to change.
-                From v4.4.0 onward, ``inc_popsize`` is no longer utilized within Optuna, and
-                ``inc_popsize`` will be supported in OptunaHub.
-                See https://github.com/optuna/optuna/releases/tag/v4.4.0.
 
         consider_pruned_trials:
             If this is :obj:`True`, the PRUNED trials are considered for sampling.
@@ -236,24 +196,87 @@ class CmaEsSampler(BaseSampler):
             similar HPO tasks through the initialization of CMA-ES. This method estimates a
             promising distribution from ``source_trials`` and generates the parameter of
             multivariate gaussian distribution. Please note that it is prohibited to use
-            ``x0``, ``sigma0``, or ``use_separable_cma`` argument together.
+            ``use_separable_cma`` argument together.
 
             .. note::
                 Added in v2.6.0 as an experimental feature. The interface may change in newer
                 versions without prior notice. See
                 https://github.com/optuna/optuna/releases/tag/v2.6.0.
 
+        x0:
+            A dictionary of an initial parameter values for CMA-ES. By default, the mean of ``low``
+            and ``high`` for each distribution is used. Note that ``x0`` is sampled uniformly
+            within the search space domain for each restart if you specify ``restart_strategy``
+            argument.
+
+            .. warning::
+                Deprecated in v4.9.0. ``x0`` argument will be removed in the future.
+                The removal of this feature is currently scheduled for v6.0.0,
+                but this schedule is subject to change.
+
+        sigma0:
+            Initial standard deviation of CMA-ES. By default, ``sigma0`` is set to
+            ``min_range / 6``, where ``min_range`` denotes the minimum range of the distributions
+            in the search space.
+
+            .. warning::
+                Deprecated in v4.9.0. ``sigma0`` argument will be removed in the future.
+                The removal of this feature is currently scheduled for v6.0.0,
+                but this schedule is subject to change.
+
+        restart_strategy:
+            Strategy for restarting CMA-ES optimization when converges to a local minimum.
+            If :obj:`None` is given, CMA-ES will not restart (default).
+            If 'ipop' is given, CMA-ES will restart with increasing population size.
+            if 'bipop' is given, CMA-ES will restart with the population size
+            increased or decreased.
+            Please see also ``inc_popsize`` parameter.
+
+            .. warning::
+                Deprecated in v4.4.0. ``restart_strategy`` argument will be removed in the future.
+                The removal of this feature is currently scheduled for v6.0.0,
+                but this schedule is subject to change.
+                From v4.4.0 onward, ``restart_strategy`` automatically falls back to ``None``, and
+                ``restart_strategy`` will be supported in OptunaHub.
+                See https://github.com/optuna/optuna/releases/tag/v4.4.0.
+
+        inc_popsize:
+            Multiplier for increasing population size before each restart.
+            This argument will be used when ``restart_strategy = 'ipop'``
+            or ``restart_strategy = 'bipop'`` is specified.
+
+            .. warning::
+                Deprecated in v4.4.0. ``inc_popsize`` argument will be removed in the future.
+                The removal of this feature is currently scheduled for v6.0.0,
+                but this schedule is subject to change.
+                From v4.4.0 onward, ``inc_popsize`` is no longer utilized within Optuna, and
+                ``inc_popsize`` will be supported in OptunaHub.
+                See https://github.com/optuna/optuna/releases/tag/v4.4.0.
+
     """  # NOQA: E501
 
+    @convert_positional_args(
+        previous_positional_arg_names=[
+            "self",
+            "x0",
+            "sigma0",
+            "n_startup_trials",
+            "independent_sampler",
+            "warn_independent_sampling",
+            "seed",
+        ],
+        deprecated_version="4.9.0",
+        removed_version="6.0.0",
+    )
     def __init__(
         self,
+        *,
         x0: dict[str, Any] | None = None,
         sigma0: float | None = None,
         n_startup_trials: int = 1,
         independent_sampler: BaseSampler | None = None,
         warn_independent_sampling: bool = True,
         seed: int | None = None,
-        *,
         consider_pruned_trials: bool = False,
         restart_strategy: str | None = None,
         popsize: int | None = None,
@@ -272,6 +295,16 @@ class CmaEsSampler(BaseSampler):
                 "`None`. `restart_strategy` will be supported in OptunaHub.",
                 FutureWarning,
             )
+        if x0 is not None:
+            msg = _deprecated._DEPRECATION_WARNING_TEMPLATE.format(
+                name="`x0`", d_ver="4.9.0", r_ver="6.0.0"
+            )
+            optuna_warn(msg, FutureWarning)
+        if sigma0 is not None:
+            msg = _deprecated._DEPRECATION_WARNING_TEMPLATE.format(
+                name="`sigma0`", d_ver="4.9.0", r_ver="6.0.0"
+            )
+            optuna_warn(msg, FutureWarning)
 
         self._x0 = x0
         self._sigma0 = sigma0
@@ -501,7 +534,7 @@ class CmaEsSampler(BaseSampler):
             # TODO(c-bata): Filter parameters by their values instead of checking search space.
             sign = 1 if direction == StudyDirection.MINIMIZE else -1
             source_solutions = [
-                (trans.transform(t.params), sign * cast(float, t.value))
+                (trans.transform(t.params), sign * cast("float", t.value))
                 for t in self._source_trials
                 if t.state in expected_states
                 and _is_compatible_search_space(trans, t.distributions)
@@ -633,6 +666,11 @@ class CmaEsSampler(BaseSampler):
         state: TrialState,
         values: Sequence[float] | None,
     ) -> None:
+        if trial.constraints:
+            optuna_warn(
+                "Constraints have been set, but CmaEsSampler will not use them for optimization.",
+                UserWarning,
+            )
         self._independent_sampler.after_trial(study, trial, state, values)
 
 

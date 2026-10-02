@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from collections.abc import Sequence
 import itertools
 from numbers import Real
 from typing import Any
@@ -11,16 +9,19 @@ from typing import Union
 import numpy as np
 
 from optuna._warnings import optuna_warn
-from optuna.distributions import BaseDistribution
 from optuna.logging import get_logger
 from optuna.samplers import BaseSampler
 from optuna.samplers._lazy_random_state import LazyRandomState
-from optuna.trial import FrozenTrial
 from optuna.trial import TrialState
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from collections.abc import Sequence
+
+    from optuna.distributions import BaseDistribution
     from optuna.study import Study
+    from optuna.trial import FrozenTrial
 
 
 GridValueType = Union[str, float, int, bool, None]
@@ -30,10 +31,16 @@ _logger = get_logger(__name__)
 
 
 class GridSampler(BaseSampler):
-    """Sampler using grid search.
+    """Sampler that performs exhaustive search over the define-and-run user-specified grids.
 
     With :class:`~optuna.samplers.GridSampler`, the trials suggest all combinations of parameters
     in the given search space during the study.
+
+    .. note::
+        :class:`~optuna.samplers.BruteForceSampler` also provides the exhaustive search feature.
+        Unlike :class:`~optuna.samplers.GridSampler`, :class:`~optuna.samplers.BruteForceSampler`
+        does not ask users to provide search space and it supports hierarchical, aka dynamic search
+        space, enabling users to seamlessly enjoy the exhaustive search.
 
     Example:
 
@@ -132,8 +139,8 @@ class GridSampler(BaseSampler):
         # object is hard to get at the beginning of trial, while we need the access to the object
         # to validate the sampled value.
 
-        # When the trial is created by RetryFailedTrialCallback or enqueue_trial, we should not
-        # assign a new grid_id.
+        # When the trial is created by RetryHeartbeatStaleTrialCallback or enqueue_trial, we
+        # should not assign a new grid_id.
         if "grid_id" in trial.system_attrs or "fixed_params" in trial.system_attrs:
             return
 

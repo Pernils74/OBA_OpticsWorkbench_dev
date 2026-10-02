@@ -1,28 +1,33 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from collections.abc import Sequence
 import datetime
 import math
 from typing import Any
 from typing import cast
 from typing import overload
+from typing import TYPE_CHECKING
 
 from optuna import distributions
 from optuna import logging
-from optuna._convert_positional_args import convert_positional_args
 from optuna._deprecated import deprecated_func
-from optuna._typing import JSONSerializable
 from optuna._warnings import optuna_warn
 from optuna.distributions import _convert_old_distribution_to_new_distribution
-from optuna.distributions import BaseDistribution
-from optuna.distributions import CategoricalChoiceType
 from optuna.distributions import CategoricalDistribution
 from optuna.distributions import FloatDistribution
 from optuna.distributions import IntDistribution
-from optuna.trial._base import _SUGGEST_INT_POSITIONAL_ARGS
+from optuna.study._constrained_optimization import _CONSTRAINTS_KEY
+from optuna.study._constrained_optimization import _get_constraints_from_system_attrs
 from optuna.trial._base import BaseTrial
 from optuna.trial._state import TrialState
+
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from collections.abc import Sequence
+
+    from optuna._typing import JSONSerializable
+    from optuna.distributions import BaseDistribution
+    from optuna.distributions import CategoricalChoiceType
 
 
 _logger = logging.get_logger(__name__)
@@ -131,8 +136,7 @@ class FrozenTrial(BaseTrial):
             Dictionary that contains the attributes of the :class:`~optuna.trial.Trial` set with
             :func:`optuna.trial.Trial.set_user_attr`.
         system_attrs:
-            Dictionary that contains the attributes of the :class:`~optuna.trial.Trial` set with
-            :func:`optuna.trial.Trial.set_system_attr`.
+            Dictionary that contains the optuna-internal attributes.
         intermediate_values:
             Intermediate objective values set with :func:`optuna.trial.Trial.report`.
     """
@@ -192,17 +196,15 @@ class FrozenTrial(BaseTrial):
         return hash(tuple(getattr(self, field) for field in self.__dict__))
 
     def __repr__(self) -> str:
-        return "{cls}({kwargs})".format(
-            cls=self.__class__.__name__,
-            kwargs=", ".join(
-                "{field}={value}".format(
-                    field=field if not field.startswith("_") else field[1:],
-                    value=repr(getattr(self, field)),
-                )
+        cls = self.__class__.__name__
+        kwargs = (
+            ", ".join(
+                f"{field if not field.startswith('_') else field[1:]}={repr(getattr(self, field))}"
                 for field in self.__dict__
             )
-            + ", value=None",
+            + ", value=None"
         )
+        return f"{cls}({kwargs})"
 
     def suggest_float(
         self,
@@ -227,11 +229,6 @@ class FrozenTrial(BaseTrial):
     def suggest_discrete_uniform(self, name: str, low: float, high: float, q: float) -> float:
         return self.suggest_float(name, low, high, step=q)
 
-    @convert_positional_args(
-        previous_positional_arg_names=_SUGGEST_INT_POSITIONAL_ARGS,
-        deprecated_version="3.5.0",
-        removed_version="5.0.0",
-    )
     def suggest_int(
         self, name: str, low: int, high: int, *, step: int = 1, log: bool = False
     ) -> int:
@@ -300,10 +297,6 @@ class FrozenTrial(BaseTrial):
     def set_user_attr(self, key: str, value: Any) -> None:
         self._user_attrs[key] = value
 
-    @deprecated_func("3.1.0", "5.0.0")
-    def set_system_attr(self, key: str, value: Any) -> None:
-        self._system_attrs[key] = value
-
     def _validate(self) -> None:
         if self.state != TrialState.WAITING and self.datetime_start is None:
             raise ValueError(
@@ -329,9 +322,8 @@ class FrozenTrial(BaseTrial):
 
         if set(self.params.keys()) != set(self.distributions.keys()):
             raise ValueError(
-                "Inconsistent parameters {} and distributions {}.".format(
-                    set(self.params.keys()), set(self.distributions.keys())
-                )
+                f"Inconsistent parameters {set(self.params.keys())} and "
+                f"distributions {set(self.distributions.keys())}."
             )
 
         for param_name, param_value in self.params.items():
@@ -340,23 +332,23 @@ class FrozenTrial(BaseTrial):
             param_value_in_internal_repr = distribution.to_internal_repr(param_value)
             if not distribution._contains(param_value_in_internal_repr):
                 raise ValueError(
-                    "The value {} of parameter '{}' isn't contained in the distribution "
-                    "{}.".format(param_value, param_name, distribution)
+                    f"The value {param_value} of parameter '{param_name}' isn't contained in "
+                    f"the distribution {distribution}."
                 )
 
     def _suggest(self, name: str, distribution: BaseDistribution) -> Any:
         if name not in self._params:
             raise ValueError(
-                "The value of the parameter '{}' is not found. Please set it at "
-                "the construction of the FrozenTrial object.".format(name)
+                f"The value of the parameter '{name}' is not found. "
+                f"Please set it at the construction of the FrozenTrial object."
             )
 
         value = self._params[name]
         param_value_in_internal_repr = distribution.to_internal_repr(value)
         if not distribution._contains(param_value_in_internal_repr):
             optuna_warn(
-                "The value {} of the parameter '{}' is out of "
-                "the range of the distribution {}.".format(value, name, distribution)
+                f"The value {value} of the parameter '{name}' is out of "
+                f"the range of the distribution {distribution}."
             )
 
         if name in self._distributions:
@@ -449,7 +441,7 @@ class FrozenTrial(BaseTrial):
 
     @system_attrs.setter
     def system_attrs(self, value: Mapping[str, JSONSerializable]) -> None:
-        self._system_attrs = cast(dict[str, Any], value)
+        self._system_attrs = cast("dict[str, Any]", value)
 
     @property
     def last_step(self) -> int | None:
@@ -477,6 +469,52 @@ class FrozenTrial(BaseTrial):
         else:
             return None
 
+    @property
+    def constraints(self) -> dict[str, float]:
+        """Returns constraint values.
+
+        The trial is considered feasible when all constraint values are zero or less.
+
+        Returns:
+            constraint values of trial.
+        """
+
+        return _get_constraints_from_system_attrs(self.system_attrs)
+
+    def set_constraint(self, key: str, value: float) -> None:
+        """Set a constraint value for the trial.
+
+        Args:
+            key:
+                A constraint name.
+            value:
+                A constraint value. The trial is considered feasible when all constraint values
+                are zero or less.
+        """
+
+        try:
+            # For convenience, we allow users to set a value that can be cast to `float`.
+            value = float(value)
+        except (TypeError, ValueError):
+            message = (
+                f"The `value` argument is of type '{type(value)}' but supposed to be a float."
+            )
+            raise TypeError(message) from None
+
+        if math.isnan(value):
+            raise ValueError(f"Attempted to set a constraint for {key!r}, but NaN is not allowed.")
+
+        constraint_key = f"{_CONSTRAINTS_KEY}:{key}"
+
+        if constraint_key in self._system_attrs:
+            # Do nothing if already set.
+            optuna_warn(
+                f"The constraint value is ignored because this constraint `{key=}` is already set."
+            )
+            return
+
+        self._system_attrs[constraint_key] = value
+
 
 def create_trial(
     *,
@@ -488,6 +526,7 @@ def create_trial(
     user_attrs: dict[str, Any] | None = None,
     system_attrs: dict[str, Any] | None = None,
     intermediate_values: dict[int, float] | None = None,
+    constraints: dict[str, float] | None = None,
 ) -> FrozenTrial:
     """Create a new :class:`~optuna.trial.FrozenTrial`.
 
@@ -551,6 +590,9 @@ def create_trial(
             Dictionary with system attributes. Should not have to be used for most users.
         intermediate_values:
             Dictionary with intermediate objective values of the trial.
+        constraints:
+            Dictionary with constraint values of the trial. The trial is considered feasible when
+            all constraint values are zero or less.
 
     Returns:
         Created trial.
@@ -590,6 +632,10 @@ def create_trial(
         system_attrs=system_attrs,
         intermediate_values=intermediate_values,
     )
+
+    if constraints is not None:
+        for key, constraint_value in constraints.items():
+            trial.set_constraint(key, constraint_value)
 
     trial._validate()
 

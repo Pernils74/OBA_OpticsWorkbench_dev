@@ -4,6 +4,8 @@
 import os
 import sys
 
+from oba_rayengine.oba_ray_core import OBARayManager
+
 from PySide import QtCore
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
@@ -15,12 +17,15 @@ if LIBDIR not in sys.path:
 import optuna
 from optuna.samplers import TPESampler, RandomSampler, CmaEsSampler, NSGAIISampler
 
+RUNNING = False
+
 # DB_PATH = f"sqlite:///{os.path.join(BASE_DIR, 'optimization.db')}"
 
 
 def get_db_path():
     import FreeCAD as App
     import os
+    import sqlite3
 
     doc = App.ActiveDocument
 
@@ -29,17 +34,29 @@ def get_db_path():
     else:
         # fallback om dokument ej sparat
         base = os.path.join(os.getcwd(), "unsaved_document")
-
-    return f"sqlite:///{base}_optuna.db"
+    db_file = f"{base}_optuna.db"
+    # Säkerställ WAL-läge
+    con = sqlite3.connect(db_file, timeout=60)
+    try:
+        con.execute("PRAGMA journal_mode=WAL")
+    finally:
+        con.close()
+    return f"sqlite:///{db_file}"
 
 
 DB_PATH = get_db_path()
 
 
+def is_optimization_running():
+    return OptimizationWorker.RUNNING
+
+
 class OptimizationWorker(QtCore.QObject):
     requestEvaluate = QtCore.Signal(dict, dict)
     progress = QtCore.Signal(dict)
+    trialProgress = QtCore.Signal(dict)
     finished = QtCore.Signal(object)
+    RUNNING = False
 
     def __init__(self):
         super().__init__()
@@ -59,42 +76,63 @@ class OptimizationWorker(QtCore.QObject):
         self._stop = False
         self._waiting = False
         self._last_results = None
+        OptimizationWorker.RUNNING = True
 
         self.param_names = config["params"]
         self.bounds = config["bounds"]
-        self.unselected_params = config.get("unselected_params", [])
 
-        # ✅ metadata
+        self.trust_region_mode = config.get("trust_region_mode", "None")
+        self.n_trials = config["n_trials"]
+
+        self.unselected_params = config.get("unselected_params", {})  # Parametrar som INTE optimeras
+        self.start_cad_params = config.get("start_cad_params")  # Spara undan cad_params vid start
+
+        if self.start_cad_params is None:
+            self.start_cad_params = {}
+
+            if isinstance(self.unselected_params, dict):
+                self.start_cad_params.update(self.unselected_params)
+
+            # initial_params används endast som fallback
+            initial_params = config.get("initial_params", {})
+
+            if isinstance(initial_params, dict):
+                self.start_cad_params.update(initial_params)
+
+        # --------------------------------------------------
+        # METRICS
+        # --------------------------------------------------
+
         self.all_metrics = config["metrics"]
         self.metrics = [m for m in config["metrics"] if m.get("active", True)]
-
         print("ALL METRICS:", [m["name"] for m in self.all_metrics])
         print("ACTIVE METRICS:", [m["name"] for m in self.metrics])
-
-        self._baseline = config.get("baseline", None)
+        print("[worker] start CAD params:", self.start_cad_params)
 
         study_name = config["study_name"]
         new_study = config.get("new_study", False)
 
         multi = config.get("multi_objective", False)
 
-        # ✅ skapa sampler korrekt
+        # --------------------------------------------------
+        # SAMPLER
+        # --------------------------------------------------
         sampler = self._create_sampler(config)
-
-        print(f"[worker] sampler={sampler.__class__.__name__} multi={multi}")
-
-        # ✅ directions vs direction (Optuna korrekt hantering)
+        print(f"[worker] sampler=" f"{sampler.__class__.__name__} " f"multi={multi}")
+        # --------------------------------------------------
+        # DIRECTIONS
+        # --------------------------------------------------
         if len(self.metrics) == 1:
             direction = self.metrics[0]["direction"]
             directions = None
         else:
             direction = None
             directions = [m["direction"] for m in self.metrics]
-
-        # ✅ skapa / ladda study
+        # --------------------------------------------------
+        # STUDY
+        # --------------------------------------------------
         if new_study:
             print("[worker] NEW study")
-
             try:
                 optuna.delete_study(
                     study_name=study_name,
@@ -112,14 +150,10 @@ class OptimizationWorker(QtCore.QObject):
                 directions=directions,
             )
 
-            # ✅ enqueue baseline
             initial_params = config.get("initial_params")
-            print("[worker] enqueue baseline:", initial_params)
-
+            print("[worker] enqueue initial trial:", initial_params)
             if initial_params:
                 self.study.enqueue_trial(initial_params)
-
-            # ✅ metadata
             self.study.set_user_attr("metric_names", [m["name"] for m in self.metrics])
             self.study.set_user_attr("all_metrics", [m["name"] for m in self.all_metrics])
             self.study.set_user_attr("active_metrics", [m["name"] for m in self.metrics])
@@ -129,7 +163,6 @@ class OptimizationWorker(QtCore.QObject):
 
         else:
             print("[worker] RESUME study")
-
             self.study = optuna.create_study(
                 study_name=study_name,
                 storage=DB_PATH,
@@ -139,116 +172,156 @@ class OptimizationWorker(QtCore.QObject):
                 directions=directions,
             )
 
-        print("[worker] start", config["n_trials"])
-
-        # ✅ MAIN LOOP
+        # --------------------------------------------------
+        # MAIN LOOP
+        # --------------------------------------------------
         n_trials = config["n_trials"]
         if n_trials < 0:
-            print("[worker] 🚀  running infinite trials")
-            iterator = iter(int, 1)  # endless generator
+            print("[worker] 🚀 running infinite trials")
+            iterator = iter(int, 1)
         else:
-            print(f"[worker] 🚀  running ({n_trials}) trials")
+            print(f"[worker] 🚀 running " f"({n_trials}) trials")
             iterator = range(n_trials)
-
-        for _ in iterator:  # range(config["n_trials"]):
+        for _ in iterator:
             if self._stop:
                 break
-
             trial = self.study.ask()
             self.current_trial_id = trial.number
-
             try:
-                # Local step-limited parameter suggestion (damped search).
-                params = self._suggest(trial)
-
+                params = self._suggest(trial)  # SUGGEST PARAMS
                 self._last_results = None
                 self._waiting = True
-
+                # --------------------------------------------------
+                # EVALUATE
+                # --------------------------------------------------
                 self.requestEvaluate.emit(params, self.unselected_params)
-
                 while self._waiting and not self._stop:
                     QtCore.QThread.msleep(10)
-
                 if self._stop:
                     print("[worker] stopped")
                     break
-
                 if self._last_results is None:
                     raise RuntimeError("No evaluation result received")
 
-                # results = self._last_results
-
                 payload = self._last_results
-                # print("hhhhhhhhhh   ", payload)
+                # # --------------------------------------------------
+                # # PRUNED
+                # # --------------------------------------------------
+                # if payload.get("_pruned"):
+                #     print(f"[PRUNE] " f"trial={trial.number} " f"params={params}")
+                #     self.study.tell(trial, state=optuna.trial.TrialState.PRUNED)
+                #     continue
 
-                # ✅ pruning
+                # --------------------------------------------------
+                # PRUNED / EARLY EXIT (Mjuk hantering i Optuna v5)
+                # --------------------------------------------------
                 if payload.get("_pruned"):
-                    print(f"[PRUNE] trial={trial.number} params={params}")
-                    self.study.tell(trial, state=optuna.trial.TrialState.PRUNED)
+                    print(f"[EARLY EXIT] trial={trial.number} pga brutet tröskelvärde.")
+
+                    # 1. Sätt de villkor vi hann beräkna (där minst ett är > 0)
+                    constraints = payload.get("constraints", {})
+                    for cname, cvalue in constraints.items():
+                        trial.set_constraint(cname, float(cvalue))
+
+                    # 2. Hämta de partiella resultaten
+                    results = payload.get("results", {})
+                    values = []
+                    for m in self.metrics:
+                        values.append(float(results.get(m["name"], 0.0)))
+
+                    # 3. Använd study.tell med värdena. Optuna fattar att det är
+                    # en ogiltig körning pga dina constraints, men sparar datan!
+                    # self.study.tell(trial, tuple(values))
+                    if len(self.metrics) == 1:
+                        self.study.tell(trial, values[0])
+                    else:
+                        self.study.tell(trial, tuple(values))
+
+                    self.trialProgress.emit({"trial": trial.number})
                     continue
 
+                # --------------------------------------------------
+                # RESULTS
+                # --------------------------------------------------
                 results = payload.get("results", {})
-                # ✅ debug storage
+                debug_info = payload.get("debug", {})
+
+                # --------------------------------------------------
+                # Constrait for metric with threshold
+                # --------------------------------------------------
+                constraints = payload.get("constraints", {})
+                for cname, cvalue in constraints.items():
+                    trial.set_constraint(cname, float(cvalue))
+                trial.set_user_attr("constraints", constraints)  # Spara i user_attr för historik/dashboard
+
+                # --------------------------------------------------
+                # STORE USER ATTRS
+                # --------------------------------------------------
                 trial.set_user_attr("params", params)
                 trial.set_user_attr("metrics", results)
+                trial.set_user_attr("debug", debug_info)
                 trial.set_user_attr("unselected_params", self.unselected_params)
-
-                # ✅ values (robust + direction handling)
+                # --------------------------------------------------
+                # VALUES
+                #
+                # EvaluationService har redan gjort eventuell
+                # recheck och medelvärdesberäkning.
+                # Här ska vi därför INTE räkna om något.
+                # --------------------------------------------------
                 values = []
                 for m in self.metrics:
                     v = results.get(m["name"], 0.0)
-
-                    # normalize internally if minimize
-                    if m["direction"] == "minimize":
-                        v = -v
-
+                    v = float(v)
+                    # Optuna får alltid maximize internt.
+                    # if m["direction"] == "minimize":
+                    #     v = -v
                     values.append(v)
-
                 values = tuple(values)
-
-                self.study.tell(trial, values)
-
+                # --------------------------------------------------
+                # TELL
+                # --------------------------------------------------
+                # self.study.tell(trial, values)
+                if len(self.metrics) == 1:
+                    self.study.tell(trial, values[0])
+                else:
+                    self.study.tell(trial, tuple(values))
+                # print(f"[worker] " f"trial={trial.number} " f"values={values}")
                 if trial.number % 10 == 0:
-                    self.progress.emit(
-                        {
-                            "trial": trial.number,
-                            "values": values,
-                        }
-                    )
-
+                    self.progress.emit({"trial": trial.number, "values": values})
             except KeyError as e:
                 print(f"[worker] missing metric: {e}")
                 self.study.tell(trial, state=optuna.trial.TrialState.FAIL)
-
             except RuntimeError as e:
                 print(f"[worker] runtime error: {e}")
                 trial.set_user_attr("status", "runtime_error")
                 trial.set_user_attr("message", str(e))
                 self.study.tell(trial, state=optuna.trial.TrialState.FAIL)
-
             except Exception as e:
                 print(f"[worker] hard fail: {e}")
                 self.study.tell(trial, state=optuna.trial.TrialState.FAIL)
-
-        # ✅ best trials
+            self.trialProgress.emit({"trial": trial.number})
+        # --------------------------------------------------
+        # BEST TRIALS
+        # --------------------------------------------------
         best_trials_data = [
             {
                 "trial": t.number,
                 "params": t.params,
                 "values": t.values,
-                "metrics": t.user_attrs.get("metrics", {}),
+                "metrics": t.user_attrs.get(
+                    "metrics",
+                    {},
+                ),
             }
             for t in self.study.best_trials
         ]
-
         self.finished.emit(best_trials_data)
+        OptimizationWorker.RUNNING = False
 
     def _suggest_utan_dämpning(self, trial):
         params = {}
-
         for name in self.param_names:
             lo, hi = self.bounds[name]
-
             params[name] = trial.suggest_float(
                 name,
                 lo,
@@ -264,12 +337,9 @@ class OptimizationWorker(QtCore.QObject):
         for name in self.param_names:
             lo, hi = self.bounds[name]
             prev = None
-
             if hasattr(self, "_last_params"):
                 prev = self._last_params.get(name)
-
             span = (hi - lo) * step_ratio
-
             if prev is None:
                 lo2, hi2 = lo, hi
             else:
@@ -277,63 +347,126 @@ class OptimizationWorker(QtCore.QObject):
                 hi2 = min(hi, prev + span)
             v = trial.suggest_float(name, lo2, hi2)
             params[name] = v
-
         self._last_params = params.copy()
         return params
 
     # Constrain Optuna's search to a trust region around the
     # current best solution. This reduces large CAD geometry
     # jumps while still allowing gradual exploration.
+
+    def _get_step_ratio(self, complete_count):
+        mode = getattr(self, "trust_region_mode", "Linear")
+        if mode == "None":
+            return self._step_ratio_none(complete_count)
+        if mode == "Fixed":
+            return self._step_ratio_fixed(complete_count)
+        if mode == "Sensitive":
+            return self._step_ratio_sensitive(complete_count)
+        if mode == "Exponential":
+            return self._step_ratio_exponential(complete_count)
+        return self._step_ratio_linear(complete_count)
+
+    def _step_ratio_none(self, complete_count):
+        return 1.0
+
+    def _step_ratio_fixed(self, complete_count):
+        return 0.15
+
+    def _step_ratio_linear(self, complete_count):
+        if self.n_trials <= 0:
+            return 1.0
+        progress = min(1.0, complete_count / float(self.n_trials))
+        return max(0.15, 1.0 - progress)
+
+    def _step_ratio_sensitive(self, complete_count):
+        if self.n_trials <= 0:
+            return 0.25
+        progress = min(1.0, complete_count / float(self.n_trials))
+        return max(0.05, 0.25 * (1.0 - progress))
+
+    def _step_ratio_exponential(self, complete_count):
+        import math
+
+        if self.n_trials <= 0:
+            return 1.0
+        progress = complete_count / float(self.n_trials)
+        return max(0.15, math.exp(-3.0 * progress))
+
     def _suggest(self, trial):
         params = {}
+        PRECISION_STEP = 0.0001
 
-        step_ratio = 0.15  # ±15% av hela parameterns range
+        # print("TRIAL", trial.number)
+        # --------------------------------------------------
+        # completed trials
+        # --------------------------------------------------
 
-        best_params = None
-
-        # Hämta bästa trial hittills
         complete = [t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        complete_count = len(complete)
 
-        if complete:
-            if len(self.metrics) == 1:
-                best_trial = self.study.best_trial
-            else:
-                # Multi-objective: använd första Pareto-lösningen
-                best_trial = self.study.best_trials[0]
+        # --------------------------------------------------
+        # trust region model
+        # --------------------------------------------------
+        step_ratio = self._get_step_ratio(complete_count)
+        # --------------------------------------------------
+        # reference solution
+        # --------------------------------------------------
+        # best_params = None
+        # if complete:
+        #     if len(self.metrics) == 1:
+        #         best_trial = self.study.best_trial
+        #     else:
+        #         print("complete_count =", len(complete), "best_trials =", len(self.study.best_trials))
 
-            best_params = best_trial.params
+        #         best_trial = self.study.best_trials[0]
+        #     best_params = best_trial.params
 
+        if complete and self.study.best_trials:
+            best_params = self.study.best_trials[0].params
+        else:
+            best_params = None
+        # --------------------------------------------------
+        # suggest
+        # --------------------------------------------------
         for name in self.param_names:
             lo, hi = self.bounds[name]
-
-            if best_params and name in best_params:
-                prev = best_params[name]
+            if hi < lo:
+                lo, hi = hi, lo
+            center = None
+            if best_params:
+                center = best_params.get(name)
+            # No trust region
+            if center is None or step_ratio >= 1.0:
+                lo2 = lo
+                hi2 = hi
             else:
-                prev = None
-
-            span = (hi - lo) * step_ratio
-
-            if prev is None:
-                lo2, hi2 = lo, hi
-            else:
-                lo2 = max(lo, prev - span)
-                hi2 = min(hi, prev + span)
-
-            params[name] = trial.suggest_float(name, lo2, hi2)
-
+                span = (hi - lo) * step_ratio
+                lo2 = max(lo, center - span)
+                hi2 = min(hi, center + span)
+            lo2 = round(lo2, 4)
+            hi2 = round(hi2, 4)
+            if lo2 >= hi2:
+                hi2 = lo2 + PRECISION_STEP
+            value = trial.suggest_float(name, lo2, hi2, step=PRECISION_STEP)
+            params[name] = round(value, 5)
         return params
 
     def _create_sampler(self, config):
         name = config.get("sampler", "TPESampler")
-        constant_liar = config.get("constant_liar", False)
-        multi = config.get("multi_objective", False)
+        constant_liar = config.get("constant_liar", False)  # sätts i dialogen
+        multi = config.get("multi_objective", False)  # sätts i dialogen
 
-        # ✅ multi-objective kräver NSGA-II
-        if multi and name != "NSGAIISampler":
-            print("[WARN] Switching to NSGAIISampler (multi-objective)")
-            return NSGAIISampler()
+        # ✅ multi-objective kan köras på NSGA-II samt TPE
 
-        if name == "TPESampler":
+        if name == "NSGAIISampler":
+            # print("[WARN] Switching to NSGAIISampler (multi-objective)")
+            print("[create_sampler] 🚀 -> ", name, "mulitobjective : ", multi)
+            return NSGAIISampler(
+                seed=42,
+            )
+
+        elif name == "TPESampler":
+            print("[create_sampler] 🚀 -> ", name, "mulitobjective : ", multi)
             return TPESampler(
                 constant_liar=constant_liar,
                 multivariate=True,
@@ -342,13 +475,12 @@ class OptimizationWorker(QtCore.QObject):
             )
 
         elif name == "RandomSampler":
+            print("[create_sampler] 🚀 -> ", name, "mulitobjective : ", multi)
             return RandomSampler()
 
         elif name == "CmaEsSampler":
+            print("[create_sampler] 🚀 -> ", name, "mulitobjective : ", multi)
             return CmaEsSampler()
-
-        elif name == "NSGAIISampler":
-            return NSGAIISampler()
 
         return TPESampler(seed=42)
 
