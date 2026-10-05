@@ -29,6 +29,7 @@
 # Double-clicking a child opens the child's own dialog.
 #
 
+
 import FreeCAD as App
 import FreeCADGui as Gui
 
