@@ -42,8 +42,7 @@ MAIN_MIRROR_PROPERTIES = [
     {"name": "SplitOffset", "type": "App::PropertyLength", "group": "Main Mirror", "default": 40.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Distance between the two ellipsoid focal points"},
     {"name": "A", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 40.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Ellipsoid semi-major axis"},
     {"name": "B", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Ellipsoid semi-minor radius"},
-    {"name": "UseIndependentRadius3", "type": "App::PropertyBool", "group": "Ellipsoid", "default": False, "doc": "Use independent radius in Y direction"},
-    {"name": "B2", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "enabled_when": "UseIndependentRadius3", "doc": "Independent ellipsoid Y radius"},
+    {"name": "Radius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Amount subtracted from Radius2 (B) to produce Radius3"},
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 26.4575131106, "unit": "mm", "display_only": True, "doc": "Distance from ellipsoid centre to focus"},
     {"name": "Ellipsoid1FocusX", "type": "App::PropertyLength", "group": "Calculated", "unit": "mm", "display_only": True, "doc": "X position of first ellipsoid focus"},
     {"name": "Ellipsoid2FocusX", "type": "App::PropertyLength", "group": "Calculated", "unit": "mm", "display_only": True, "doc": "X position of second ellipsoid focus"},
@@ -185,10 +184,7 @@ class OBAMainMirror:
         a = float(obj.A)
         b = float(obj.B)
 
-        if obj.UseIndependentRadius3:
-            b2 = float(obj.B2)
-        else:
-            b2 = b
+        radius3 = max(0.0, b - float(obj.Radius3Offset))
 
         tilt = float(obj.TiltAngle)
 
@@ -201,7 +197,7 @@ class OBAMainMirror:
 
         changed |= set_quantity_if_changed(left, "Radius1", a, "mm")
         changed |= set_quantity_if_changed(left, "Radius2", b, "mm")
-        changed |= set_quantity_if_changed(left, "Radius3", b2, "mm")
+        changed |= set_quantity_if_changed(left, "Radius3", radius3, "mm")
 
         left_local = App.Placement()
 
@@ -218,7 +214,7 @@ class OBAMainMirror:
 
         changed |= set_quantity_if_changed(right, "Radius1", a, "mm")
         changed |= set_quantity_if_changed(right, "Radius2", b, "mm")
-        changed |= set_quantity_if_changed(right, "Radius3", b2, "mm")
+        changed |= set_quantity_if_changed(right, "Radius3", radius3, "mm")
 
         right_local = App.Placement()
 
@@ -315,7 +311,7 @@ class OBAMainMirror:
 
         # App.Console.PrintMessage(f"onChanged: {prop}\n")
 
-        if prop in {"Width", "Height", "SplitOffset", "A", "B", "UseIndependentRadius3", "B2", "TiltAngle", "ShowDebugEllipsoids"}:
+        if prop in {"Width", "Height", "SplitOffset", "A", "B", "Radius3Offset", "TiltAngle", "ShowDebugEllipsoids"}:
             try:
                 self._rebuild(obj)
             except Exception as exc:
@@ -348,6 +344,9 @@ class OBAMainMirror:
         # obj.setEditorMode("Placement", 1)
 
         try:
+            for legacy_property in ("UseIndependentRadius3", "B2"):
+                if legacy_property in obj.PropertiesList:
+                    obj.removeProperty(legacy_property)
             install_properties(obj, MAIN_MIRROR_PROPERTIES)
             if hasattr(obj, "FocusDistance"):
                 obj.setEditorMode("FocusDistance", 1)
@@ -466,6 +465,7 @@ def OBA_CreateMainMirror(
     z=0.0,
     suppress_onchange=False,
     show_dialog=True,
+    radius3_offset=0.0,
 ):
     doc = doc or App.ActiveDocument or App.newDocument()
 
@@ -503,6 +503,7 @@ def OBA_CreateMainMirror(
     obj.SplitOffset = split_offset  # App.Units.Quantity(f"{split_offset} mm")
     obj.A = a  # App.Units.Quantity(f"{a} mm")
     obj.B = b  # App.Units.Quantity(f"{b} mm")
+    obj.Radius3Offset = radius3_offset
     obj.TiltAngle = tiltangle  # App.Units.Quantity(f"{tiltangle} deg")
 
     obj.Placement = App.Placement(App.Vector(x, y, z), App.Rotation())
@@ -542,6 +543,7 @@ def create(
     x=0.0,
     y=0.0,
     z=0.0,
+    radius3_offset=0.0,
 ):
     return OBA_CreateMainMirror(
         doc=doc,
@@ -551,6 +553,7 @@ def create(
         split_offset=split_offset,
         a=a,
         b=b,
+        radius3_offset=radius3_offset,
         tiltangle=tiltangle,
         x=x,
         y=y,

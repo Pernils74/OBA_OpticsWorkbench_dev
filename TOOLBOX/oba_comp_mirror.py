@@ -33,8 +33,7 @@ COMP_MIRROR_PROPERTIES = [
     {"name": "Height", "type": "App::PropertyLength", "group": "Main Mirror", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Height of the cube/body along Z"},
     {"name": "A", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 40.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Ellipsoid semi-major axis"},
     {"name": "B", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Ellipsoid semi-minor radius"},
-    {"name": "UseIndependentRadius3", "type": "App::PropertyBool", "group": "Ellipsoid", "default": False, "doc": "Use independent radius in Y direction"},
-    {"name": "B2", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "enabled_when": "UseIndependentRadius3", "doc": "Independent ellipsoid Y radius"},
+    {"name": "Radius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Amount subtracted from Radius2 (B) to produce Radius3"},
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 26.4575131106, "unit": "mm", "display_only": True, "doc": "Distance from ellipsoid centre to focus"},
     # {"name": "TiltAngle", "type": "App::PropertyAngle", "group": "Ellipsoid", "default": 0.0, "doc": "Tilt angle of the ellipsoids around the Z axis"},
     {"name": "ShowDebugEllipsoids", "type": "App::PropertyBool", "group": "Debug", "default": False, "doc": "Show ellipsoids for debugging"},
@@ -150,8 +149,8 @@ class OBACompMirror:
 
         changed |= set_quantity_if_changed(self._ellipsoid, "Radius1", obj.A, "mm")
         changed |= set_quantity_if_changed(self._ellipsoid, "Radius2", obj.B, "mm")
-        b2 = float(obj.B2) if obj.UseIndependentRadius3 else float(obj.B)
-        changed |= set_quantity_if_changed(self._ellipsoid, "Radius3", b2, "mm")
+        radius3 = max(0.0, float(obj.B) - float(obj.Radius3Offset))
+        changed |= set_quantity_if_changed(self._ellipsoid, "Radius3", radius3, "mm")
 
         rot_z = App.Rotation(App.Vector(0, 0, 1), 90)
         rot_x = App.Rotation(App.Vector(1, 0, 0), -90)
@@ -258,7 +257,7 @@ class OBACompMirror:
 
         # App.Console.PrintMessage(f"onChanged: {prop}\n")
 
-        if prop in {"Width", "Height", "A", "B", "UseIndependentRadius3", "B2", "ShowDebugEllipsoids"}:
+        if prop in {"Width", "Height", "A", "B", "Radius3Offset", "ShowDebugEllipsoids"}:
             try:
                 self._rebuild(obj)
             except Exception as exc:
@@ -292,6 +291,9 @@ class OBACompMirror:
         # obj.setEditorMode("Placement", 1)
 
         try:
+            for legacy_property in ("UseIndependentRadius3", "B2"):
+                if legacy_property in obj.PropertiesList:
+                    obj.removeProperty(legacy_property)
             install_properties(obj, COMP_MIRROR_PROPERTIES)
             if hasattr(obj, "FocusDistance"):
                 obj.setEditorMode("FocusDistance", 1)
@@ -407,6 +409,7 @@ def OBA_CreateCompMirror(
     z=0.0,
     suppress_onchange=False,
     show_dialog=True,
+    radius3_offset=0.0,
 ):
     doc = doc or App.ActiveDocument or App.newDocument()
 
@@ -442,6 +445,7 @@ def OBA_CreateCompMirror(
     obj.Height = height  # App.Units.Quantity(f"{height} mm")
     obj.A = a  # App.Units.Quantity(f"{a} mm")
     obj.B = b  # App.Units.Quantity(f"{b} mm")
+    obj.Radius3Offset = radius3_offset
     # obj.TiltAngle = App.Units.Quantity(f"{tiltangle} deg")
 
     proxy._ensure_features(obj)
@@ -478,6 +482,7 @@ def create(
     x=0.0,
     y=30.0,
     z=0.0,
+    radius3_offset=0.0,
 ):
     return OBA_CreateCompMirror(
         doc=doc,
@@ -486,6 +491,7 @@ def create(
         height=height,
         a=a,
         b=b,
+        radius3_offset=radius3_offset,
         # tiltangle=tiltangle,
         x=x,
         y=y,

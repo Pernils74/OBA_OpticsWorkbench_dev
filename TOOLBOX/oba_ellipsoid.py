@@ -34,8 +34,7 @@ from .oba_toolbox_base import (
 ELLIPSOID_PROPERTIES = [
     {"name": "A", "type": "App::PropertyLength", "group": "Ellipsoid", "unit": "mm", "min": 0, "max": 1_000_000, "doc": "Semi-major axis"},
     {"name": "B", "type": "App::PropertyLength", "group": "Ellipsoid", "unit": "mm", "min": 0, "max": 1_000_000, "doc": "Semi-minor axis"},
-    {"name": "UseIndependentRadius3", "type": "App::PropertyBool", "group": "Ellipsoid", "doc": "Use independent radius in Y direction"},
-    {"name": "B2", "type": "App::PropertyLength", "group": "Ellipsoid", "unit": "mm", "min": 0, "max": 1_000_000, "enabled_when": "UseIndependentRadius3", "doc": "Independent ellipsoid Y radius"},
+    {"name": "Radius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Amount subtracted from Radius2 (B) to produce Radius3"},
     {"name": "WidthFactor", "type": "App::PropertyFloat", "group": "Ellipsoid", "default": 1.8, "min": 0.5, "max": 2, "step": 0.1},
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "unit": "mm", "display_only": True, "doc": "Distance from ellipsoid centre to focus"},
     {"name": "ShowDebugEllipsoid", "type": "App::PropertyBool", "group": "Debug", "doc": "Show ellipsoid for debugging"},
@@ -250,19 +249,14 @@ class OBAEllipsoid:
         a = float(obj.A)
         b = float(obj.B)
 
+        radius3 = max(0.0, b - float(obj.Radius3Offset))
+        changed |= set_quantity_if_changed(ellipsoid, "Radius3", radius3, "mm")
+
         # guard emot felaktiva a och b värden
         if a <= 0 or b <= 0:
             return changed
 
-        if obj.UseIndependentRadius3:
-            b2 = float(obj.B2)
-        else:
-            b2 = b
-
-        if b2 <= 0:
-            return changed
-
-        validate_ellipsoid(a, b, b2)
+        validate_ellipsoid(a, b, radius3)
         c = focus_distance(a, b)
 
         # ----------------------------------------------------
@@ -275,7 +269,6 @@ class OBAEllipsoid:
 
         changed |= set_quantity_if_changed(ellipsoid, "Radius1", a, "mm")
         changed |= set_quantity_if_changed(ellipsoid, "Radius2", b, "mm")
-        changed |= set_quantity_if_changed(ellipsoid, "Radius3", b2, "mm")
 
         # ----------------------------------------------------
         # Part::Ellipsoid is centred on its local origin.
@@ -513,7 +506,7 @@ class OBAEllipsoid:
         # ----------------------------------------------------
         # Geometry
         # ----------------------------------------------------
-        if prop in ("A", "B", "UseIndependentRadius3", "B2", "APlaneWidth", "APlaneHeight", "WidthFactor", "APlaneZoffset", "APlaneYoffset"):
+        if prop in ("A", "B", "Radius3Offset", "APlaneWidth", "APlaneHeight", "WidthFactor", "APlaneZoffset", "APlaneYoffset"):
             try:
                 self._rebuild(obj)
             except Exception as exc:
@@ -569,6 +562,9 @@ class OBAEllipsoid:
         self._init_runtime_state()
         obj.Proxy = self
         self.Object = obj
+        for legacy_property in ("UseIndependentRadius3", "B2"):
+            if legacy_property in obj.PropertiesList:
+                obj.removeProperty(legacy_property)
         install_properties(obj, ELLIPSOID_PROPERTIES)
         ensure_debug_property(obj)
         make_calculated_length(obj, "FocusDistance", "Distance from ellipsoid centre to focus")
@@ -646,31 +642,24 @@ class EllipsoidViewProvider(OBAToolboxViewProviderBase):
 def OBA_CreateEllipsoid(
     doc=None,
     label="Ellipsoid",
-    aplanewidth=3,
-    aplaneheight=3,
-    aplaneZoffset=0,
-    aplaneYoffset=0,
+    aplanewidth=3.0,
+    aplaneheight=3.0,
+    aplaneZoffset=0.0,
+    aplaneYoffset=0.0,
     a=15.0,
     b=6.0,
-    b2=None,
-    use_b2=False,
     widthfactor=1.8,
-    rot_x=30,
-    rot_y=0,
-    rot_z=0,
-    x=0,
-    y=0,
-    z=0,
+    rot_x=30.0,
+    rot_y=0.0,
+    rot_z=0.0,
+    x=0.0,
+    y=0.0,
+    z=0.0,
     suppress_onchange=False,
     show_dialog=True,
+    radius3_offset=0.0,
 ):
     doc = doc or App.ActiveDocument or App.newDocument()
-    if b2 is None:
-        b2 = b
-        use_b2 = False
-    else:
-        use_b2 = True
-    # validate_ellipsoid(a, b, b2)
     obj = doc.addObject("Part::FeaturePython", "OBAEllipsoid")
 
     obj.Label = label
@@ -689,8 +678,7 @@ def OBA_CreateEllipsoid(
     obj.A = a  # App.Units.Quantity(f"{a} mm")
     obj.B = b  # App.Units.Quantity(f"{b} mm")
 
-    obj.UseIndependentRadius3 = use_b2
-    obj.B2 = b2  # App.Units.Quantity(f"{b2} mm")
+    obj.Radius3Offset = radius3_offset
 
     obj.WidthFactor = float(widthfactor)
 
@@ -737,20 +725,20 @@ def OBA_CreateEllipsoid(
 def create(
     doc=None,
     label="Ellipsoid",
-    aplanewidth=5,
-    aplaneheight=5,
-    aplaneZoffset=0,
-    aplaneYoffset=0,
+    aplanewidth=5.0,
+    aplaneheight=5.0,
+    aplaneZoffset=0.0,
+    aplaneYoffset=0.0,
     a=40.0,
     b=20.0,
-    b2=None,
     widthfactor=1.8,
-    rot_x=0,
-    rot_y=0,
-    rot_z=0,
-    x=0,
-    y=0,
-    z=0,
+    rot_x=0.0,
+    rot_y=0.0,
+    rot_z=0.0,
+    x=0.0,
+    y=0.0,
+    z=0.0,
+    radius3_offset=0.0,
 ):
     return OBA_CreateEllipsoid(
         doc=doc,
@@ -761,7 +749,7 @@ def create(
         aplaneYoffset=aplaneYoffset,
         a=a,
         b=b,
-        b2=b2,
+        radius3_offset=radius3_offset,
         widthfactor=widthfactor,
         rot_x=rot_x,
         rot_y=rot_y,

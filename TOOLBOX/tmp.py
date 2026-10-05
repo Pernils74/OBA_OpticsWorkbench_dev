@@ -177,13 +177,6 @@ WHITE_CELL_PROPERTIES_old = [
         "doc": "Emitter ellipsoid radius",
     },
     {
-        "name": "EmitterB2",
-        "type": "App::PropertyLength",
-        "group": "Emitter",
-        "default": 20.0,
-        "doc": "Emitter independent radius 3",
-    },
-    {
         "name": "EmitterRotX",
         "type": "App::PropertyAngle",
         "group": "Emitter",
@@ -255,13 +248,6 @@ WHITE_CELL_PROPERTIES_old = [
         "group": "Detector",
         "default": 20.0,
         "doc": "Detector ellipsoid radius",
-    },
-    {
-        "name": "DetectorB2",
-        "type": "App::PropertyLength",
-        "group": "Detector",
-        "default": 20.0,
-        "doc": "Detector independent radius 3",
     },
     {
         "name": "DetectorRotX",

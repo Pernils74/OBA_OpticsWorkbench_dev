@@ -60,13 +60,13 @@ def validate_cube(width, height):
         raise ValueError("Height must be greater than zero.")
 
 
-def validate_ellipsoid(a, b, b2=None):
+def validate_ellipsoid(a, b, radius3=None):
     if a <= 0 or b <= 0:
         raise ValueError("A and B must be greater than zero.")
     if a < b:
         raise ValueError(f"A must be greater than or equal to B. A={a}, B={b}")
-    if b2 is not None and b2 <= 0:
-        raise ValueError("B2 must be greater than zero.")
+    if radius3 is not None and radius3 < 0:
+        raise ValueError("Radius3 must not be negative.")
 
 
 def install_properties(obj, specs):

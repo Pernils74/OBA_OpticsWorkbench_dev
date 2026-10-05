@@ -565,9 +565,16 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
     finally:
         db.commit()
         # Restore the exact state captured by BatchRunner.
-        for step, *_ in parsed_steps:
-            if _get_step_state(step) is not None:
-                restore_step_state(step, recompute=False)
+        # for step, *_ in parsed_steps:
+        #     if _get_step_state(step) is not None:
+        #         restore_step_state(step, recompute=False)
+
+        restore_all_step_states(
+            doc,
+            recompute=False,
+            forget=True,
+        )
+
         doc.recompute()
 
         _trigger_ray_engine(reason="batch_finished", force=True)

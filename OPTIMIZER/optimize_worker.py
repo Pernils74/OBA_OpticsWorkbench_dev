@@ -394,7 +394,9 @@ class OptimizationWorker(QtCore.QObject):
 
     def _suggest(self, trial):
         params = {}
-        PRECISION_STEP = 0.0001
+        PARAMETER_DECIMALS = 3
+        PRECISION_STEP = 10 ** (-PARAMETER_DECIMALS)
+        # PRECISION_STEP = 0.001
 
         # print("TRIAL", trial.number)
         # --------------------------------------------------
@@ -443,12 +445,12 @@ class OptimizationWorker(QtCore.QObject):
                 span = (hi - lo) * step_ratio
                 lo2 = max(lo, center - span)
                 hi2 = min(hi, center + span)
-            lo2 = round(lo2, 4)
-            hi2 = round(hi2, 4)
+            lo2 = round(lo2, PARAMETER_DECIMALS)
+            hi2 = round(hi2, PARAMETER_DECIMALS)
             if lo2 >= hi2:
                 hi2 = lo2 + PRECISION_STEP
             value = trial.suggest_float(name, lo2, hi2, step=PRECISION_STEP)
-            params[name] = round(value, 5)
+            params[name] = round(value, PARAMETER_DECIMALS)  # avrundar till 3 decimaler för att undvika onödiga små skillnader som kan orsaka problem i CAD
         return params
 
     def _create_sampler(self, config):
