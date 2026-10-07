@@ -86,6 +86,7 @@ WHITE_CELL_PROPERTIES = [
     {"name": "MainMirrorB", "label": "B", "type": "App::PropertyLength", "group": "Main Mirror", "parent_group": "Mirrors", "default": 19.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "MainMirrorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Main Mirror", "parent_group": "Mirrors", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "MainMirrorTiltAngle", "label": "Tilt", "type": "App::PropertyAngle", "group": "Main Mirror", "parent_group": "Mirrors", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
+    {"name": "MainMirrorTiltAngleOffset", "label": "Tilt Angle Offset", "type": "App::PropertyAngle", "group": "Main Mirror", "parent_group": "Mirrors", "default": 0.0, "unit": "deg", "min": -90, "max": 90, "optuna_locked": False},
     # {"name": "MainMirrorX", "label": "X", "type": "App::PropertyDistance", "group": "Main Mirror", "parent_group": "Mirrors","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     {"name": "MainMirrorY", "label": "Y", "type": "App::PropertyFloat", "group": "Main Mirror", "parent_group": "Mirrors", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # {"name": "MainMirrorZ", "label": "Z", "type": "App::PropertyDistance", "group": "Main Mirror", "parent_group": "Mirrors","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
@@ -284,6 +285,7 @@ class OBAWhiteCell:
                 # radius3_offset=float(obj.MainMirrorB) - float(obj.MainMirrorRadius3Offset),
                 radius3_offset=float(obj.MainMirrorRadius3Offset),
                 tiltangle=float(obj.MainMirrorTiltAngle),
+                tiltangle_offset=float(obj.MainMirrorTiltAngleOffset),
                 x=0,
                 y=float(obj.MainMirrorY),
                 z=0,
@@ -436,6 +438,7 @@ class OBAWhiteCell:
             changed |= set_quantity_if_changed(mirror, "B", obj.MainMirrorB, "mm")
             changed |= set_quantity_if_changed(mirror, "Radius3Offset", obj.MainMirrorRadius3Offset, "mm")
             changed |= set_quantity_if_changed(mirror, "TiltAngle", obj.MainMirrorTiltAngle, "deg")
+            changed |= set_quantity_if_changed(mirror, "TiltAngleOffset", obj.MainMirrorTiltAngleOffset, "deg")
 
             # mirror.Placement = App.Placement(
             #     App.Vector(
@@ -732,6 +735,7 @@ class OBAWhiteCell:
             "MainMirrorB",
             "MainMirrorRadius3Offset",
             "MainMirrorTiltAngle",
+            "MainMirrorTiltAngleOffset",
             # "MainMirrorX",
             "MainMirrorY",
             # "MainMirrorZ",

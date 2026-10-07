@@ -2,6 +2,7 @@
 # heatmap_viewer.py
 
 import os
+import profile
 import numpy as np
 import FreeCAD as App
 import FreeCADGui as Gui
@@ -11,10 +12,13 @@ from PySide.QtWidgets import QSizePolicy
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
+# from vendor_optuna.numpy.typing.tests.data.fail.multiarray import func
+
 from .scan_db import HitsDB, get_doc_db_path
 
 from oba_objects.oba_base import _trigger_ray_engine
-from oba_rayengine.oba_ray_analyser import collect_ray_hits_and_stats
+from oba_rayengine.oba_ray_analyser import collect_ray_hits_and_stats, get_emitted_power
+
 
 from .batch_runner import (
     apply_step_offset,
@@ -123,12 +127,15 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         self.comboPlane.addItems(["XY", "XZ", "YZ"])
 
         self.chkSmooth = QtWidgets.QCheckBox("Smooth")
-        self.chkSmooth.setChecked(True)
+        self.chkSmooth.setChecked(False)
         self.spinSmooth = QtWidgets.QSpinBox()
-        self.spinSmooth.setRange(1, 10)
-        self.spinSmooth.setValue(2)
+        self.spinSmooth.setRange(0, 10)
+        self.spinSmooth.setSingleStep(1)
+        self.spinSmooth.setValue(1)
+        self.spinSmooth.setEnabled(self.chkSmooth.isChecked())
+        self.chkSmooth.toggled.connect(self.spinSmooth.setEnabled)
 
-        self.chkPercent = QtWidgets.QCheckBox("Show %")
+        self.chkPercent = QtWidgets.QCheckBox(f"Show % of emitted rays/power")
 
         self.chkPlane2D = QtWidgets.QCheckBox("2D plane view")
 
@@ -407,20 +414,44 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
             np.linspace(py.min(), py.max(), 60),
         )
 
-        Vi = np.zeros_like(Xi)
-        for i in range(Xi.shape[0]):
-            for j in range(Xi.shape[1]):
-                distances = np.hypot(px - Xi[i, j], py - Yi[i, j])
-                weights = 1.0 / (distances + 1e-6)
-                Vi[i, j] = np.average(V, weights=weights)
+        # Vi = np.zeros_like(Xi)
+        # for i in range(Xi.shape[0]):
+        #     for j in range(Xi.shape[1]):
+        #         distances = np.hypot(px - Xi[i, j], py - Yi[i, j])
+        #         weights = 1.0 / (distances + 1e-6)
+        #         # weights = 1.0 / (distances**3 + 1e-12)
+        #         Vi[i, j] = np.average(V, weights=weights)
+
+        from scipy.interpolate import Rbf
 
         if self.chkSmooth.isChecked():
-            Vi = self._median(Vi, 2 * self.spinSmooth.value() + 1)
+            rbf_smooth = self.spinSmooth.value() * 0.002
+        else:
+            rbf_smooth = 0.0
+        rbf = Rbf(px, py, V, function="thin_plate", smooth=rbf_smooth)
+        Vi = rbf(Xi, Yi)
+
+        # saxar ner det som rbf har interpolerat utanför convex hull av orginalpunkterna
+
+        # spar undan för att kunna visa i 2D-plane view
+        self._raw_px = px
+        self._raw_py = py
+        self._raw_v = V
+
+        # samlar ihop hits,power för alla emittrar som är valda
+        emitted_power = 0.0
+        emitted_rays = 0
+        for emitter in emitters:
+            p, r = get_emitted_power(emitter)
+            emitted_power += p
+            emitted_rays += r
 
         if self.chkPercent.isChecked():
-            maximum = np.max(Vi)
-            if maximum > 0:
-                Vi = Vi / maximum * 100
+            if emitted_power > 1e-12:
+                if value_mode in ("Power In", "Power Out"):
+                    Vi = Vi / emitted_power * 100.0
+                elif value_mode == "Hits" and emitted_rays > 0:
+                    Vi = Vi / emitted_rays * 100.0
 
         return Xi, Yi, Vi
 
@@ -537,9 +568,48 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         if hasattr(self, "_max_x"):
             ax.scatter(self._max_x, self._max_y, s=250, marker="*", color="yellow", edgecolors="black", label="Max")
 
+        if self.chkPercent.isChecked():
+            current_idx = np.unravel_index(
+                np.argmin((Xi - current_x) ** 2 + (Yi - current_y) ** 2),
+                Xi.shape,
+            )
+            current_efficiency = float(Vi[current_idx])
+            best_efficiency = float(np.max(Vi))
+            gain = best_efficiency - current_efficiency
+            ax.set_title(f"Current={current_efficiency:.1f}%   " f"Best={best_efficiency:.1f}%   " f"Diff=+{gain:.1f} pts")
+            ax.axhline(100, color="green", linestyle="--", linewidth=2, label="100 % emitted")
+        else:
+            # ----------------------------------------
+            # DB best (uppmätt)
+            # ----------------------------------------
+            raw_idx = np.argmax(self._raw_v)
+            raw_max_v = float(self._raw_v[raw_idx])
+            # ----------------------------------------
+            # RBF best (interpolerat)
+            # ----------------------------------------
+            interp_idx = np.unravel_index(np.argmax(Vi), Vi.shape)
+            interp_max_v = float(Vi[interp_idx])
+
+            # ----------------------------------------
+            # Current (verklig senaste trace)
+            # ----------------------------------------
+            hits, _stats = collect_ray_hits_and_stats(mode="final")
+            value_mode = self.comboValue.currentText()
+            hit_target = self.comboTarget.currentData()
+            selected_emitters = set(self._get_selected_emitters())
+            target_hits = [h for h in hits if h.get("object") == hit_target and h.get("emitter_id") in selected_emitters]
+            if value_mode == "Hits":
+                current_value = len(target_hits)
+            elif value_mode == "Power In":
+                current_value = sum(h.get("power_in", 0.0) for h in target_hits)
+            else:  # Power Out
+                current_value = sum(h.get("power_out", 0.0) for h in target_hits)
+            gap_db = raw_max_v - current_value
+            gap_rbf = interp_max_v - current_value
+            ax.set_title(f"Current={current_value:.0f}   " f"DB Best={raw_max_v:.0f} (+{gap_db:.0f})   " f"RBF Best={interp_max_v:.0f} (+{gap_rbf:.0f})")
+
         ax.legend()
         ax.grid(True)
-
         self.canvas2d.draw_idle()
 
     def _plot_2d_plane(self, Xi, Yi, Vi):

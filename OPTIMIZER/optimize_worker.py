@@ -87,6 +87,8 @@ class OptimizationWorker(QtCore.QObject):
         self.unselected_params = config.get("unselected_params", {})  # Parametrar som INTE optimeras
         self.start_cad_params = config.get("start_cad_params")  # Spara undan cad_params vid start
 
+        self.recheck = config.get("recheck", True)
+
         if self.start_cad_params is None:
             self.start_cad_params = {}
 

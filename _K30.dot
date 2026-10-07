@@ -1,0 +1,188 @@
+digraph G {
+    // Inställningar för snyggare utseende
+    node [shape = box; fontname = "Arial"; style = "filled"; fillcolor = "#f9f9f9"; width = 2;];
+    
+    
+    rankdir = TB;
+    // LR
+    // Top to Bottom layout
+    nodesep = 0.6;
+    // Ökat horisontellt avstånd mellan noder på samma nivå
+    ranksep = 1.8;
+    // Ökat vertikalt avstånd mellan olika nivåer
+    // Top to Bottom layout
+    
+    
+    
+    // "Sunlight" -> {"006-1-0101" "006-1-0102" "006-1-0103" "006-1-0104" "006-1-0105" "006-1-0106" "006-1-0202" "009-4-0001" "009-4-0002" "009-4-0003" "009-4-0004" "009-4-0007"};
+    
+    
+    
+    // 006-1
+    "030-7-0001" [label = "Art: 030-7-0001\nSenseair K30 3%";fillcolor = "#fffacd";];
+    
+    "030-7-0002" [label = "Art: 030-7-0002\nSenseair K30 3% ABC OFF";fillcolor = "#fffacd";];
+    "030-7-0007" [label = "Art: 030-7-0007\nSenseair K30 3% ext. range 10%";fillcolor = "#fffacd";];
+    
+    "030-8-0006" [label = "Art: 030-8-0006\nSenseair K30";fillcolor = "#fffacd";];
+    
+    "030-8-0008" [label = "Art: 030-8-0008\nSenseair K30 10.000";fillcolor = "#fffacd";];
+    
+    "030-8-0010" [label = "Art: 030-8-0010\nSenseair K30 FR";fillcolor = "#fffacd";];
+    "030-8-0011" [label = "Art: 030-8-0011\nSenseair K30 10000ppm 1-5V";fillcolor = "#fffacd";];
+    
+    "030-8-0019" [label = "Art: 030-8-0019\nSenseair K30 10000ppm 1-4V ABC Off";fillcolor = "#fffacd";];
+    
+    
+    
+    
+    // PBASC
+    "833-00059" [label = "Art: 833-00059\nPBASC K30 OBA7";fillcolor = "#dbffcd";];
+    "833-00068" [label = "Art: 833-00068\nPBASC K30 OBA7 ext. range 10%";fillcolor = "#dbffcd";];
+    "833-00086" [label = "Art: 833-00086\nPBASC K30";fillcolor = "#dbffcd";];
+    "833-00087" [label = "Art: 833-00087\nPBASC K30 FR";fillcolor = "#dbffcd";];
+    "833-00104" [label = "Art: 833-00104\nPBASC K30 10000ppm 1-5V";fillcolor = "#dbffcd";];
+    
+    
+    // PBAS
+    "330005" [label = "Art: 330005\nPBAS K30 OBA7";fillcolor = "#dbffcd";];
+    "832-00087" [label = "Art: 832-00087\nPBAS K30";fillcolor = "#dbffcd";];
+    
+    
+    // PBA
+    "330000" [label = "Art: 330000\nPBA K30";fillcolor = "#dbffcd";];
+    
+    
+    // External
+    "740-00497" [label = "Art: 740-00497\nK30 OBA8 External";fillcolor = "#7191e4";];
+    
+    
+    
+    
+    
+    
+    
+    "030-7-0001" -> {"900-00365"};
+    
+    "900-00365" [label = "Art: 900-00365\nSenseair K30 3%";fillcolor = "#fffacd";];
+    "900-00365" -> {"833-00059"};
+    
+    
+    
+    
+    // --- SUNLIGHT BOM ---¨'
+    "030-7-0002" -> {"900-00439"};
+    "900-00439" [label = "Art: 900-00439\nSenseair K30 3% ABC OFF";fillcolor = "#fffacd";];
+    "900-00439" -> {"833-00059"};
+    "833-00059" -> {"330005"};
+    
+    "330005" -> {"831-00251"};
+    
+    
+    
+    "030-7-0007" -> {"900-00448"};
+    "900-00448" [label = "Art: 900-00448\nSenseair K30 3% ext. range 10%";fillcolor = "#fffacd";];
+    "900-00448" -> {"833-00068"};
+    "833-00068" -> {"330005"};
+    
+    
+    "831-00251" [label = "Art: 831-00251\nPBA K30 OBA7";fillcolor = "#fffacd";];
+    "330005" -> {"831-00251"};
+    
+    
+    
+    
+    
+    "030-8-0019" -> {"900-00459" "740-00497" "711-00428"};
+    "900-00459" [label = "Art: 900-00459\nSenseair K30 10000ppm 1-4V ABC Off";fillcolor = "#fffacd";];
+    "900-00459" -> {"833-00086"};
+    "833-00086" -> {"832-00087"};
+    "832-00087" -> {"330000"};
+    
+    
+    
+    
+    
+    
+    "030-8-0008" -> {"900-00391" "740-00497" "711-00428"};
+    "900-00391" [label = "Art: 900-00391\nSenseair K30 10.000";fillcolor = "#fffacd";];
+    "900-00391" -> {"833-00086"};
+    
+    
+    
+    
+    
+    
+    "030-8-0006" -> {"900-00390" "740-00497" "711-00428"};
+    
+    "900-00390" [label = "Art: 900-00390\nSenseair K30 EQC";fillcolor = "#fffacd";];
+    "900-00390" -> {"833-00086"};
+    
+    
+    
+    
+    
+    
+    "030-8-0010" -> {"900-00398" "740-00497" "711-00428"};
+    "900-00398" [label = "Art: 900-00398\nSenseair K30 FR";fillcolor = "#fffacd";];
+    "900-00398" -> {"833-00087"};
+    "833-00087" -> {"832-00087"};
+    "832-00087" -> {"330000" "740-00700" "711-00428" "834-00032"};
+    "740-00700" [label = "Art: 740-00700\nGlue Instruction OBA8";fillcolor = "#fffacd";];
+    "711-00428" [label = "Art: 711-00428\nPBAS K30";fillcolor = "#fffacd";];
+    "834-00032" [label = "Art: 834-00032\nSensor OBA8 B-Class";fillcolor = "#fffacd";];
+    "834-00032" -> {"834-00001" "834-00035"};
+    "834-00001" -> {"740-00351" "433-00015"};
+    "433-00015" -> {"711-00162" "740-00182"};
+    
+    "834-00001" [label = "Art: 834-00001\nOBA8 Lower Part Metallized";fillcolor = "#fffacd";];
+    "834-00035" [label = "Art: 834-00035\nOBA8 Upper Part Metallized";fillcolor = "#fffacd";];
+    
+    
+    
+    
+    "740-00182" -> {"795-00166"};
+    
+    
+    
+    "834-00035" -> {"740-00652" "433-00104"};
+    "433-00104" -> {"711-00543" "740-00638"};
+    "740-00638" -> {"795-00165"};
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    "030-8-0011" -> {"900-00394" "740-00497" "711-00428"};
+    
+    "900-00394" [label = "Art: 900-00394\nPBASC K30 10000ppm 1-5V";fillcolor = "#fffacd";];
+    "900-00394" -> {"833-00104"};
+    "833-00104" -> {"832-00087"};
+    "832-00087" -> {"330000"};
+    
+    
+    // 
+    // 
+    "834-00004" [label = "Art: 834-00004\nSensor OBA7 EQC B-CLASS";fillcolor = "#fffacd";];
+    "834-00004" -> {"200148" "200147"};
+    "200148" [label = "Art: 200148\nSensordel OBA7 underdel EQC";fillcolor = "#fffacd";];
+    "200147" [label = "Art: 200147\nSensordel OBA8 överdel EQC";fillcolor = "#fffacd";];
+    "200148" -> {"150543"};
+    "200147" -> {"150756"};
+    
+    
+    "330005" -> {"831-00251" "834-00004"};
+    
+    
+    
+    "740-00497" -> {"795-00588" "795-00427"};
+    "795-00588" [label = "Art: 795-00588\nK30 PBA";fillcolor = "#fbfbfb";];
+    
+    "795-00427" -> {"795-00166" "795-00165" "795-00428" "795-00351" "795-00429"};
+}

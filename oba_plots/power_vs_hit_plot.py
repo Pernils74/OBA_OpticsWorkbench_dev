@@ -13,7 +13,7 @@ from matplotlib.backends.backend_qt5 import NavigationToolbar2QT as NavigationTo
 
 from collections import defaultdict
 
-from oba_rayengine.oba_ray_analyser import collect_ray_hits_and_stats
+from oba_rayengine.oba_ray_analyser import collect_ray_hits_and_stats, get_emitted_power
 from oba_rayengine.oba_ray_core import OBARayManager
 from .filter_panel import ClusterHitFilterPanel
 
@@ -313,6 +313,32 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         if data2 is not None:
             data2 = finalize_data(q2, data2)
 
+        # ------------------------------
+        # Inject synthetic bounce 0
+        # ------------------------------
+
+        selected_power = 0.0
+        selected_rays = 0
+
+        for emitter_id in filter_spec["emitters"]:
+            p, r = get_emitted_power(emitter_id)
+            selected_power += p
+            selected_rays += r
+
+        def add_bounce0(q, data):
+            if q == "ray_count":
+                data[0] = selected_rays
+            elif q in ("power_in", "power_out"):
+                data[0] = selected_power
+            # elif q == "absorbed_power":
+            #     data[0] = 0.0
+            return data
+
+        data1 = add_bounce0(q1, data1)
+
+        if data2 is not None:
+            data2 = add_bounce0(q2, data2)
+
         if not data1:
             self.fig.clear()
             self.canvas.draw_idle()
@@ -339,11 +365,21 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
 
             return [100.0 * v / ref for v in vals]
 
+        def has_bounce0(q):
+            return q in (
+                "power_in",
+                "power_out",
+                "absorbed_power",
+                "ray_count",
+            )
+
         if self.chkNorm1.isChecked():
-            y1 = normalize(y1, max(y1))
+            ref = y1[0] if has_bounce0(q1) else max(y1)
+            y1 = normalize(y1, ref)
 
         if self.chkNorm2.isChecked() and y2 is not None:
-            y2 = normalize(y2, max(y2))
+            ref = y2[0] if has_bounce0(q2) else max(y2)
+            y2 = normalize(y2, ref)
 
         # -------------------------------------------------
         # PLOT
@@ -465,7 +501,20 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
         # -------------------------------------------------
         total_hits = sum(count_per_bounce.values())
 
-        self.lblStatus.setText(f"Bounces: {len(bounces)} | Hits: {total_hits}")
+        # rm = OBARayManager()
+
+        total_power, total_rays = get_emitted_power()
+
+        selected_power = 0.0
+        selected_rays = 0
+
+        for emitter_id in filter_spec["emitters"]:
+            p, r = get_emitted_power(emitter_id)
+            selected_power += p
+            selected_rays += r
+        fraction = 100.0 * selected_power / total_power if total_power > 0 else 0.0
+        self.lblStatus.setText(f"Bounces={len(bounces)} | " f"Hits={total_hits} | " f"Emitters={len(filter_spec['emitters'])} | " f"Power={selected_power:.2f}/{total_power:.2f} W " f"({fraction:.1f}%)")
+        # self.lblStatus.setText(f"Bounces: {len(bounces)} | Hits: {total_hits}")
 
     def closeEvent(self, event):
         OBARayManager().remove_listener(self.on_rays_updated)

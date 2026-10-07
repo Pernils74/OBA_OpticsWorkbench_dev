@@ -585,13 +585,21 @@ class OBAToolboxDialogBase(OBABaseDialog):
             try:
                 value = getattr(obj, prop)
                 sheet.set(f"A{row}", prop)
-                sheet.set(f"B{row}", str(value))
+
+                # för att täcka negativa PropertyAngle-värden
+                if prop_def.get("type") == "App::PropertyAngle":
+                    numeric_value = float(value)
+                    sheet.set(f"B{row}", f"={numeric_value:g} deg")
+                else:
+                    sheet.set(f"B{row}", str(value))
+
+                # sheet.set(f"B{row}", str(value))
+
                 locked = bool(getattr(obj, f"{prop}_OptunaLocked", False))
                 sheet.set(f"E{row}", "X" if locked else "")
-
                 sheet.setAlias(f"B{row}", prop)
-                obj.setExpression(prop, f"{sheet.Name}.{prop}")
 
+                obj.setExpression(prop, f"{sheet.Name}.{prop}")  # orginal
                 try:
                     numeric_value = float(value)
                     min_val, max_val = self.get_limits(numeric_value, unit)

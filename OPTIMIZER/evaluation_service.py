@@ -99,6 +99,8 @@ class EvaluationService(QtCore.QObject):
             unselected_params = payload.get("unselected_params", {})
             metrics = payload.get("metrics", [])
             trial_id = payload.get("trial_id", "?")
+            recheck_enabled = payload.get("recheck", True)
+
             # --------------------------------------------------
             # START CAD-LÄGE
             #
@@ -176,7 +178,8 @@ class EvaluationService(QtCore.QObject):
             # --------------------------------------------------
             # 4. AVGÖR OM RECHECK SKALL GÖRAS
             # --------------------------------------------------
-            should_recheck = self._best_score is None or score_1 > self._best_score
+            # should_recheck = self._best_score is None or score_1 > self._best_score
+            should_recheck = recheck_enabled and (self._best_score is None or score_1 > self._best_score)
             # --------------------------------------------------
             # DEFAULT:
             #

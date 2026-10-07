@@ -244,13 +244,15 @@ def load_model_data_into_spreadsheet(data, sheet, min_percent=None, max_percent=
         value = item.get("value")
         min_value = item.get("min")
         max_value = item.get("max")
+        zero_value = global_percent.get("zero_value", 1.0)
         if min_percent is not None and max_percent is not None and value is not None:
             numeric_value = _to_float(value)
             if numeric_value is not None:
-                min_value = _calculate_bound(numeric_value, float(min_percent))
-                max_value = _calculate_bound(numeric_value, float(max_percent))
+                min_value = _calculate_bound(numeric_value, float(min_percent), float(zero_value))
+                max_value = _calculate_bound(numeric_value, float(max_percent), float(zero_value))
 
         property_name = str(item.get("property", ""))
+
         if property_name:
             sheet.set(f"A{row}", property_name)
         if value is not None:
@@ -266,13 +268,28 @@ def load_model_data_into_spreadsheet(data, sheet, min_percent=None, max_percent=
     return loaded, missing_aliases
 
 
-def _calculate_bound(value, percent):
+def calculate_bounds(value, percent_min, percent_max):
+    delta = abs(value)
+
+    b1 = value + delta * percent_min / 100.0
+    b2 = value + delta * percent_max / 100.0
+
+    return min(b1, b2), max(b1, b2)
+
+
+def _calculate_bound(value, percent, zero_value=1.0):
+    if abs(value) < 1e-12:
+        return -zero_value if percent < 0 else zero_value
+
+    return value + abs(value) * percent / 100.0
+
+
+def _calculate_bound_old(value, percent, zero_value=1.0):
     """
     Calculate Min/Max from Value and percentage.
     """
-    if value is None:
-        return None
-
+    if abs(value) < 1e-12:
+        return -zero_value if percent < 0 else zero_value
     return value * (1.0 + percent / 100.0)
 
 
@@ -454,6 +471,16 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
         self.btnApplyPercent.setStyleSheet("QPushButton { background-color: #315f91; color: white; font-weight: 600; padding: 5px 10px; } QPushButton:hover { background-color: #264c75; }")
         self.min_percent_spin.setStyleSheet("QDoubleSpinBox { border: 2px solid #315f91; border-radius: 3px; padding: 3px; }")
         self.max_percent_spin.setStyleSheet("QDoubleSpinBox { border: 2px solid #315f91; border-radius: 3px; padding: 3px; }")
+
+        percent_layout.addSpacing(25)
+        percent_layout.addWidget(QtWidgets.QLabel("Zero value:"))
+        self.zero_value_spin = QtWidgets.QDoubleSpinBox()
+        self.zero_value_spin.setRange(0.000001, 1_000_000.0)
+        self.zero_value_spin.setDecimals(6)
+        self.zero_value_spin.setValue(1.0)
+        self.zero_value_spin.setSingleStep(0.1)
+        percent_layout.addWidget(self.zero_value_spin)
+
         self.btnOpen = QtWidgets.QPushButton("Öppna CSV / JSON")
         self.btnSave = QtWidgets.QPushButton("Spara CSV / JSON")
         self.btnClose = QtWidgets.QPushButton("Stäng")
@@ -724,28 +751,23 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
                 try:
                     property_raw = sheet.get("A{}".format(r))
                     value_raw = sheet.get("B{}".format(r))
-
                 except Exception:
                     continue
-
                 property_name = "" if property_raw is None else str(property_raw).strip()
                 # END stops processing
                 if property_name.upper() == "END":
                     break
-
                 value = _to_float(value_raw)
-
                 # -----------------------------------------
                 # Only rows with numeric B are parameters
                 #
                 # This automatically skips category rows.
                 # -----------------------------------------
-
                 if value is None:
                     continue
-
-                min_value = _calculate_bound(value, min_percent)
-                max_value = _calculate_bound(value, max_percent)
+                zero_value = self.zero_value_spin.value()
+                min_value = _calculate_bound(value, min_percent, zero_value)
+                max_value = _calculate_bound(value, max_percent, zero_value)
                 min_text = _format_number(min_value)
                 max_text = _format_number(max_value)
 
@@ -789,25 +811,18 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
             if self.chkAutoRecompute.isChecked():
                 try:
                     doc.recompute()
-
                 except Exception:
                     pass
-
                 recompute_doc(doc, note="Optuna % change")
-
         except Exception as e:
             try:
                 App.Console.PrintError("Optuna % update error: {}\n".format(e))
-
             except Exception:
                 pass
-
             self.statusLabel.setText("Error: {}".format(e))
-
         finally:
             self.tbl.blockSignals(False)
             self._loading = False
-
         self.statusLabel.setText("Min {:.2f}% / Max {:.2f}% -> " "{} rows updated directly.".format(min_percent, max_percent, changed))
 
     # =====================================================
@@ -931,6 +946,7 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
 
             else:
                 sheet.set(addr, txt)
+                # print(addr, repr(txt))
 
             # ---------------------------------------------
             # If B (Value) is edited:
@@ -1079,7 +1095,11 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
                 "max": "D",
                 "locked": "E",
             },
-            "global_percent": {"min": self.min_percent_spin.value(), "max": self.max_percent_spin.value()},
+            "global_percent": {
+                "min": self.min_percent_spin.value(),
+                "max": self.max_percent_spin.value(),
+                "zero_value": self.zero_value_spin.value(),
+            },
             "parameters": [],
         }
 
@@ -1140,22 +1160,28 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         global_percent = data.get("global_percent", {})
-        min_percent = global_percent.get("min")
-        max_percent = global_percent.get("max")
 
         # -------------------------------------------------
         # Set spinboxes
         # -------------------------------------------------
 
+        min_percent = global_percent.get("min")
         if min_percent is not None:
             self.min_percent_spin.blockSignals(True)
             self.min_percent_spin.setValue(float(min_percent))
             self.min_percent_spin.blockSignals(False)
 
+        max_percent = global_percent.get("max")
         if max_percent is not None:
             self.max_percent_spin.blockSignals(True)
             self.max_percent_spin.setValue(float(max_percent))
             self.max_percent_spin.blockSignals(False)
+
+        zero_value = global_percent.get("zero_value")
+        if zero_value is not None:
+            self.zero_value_spin.blockSignals(True)
+            self.zero_value_spin.setValue(float(zero_value))
+            self.zero_value_spin.blockSignals(False)
 
         sheet = self._current_sheet()
         if not sheet:

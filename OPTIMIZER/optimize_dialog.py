@@ -129,6 +129,11 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
         samplerLayout = QtWidgets.QHBoxLayout()
         self.chkConstantLiar = QtWidgets.QCheckBox("Constant liar")
         self.chkConstantLiar.setChecked(True)
+
+        self.chkRecheck = QtWidgets.QCheckBox("Recheck")
+        self.chkRecheck.setChecked(False)
+        self.chkRecheck.setToolTip("Evaluate each trial twice and average the results.\n\n" "Improves stability but approximately doubles evaluation time.")
+
         self.cmbSampler = QtWidgets.QComboBox()
         self.cmbSampler.addItems(
             [
@@ -170,6 +175,8 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
         samplerLayout.addSpacing(20)
         samplerLayout.addWidget(self.chkConstantLiar)
+        samplerLayout.addWidget(self.chkRecheck)
+
         samplerLayout.addStretch()
         layout.addLayout(samplerLayout)
 
@@ -588,6 +595,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             "multi_objective": multi_objective,
             "start_cad_params": start_cad_params,
             "trust_region_mode": self.cmbTrustRegion.currentText(),
+            "recheck": self.chkRecheck.isChecked(),
         }
 
         print("🚀 Start", "NEW" if new_study else "RESUME")
@@ -825,6 +833,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
                         "trials": 500,
                         "constant_liar": True,
                         "trust_region_mode": "None",
+                        "recheck": True,
                     }
                 },
             }
@@ -893,6 +902,7 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
             "trials": self.spinTrials.value(),
             "constant_liar": self.chkConstantLiar.isChecked(),
             "trust_region_mode": self.cmbTrustRegion.currentText(),
+            "recheck": self.chkRecheck.isChecked(),
         }
 
         data["configs"] = configs
@@ -1000,6 +1010,9 @@ class OptimizeDialogDock(QtWidgets.QDockWidget):
 
             if "constant_liar" in payload:
                 self.chkConstantLiar.setChecked(payload["constant_liar"])
+
+            if "recheck" in payload:
+                self.chkRecheck.setChecked(payload["recheck"])
 
             entries = payload.get("entries", [])
 

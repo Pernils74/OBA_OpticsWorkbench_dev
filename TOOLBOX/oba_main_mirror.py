@@ -48,6 +48,7 @@ MAIN_MIRROR_PROPERTIES = [
     {"name": "Ellipsoid2FocusX", "type": "App::PropertyLength", "group": "Calculated", "unit": "mm", "display_only": True, "doc": "X position of second ellipsoid focus"},
     {"name": "MirrorPlaneX", "type": "App::PropertyLength", "group": "Calculated", "unit": "mm", "display_only": True, "doc": "X coordinate of mirror symmetry plane"},
     {"name": "TiltAngle", "type": "App::PropertyAngle", "group": "Ellipsoid", "default": 0.0, "unit": "deg", "min": -90, "max": 90, "doc": "Tilt angle of the ellipsoids around the Z axis"},
+    {"name": "TiltAngleOffset", "label": "Tilt Angle Offset", "type": "App::PropertyAngle", "group": "Ellipsoid", "default": 0.0, "unit": "deg", "min": -90, "max": 90, "doc": "Additional tilt applied to the left ellipsoid"},
     {"name": "ShowDebugEllipsoids", "type": "App::PropertyBool", "group": "Debug", "default": False, "doc": "Show ellipsoids for debugging"},
     {"name": "PosX", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "X coordinate"},
     {"name": "PosY", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "Y coordinate"},
@@ -160,7 +161,7 @@ class OBAMainMirror:
         height = float(obj.Height)
 
         # Keep enough depth for the ellipsoid geometry.
-        depth = 1.5 * float(obj.B)
+        depth = 1.0 * float(obj.B)
 
         changed = False
         changed |= set_quantity_if_changed(self._cube, "Length", width, "mm")
@@ -168,7 +169,7 @@ class OBAMainMirror:
         changed |= set_quantity_if_changed(self._cube, "Height", height, "mm")
 
         base = obj.Placement
-        cube_local = App.Placement(App.Vector(-width / 2.0, float(obj.B), -height / 2.0), App.Rotation())
+        cube_local = App.Placement(App.Vector(-width / 2.0, float(obj.B * 0.4), -height / 2.0), App.Rotation())
         changed |= set_property_if_changed(self._cube, "Placement", base.multiply(cube_local))
         return changed
 
@@ -188,6 +189,8 @@ class OBAMainMirror:
 
         tilt = float(obj.TiltAngle)
 
+        tilt_offset = float(obj.TiltAngleOffset)
+
         # --------------------------------------------------------------
         # Left ellipsoid
         # --------------------------------------------------------------
@@ -201,10 +204,12 @@ class OBAMainMirror:
 
         left_local = App.Placement()
 
-        left_local.Base = App.Vector(-split / 2.0, b / 2, 0.0)
+        left_local.Base = App.Vector(-split / 2.0, b * 0, 0.0)
         rot1 = App.Rotation(App.Vector(1, 0, 0), 90)
+        # rot2 = App.Rotation(App.Vector(0, 0, 1), 270 + tilt)
 
-        rot2 = App.Rotation(App.Vector(0, 0, 1), 270 + tilt)
+        rot2 = App.Rotation(App.Vector(0, 0, 1), 270 - (tilt + tilt_offset))
+
         left_local.Rotation = rot2.multiply(rot1)
         changed |= set_property_if_changed(left, "Placement", obj.Placement.multiply(left_local))
         # --------------------------------------------------------------
@@ -218,9 +223,10 @@ class OBAMainMirror:
 
         right_local = App.Placement()
 
-        right_local.Base = App.Vector(split / 2.0, b / 2, 0.0)
+        right_local.Base = App.Vector(split / 2.0, b * 0, 0.0)
         rot1 = App.Rotation(App.Vector(1, 0, 0), 90)
         rot2 = App.Rotation(App.Vector(0, 0, 1), 270 - tilt)
+
         right_local.Rotation = rot2.multiply(rot1)
         changed |= set_property_if_changed(right, "Placement", obj.Placement.multiply(right_local))
         return changed
@@ -311,7 +317,7 @@ class OBAMainMirror:
 
         # App.Console.PrintMessage(f"onChanged: {prop}\n")
 
-        if prop in {"Width", "Height", "SplitOffset", "A", "B", "Radius3Offset", "TiltAngle", "ShowDebugEllipsoids"}:
+        if prop in {"Width", "Height", "SplitOffset", "A", "B", "Radius3Offset", "TiltAngle", "TiltAngleOffset", "ShowDebugEllipsoids"}:
             try:
                 self._rebuild(obj)
             except Exception as exc:
@@ -460,6 +466,7 @@ def OBA_CreateMainMirror(
     a=40.0,
     b=31.0,
     tiltangle=0.0,
+    tiltangle_offset=0.0,
     x=0.0,
     y=0.0,
     z=0.0,
@@ -505,7 +512,7 @@ def OBA_CreateMainMirror(
     obj.B = b  # App.Units.Quantity(f"{b} mm")
     obj.Radius3Offset = radius3_offset
     obj.TiltAngle = tiltangle  # App.Units.Quantity(f"{tiltangle} deg")
-
+    obj.TiltAngleOffset = tiltangle_offset  # App.Units.Quantity(f"{tiltangle_offset} deg")
     obj.Placement = App.Placement(App.Vector(x, y, z), App.Rotation())
 
     proxy._ensure_features(obj)
