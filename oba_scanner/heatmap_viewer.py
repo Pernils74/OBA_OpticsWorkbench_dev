@@ -2,7 +2,7 @@
 # heatmap_viewer.py
 
 import os
-import profile
+from unittest import result
 import numpy as np
 import FreeCAD as App
 import FreeCADGui as Gui
@@ -12,7 +12,6 @@ from PySide.QtWidgets import QSizePolicy
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-# from vendor_optuna.numpy.typing.tests.data.fail.multiarray import func
 
 from .scan_db import HitsDB, get_doc_db_path
 
@@ -30,6 +29,113 @@ from .batch_runner import (
 )
 
 DOCK_OBJECT_NAME = "BeamAbsorberHeatmapDock"
+
+
+def compute_field(
+    doc,
+    db,
+    target,
+    step_id,
+    plane="XY",
+    value_mode="Power In",
+    emitters=None,
+    grid_size=60,
+    rbf_function="linear",  # "thin_plate",  # "linear"
+    rbf_smooth=0.0,
+):
+    import numpy as np
+    import FreeCAD as App
+
+    from scipy.interpolate import Rbf
+
+    if target is None:
+        return None
+
+    if step_id in (None, "<none>"):
+        return None
+
+    if emitters is None:
+        emitters = db.list_emitters(target)
+
+    X = Y = Z = V = None
+    for emitter in emitters:
+        data = db.read_grid(target, emitter, step_id)
+        if not data:
+            continue
+
+        WX, WY, WZ, _Xi, _Yi, _Zi, hits, power_in, power_out, move_object, _moved_objects = data
+        if not WX or not move_object:
+            continue
+        if value_mode == "Hits":
+            values = np.asarray(hits, dtype=float)
+        elif value_mode == "Power In":
+            values = np.asarray(power_in, dtype=float)
+        else:
+            values = np.asarray(power_out, dtype=float)
+        selected_name = move_object[0]
+        selected_object = doc.getObject(selected_name)
+        # selected_object = App.ActiveDocument.getObject(selected_name)
+
+        if selected_object is None:
+            continue
+        mask = np.asarray(move_object) == selected_name
+        wx = np.asarray(WX)[mask]
+        wy = np.asarray(WY)[mask]
+        wz = np.asarray(WZ)[mask]
+        values = values[mask]
+        if V is None:
+            X = selected_object.Placement.Base.x - wx
+            Y = selected_object.Placement.Base.y - wy
+            Z = selected_object.Placement.Base.z - wz
+            V = values.copy()
+        else:
+            V += values
+
+    if V is None:
+        return None
+
+    # ---------------------------------------
+    # välj plan
+    # ---------------------------------------
+
+    if plane == "XY":
+        px = X
+        py = Y
+    elif plane == "XZ":
+        px = X
+        py = Z
+    elif plane == "YZ":
+        px = Y
+        py = Z
+    else:
+        raise ValueError(f"Unsupported plane: {plane}")
+    # ---------------------------------------
+    # skapa jämnt rutnät
+    # ---------------------------------------
+    Xi, Yi = np.meshgrid(
+        np.linspace(px.min(), px.max(), grid_size),
+        np.linspace(py.min(), py.max(), grid_size),
+    )
+
+    # ---------------------------------------
+    # RBF interpolation
+    # ---------------------------------------
+    rbf = Rbf(px, py, V, function=rbf_function, smooth=rbf_smooth)
+
+    rbf_at_samples = rbf(px, py)
+    error = rbf_at_samples - V
+    print("mean abs error =", np.mean(np.abs(error)))
+    print("max abs error =", np.max(np.abs(error)))
+
+    Vi = rbf(Xi, Yi)
+    return {
+        "Xi": Xi,
+        "Yi": Yi,
+        "Vi": Vi,
+        "px": px,
+        "py": py,
+        "V": V,
+    }
 
 
 # ==========================================================
@@ -126,27 +232,23 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         self.comboPlane = QtWidgets.QComboBox()
         self.comboPlane.addItems(["XY", "XZ", "YZ"])
 
-        self.chkSmooth = QtWidgets.QCheckBox("Smooth")
-        self.chkSmooth.setChecked(False)
-        self.spinSmooth = QtWidgets.QSpinBox()
-        self.spinSmooth.setRange(0, 10)
-        self.spinSmooth.setSingleStep(1)
-        self.spinSmooth.setValue(1)
-        self.spinSmooth.setEnabled(self.chkSmooth.isChecked())
-        self.chkSmooth.toggled.connect(self.spinSmooth.setEnabled)
+        self.spinRange = QtWidgets.QDoubleSpinBox()
+        self.spinRange.setRange(0.01, 100.0)
+        self.spinRange.setDecimals(2)
+        self.spinRange.setSingleStep(0.05)
+        self.spinRange.setValue(0.50)
 
         self.chkPercent = QtWidgets.QCheckBox(f"Show % of emitted rays/power")
-
         self.chkPlane2D = QtWidgets.QCheckBox("2D plane view")
-
         self.btnGotoMax = QtWidgets.QPushButton("Go to Max")
 
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel("Plane"))
         row.addWidget(self.comboPlane)
         row.addSpacing(15)
-        row.addWidget(self.chkSmooth)
-        row.addWidget(self.spinSmooth)
+        row.addWidget(QtWidgets.QLabel("Range"))
+        row.addWidget(self.spinRange)
+
         row.addSpacing(15)
         row.addWidget(self.chkPercent)
 
@@ -182,12 +284,12 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         # signals
         self.btnGotoMax.clicked.connect(self._goto_maximum)
 
+        self.spinRange.valueChanged.connect(self._update_plot)
+
         self.comboStep.currentIndexChanged.connect(self._update_plot)
         self.comboTarget.currentIndexChanged.connect(self._target_changed)
         self.comboValue.currentIndexChanged.connect(self._update_plot)
         self.comboPlane.currentIndexChanged.connect(self._update_plot)
-        self.chkSmooth.toggled.connect(self._update_plot)
-        self.spinSmooth.valueChanged.connect(self._update_plot)
         self.chkPercent.toggled.connect(self._update_plot)
         self.chkPlane2D.toggled.connect(self._update_plot)
 
@@ -334,126 +436,97 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
     # CORE
     # ==========================================================
 
+    def refresh_from_external_change(self):
+        self._refresh_db()
+        self._update_plot()
+
     def _update_plot(self):
         result = self._compute_field()
         if result is None:
             self._clear()
             return
 
-        Xi, Yi, Vi = result
-        self._plot_3d(Xi, Yi, Vi)
+        Xi = result["Xi"]
+        Yi = result["Yi"]
+        Vi = result["Vi"]
+        raw_px = result["px"]
+        raw_py = result["py"]
+        raw_v = result["V"]
+
+        # Xi, Yi, Vi = result
+        self._plot_3d(Xi, Yi, Vi, raw_px, raw_py, raw_v)
 
         if self.chkPlane2D.isChecked():
             self._plot_2d_plane(Xi, Yi, Vi)
         else:
-            self._plot_2d_profile(Xi, Yi, Vi)
+            self._plot_2d_profile(Xi, Yi, Vi, raw_px, raw_py, raw_v)
 
     def _compute_field(self):
         hit_target = self.comboTarget.currentData()
         step_id = self.comboStep.currentText()
 
-        if not hit_target or step_id == "<none>":
-            return None
-
-        emitters = self._get_selected_emitters()
-        if not emitters:
-            return None
-
-        X = Y = Z = V = None
-        value_mode = self.comboValue.currentText()
-
-        for emitter in emitters:
-            data = self.db.read_grid(hit_target, emitter, step_id)
-            if not data:
-                continue
-
-            WX, WY, WZ, _Xi, _Yi, _Zi, hits, power_in, power_out, move_object, _moved_objects = data
-
-            if not WX or not move_object:
-                continue
-
-            if value_mode == "Hits":
-                values = np.asarray(hits, dtype=float)
-            elif value_mode == "Power In":
-                values = np.asarray(power_in, dtype=float)
-            else:
-                values = np.asarray(power_out, dtype=float)
-
-            selected_name = move_object[0]
-            selected_object = App.ActiveDocument.getObject(selected_name)
-            if selected_object is None:
-                continue
-
-            mask = np.asarray(move_object) == selected_name
-            wx = np.asarray(WX)[mask]
-            wy = np.asarray(WY)[mask]
-            wz = np.asarray(WZ)[mask]
-            values = values[mask]
-
-            if V is None:
-                X = selected_object.Placement.Base.x - wx
-                Y = selected_object.Placement.Base.y - wy
-                Z = selected_object.Placement.Base.z - wz
-                V = values.copy()
-            else:
-                V += values
-
-        if V is None or X is None:
-            return None
-
-        plane = self.comboPlane.currentText()
-        if plane == "XY":
-            px, py = X, Y
-        elif plane == "XZ":
-            px, py = X, Z
-        else:
-            px, py = Y, Z
-
-        Xi, Yi = np.meshgrid(
-            np.linspace(px.min(), px.max(), 60),
-            np.linspace(py.min(), py.max(), 60),
+        result = compute_field(
+            doc=App.ActiveDocument,
+            db=self.db,
+            target=hit_target,
+            step_id=step_id,
+            plane=self.comboPlane.currentText(),
+            value_mode=self.comboValue.currentText(),
+            emitters=self._get_selected_emitters(),
+            grid_size=60,
+            rbf_smooth=0.0,
         )
 
-        # Vi = np.zeros_like(Xi)
-        # for i in range(Xi.shape[0]):
-        #     for j in range(Xi.shape[1]):
-        #         distances = np.hypot(px - Xi[i, j], py - Yi[i, j])
-        #         weights = 1.0 / (distances + 1e-6)
-        #         # weights = 1.0 / (distances**3 + 1e-12)
-        #         Vi[i, j] = np.average(V, weights=weights)
+        if result is None:
+            self._clear()
+            return
+        # Xi = result["Xi"]
+        # Yi = result["Yi"]
+        # Vi = result["Vi"]
+        # self._raw_px = result["px"]
+        # self._raw_py = result["py"]
+        # self._raw_v = result["V"]
 
-        from scipy.interpolate import Rbf
-
-        if self.chkSmooth.isChecked():
-            rbf_smooth = self.spinSmooth.value() * 0.002
-        else:
-            rbf_smooth = 0.0
-        rbf = Rbf(px, py, V, function="thin_plate", smooth=rbf_smooth)
-        Vi = rbf(Xi, Yi)
-
-        # saxar ner det som rbf har interpolerat utanför convex hull av orginalpunkterna
-
-        # spar undan för att kunna visa i 2D-plane view
-        self._raw_px = px
-        self._raw_py = py
-        self._raw_v = V
-
-        # samlar ihop hits,power för alla emittrar som är valda
-        emitted_power = 0.0
-        emitted_rays = 0
-        for emitter in emitters:
-            p, r = get_emitted_power(emitter)
-            emitted_power += p
-            emitted_rays += r
+        Xi = result["Xi"]
+        Yi = result["Yi"]
+        Vi = result["Vi"]
+        raw_v = np.asarray(result["V"], dtype=float).copy()
 
         if self.chkPercent.isChecked():
-            if emitted_power > 1e-12:
-                if value_mode in ("Power In", "Power Out"):
-                    Vi = Vi / emitted_power * 100.0
-                elif value_mode == "Hits" and emitted_rays > 0:
-                    Vi = Vi / emitted_rays * 100.0
 
-        return Xi, Yi, Vi
+            emitted_power = 0.0
+            emitted_rays = 0
+
+            for emitter in self._get_selected_emitters():
+                p, r = get_emitted_power(emitter)
+                emitted_power += p
+                emitted_rays += r
+
+            value_mode = self.comboValue.currentText()
+
+            if value_mode in ("Power In", "Power Out"):
+                if emitted_power > 1e-12:
+                    scale = 100.0 / emitted_power
+                    Vi *= scale
+                    raw_v *= scale
+
+            elif value_mode == "Hits":
+                if emitted_rays > 0:
+                    scale = 100.0 / emitted_rays
+                    Vi *= scale
+                    raw_v *= scale
+
+        # return Xi, Yi, Vi
+        return {
+            "Xi": Xi,
+            "Yi": Yi,
+            "Vi": Vi,
+            "px": result["px"],
+            "py": result["py"],
+            "V": raw_v,
+            # "emitters": emitters,
+        }
+        # return result["Xi"], result["Yi"], result["Vi"]
 
     def _trace_and_store(self, step_obj, dx, dy, dz):
         _trigger_ray_engine(reason="batch_trace", source=None, force=True)
@@ -464,75 +537,186 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
 
         self.db.commit()
 
-    def _plot_3d(self, Xi, Yi, Vi):
+    def _plot_3d(self, Xi, Yi, Vi, raw_px, raw_py, raw_v):
+
         self.fig3d.clear()
         ax = self.fig3d.add_subplot(111, projection="3d")
-
-        # =========================
-        # MAIN SURFACE
-        # =========================
         ax.plot_surface(Xi, Yi, Vi, cmap="viridis", alpha=0.9)
-
-        # bounds
         xmin, xmax = Xi.min(), Xi.max()
         ymin, ymax = Yi.min(), Yi.max()
         zmin, zmax = Vi.min(), Vi.max()
 
-        mid_x_idx = Vi.shape[0] // 2
-        mid_y_idx = Vi.shape[1] // 2
-
-        # mid_x = (xmin + xmax) * 0.5
-        # mid_y = (ymin + ymax) * 0.5
-
-        step_obj = find_step_by_id(App.ActiveDocument, self.comboStep.currentText())
-        mid_x = step_obj.StepOffset.x
-        mid_y = step_obj.StepOffset.y
-
-        # =========================
-        # GHOST PLANES (TRUE PLANES)
-        # =========================
-
-        # --- X plane (vertical slice)
-        Yp, Zp = np.meshgrid(np.linspace(ymin, ymax, 30), np.linspace(zmin, zmax, 30))
-        Xp = np.full_like(Yp, mid_x)
-
-        ax.plot_surface(Xp, Yp, Zp, color="white", alpha=0.15, edgecolor="none")
-
-        # --- Y plane (vertical slice)
-        Xp, Zp = np.meshgrid(
-            np.linspace(xmin, xmax, 30),
-            np.linspace(zmin, zmax, 30),
+        step_obj = find_step_by_id(
+            App.ActiveDocument,
+            self.comboStep.currentText(),
         )
-        Yp = np.full_like(Xp, mid_y)
 
+        if not step_obj or not self._origin_offset:
+            self.canvas3d.draw_idle()
+            return
+
+        # --------------------------------------------------
+        # current position i valt plan
+        # --------------------------------------------------
+        if self.comboPlane.currentText() == "XY":
+            current_x = self._origin_offset.x - step_obj.StepOffset.x
+            current_y = self._origin_offset.y - step_obj.StepOffset.y
+        elif self.comboPlane.currentText() == "XZ":
+            current_x = self._origin_offset.x - step_obj.StepOffset.x
+            current_y = self._origin_offset.z - step_obj.StepOffset.z
+        else:
+            current_x = self._origin_offset.y - step_obj.StepOffset.y
+            current_y = self._origin_offset.z - step_obj.StepOffset.z
+
+        # --------------------------------------------------
+        # närmaste cell till current position
+        # --------------------------------------------------
+
+        current_idx = np.unravel_index(np.argmin((Xi - current_x) ** 2 + (Yi - current_y) ** 2), Xi.shape)
+        row = current_idx[0]
+        col = current_idx[1]
+        current_v = float(Vi[row, col])
+
+        # --------------------------------------------------
+        # ghost planes genom current
+        # --------------------------------------------------
+        Yp, Zp = np.meshgrid(np.linspace(ymin, ymax, 30), np.linspace(zmin, zmax, 30))
+
+        Xp = np.full_like(Yp, current_x)
+        ax.plot_surface(Xp, Yp, Zp, color="white", alpha=0.15, edgecolor="none")
+        Xp, Zp = np.meshgrid(np.linspace(xmin, xmax, 30), np.linspace(zmin, zmax, 30))
+        Yp = np.full_like(Xp, current_y)
         ax.plot_surface(Xp, Yp, Zp, color="cyan", alpha=0.15, edgecolor="none")
 
-        # =========================
-        # PROFILE LINES (on surface)
-        # =========================
-
-        # X profile
-        X_line_X = Xi[mid_x_idx, :]
-        X_line_Y = Yi[mid_x_idx, :]
-        X_line_Z = Vi[mid_x_idx, :]
-
-        ax.plot(X_line_X, X_line_Y, X_line_Z, color="white", linewidth=2)
-
-        # Y profile
-        Y_line_X = Xi[:, mid_y_idx]
-        Y_line_Y = Yi[:, mid_y_idx]
-        Y_line_Z = Vi[:, mid_y_idx]
-
-        ax.plot(Y_line_X, Y_line_Y, Y_line_Z, color="cyan", linewidth=2)
-
-        # =========================
-        # COSMETICS
-        # =========================
-        # ax.set_title("3D Heatmap + Profile Planes")
-
+        # --------------------------------------------------
+        # profiler genom current
+        # --------------------------------------------------
+        ax.plot(Xi[row, :], Yi[row, :], Vi[row, :], color="white", linewidth=2, label="X profile")
+        ax.plot(Xi[:, col], Yi[:, col], Vi[:, col], color="cyan", linewidth=2, label="Y profile")
+        # --------------------------------------------------
+        # current punkt
+        # --------------------------------------------------
+        # ax.scatter(current_x, current_y, current_v, color="red", s=200, edgecolors="black", label="Current")
+        # --------------------------------------------------
+        # DB max
+        # --------------------------------------------------
+        raw_idx = np.argmax(raw_v)
+        ax.scatter(raw_px[raw_idx], raw_py[raw_idx], raw_v[raw_idx], color="yellow", s=150, marker="*", label="DB Max")
+        # --------------------------------------------------
+        # RBF max
+        # --------------------------------------------------
+        interp_idx = np.unravel_index(np.argmax(Vi), Vi.shape)
+        ax.scatter(Xi[interp_idx], Yi[interp_idx], Vi[interp_idx], color="black", s=150, marker="*", label="RBF Max")
+        # --------------------------------------------------
+        # råa mätpunkter
+        # --------------------------------------------------
+        ax.scatter(raw_px, raw_py, raw_v, color="red", s=40, depthshade=False, label="DB")
+        ax.legend()
         self.canvas3d.draw_idle()
 
-    def _plot_2d_profile(self, Xi, Yi, Vi):
+    def _plot_2d_profile(self, Xi, Yi, Vi, raw_px, raw_py, raw_v):
+        self.fig2d.clear()
+        ax = self.fig2d.add_subplot(111)
+        # mid_x = Vi.shape[0] // 2
+        # mid_y = Vi.shape[1] // 2
+        # ax.plot(Xi[mid_x], Vi[mid_x], label="X profile")
+        # ax.plot(Yi[:, mid_y], Vi[:, mid_y], "--", label="Y profile")
+
+        step_obj = find_step_by_id(
+            App.ActiveDocument,
+            self.comboStep.currentText(),
+        )
+
+        if step_obj and not self._origin_offset:
+            self._origin_offset = App.Vector(step_obj.StepOffset)
+
+        if self.comboPlane.currentText() == "XY":
+            current_x = self._origin_offset.x - step_obj.StepOffset.x
+            current_y = self._origin_offset.y - step_obj.StepOffset.y
+
+        elif self.comboPlane.currentText() == "XZ":
+            current_x = self._origin_offset.x - step_obj.StepOffset.x
+            current_y = self._origin_offset.z - step_obj.StepOffset.z
+
+        else:
+            current_x = self._origin_offset.y - step_obj.StepOffset.y
+            current_y = self._origin_offset.z - step_obj.StepOffset.z
+
+        current_idx = np.unravel_index(
+            np.argmin((Xi - current_x) ** 2 + (Yi - current_y) ** 2),
+            Xi.shape,
+        )
+
+        row = current_idx[0]
+        col = current_idx[1]
+
+        ax.plot(Xi[row], Vi[row], label="X profile")
+        ax.plot(Yi[:, col], Vi[:, col], "--", label="Y profile")
+
+        ax.scatter(0.0, 0.0, s=180, color="red", edgecolors="black", zorder=10, label="Current")
+
+        # step_obj = find_step_by_id(
+        #     App.ActiveDocument,
+        #     self.comboStep.currentText(),
+        # )
+        # if step_obj and not self._origin_offset:
+        #     self._origin_offset = App.Vector(step_obj.StepOffset)
+        # if step_obj:
+        #     if self.comboPlane.currentText() == "XY":
+        #         current_x = self._origin_offset.x - step_obj.StepOffset.x
+        #     elif self.comboPlane.currentText() == "XZ":
+        #         current_x = self._origin_offset.x - step_obj.StepOffset.x
+        #     else:
+        #         current_x = self._origin_offset.y - step_obj.StepOffset.y
+        #     # -----------------------------
+        #     # Current position
+        #     # -----------------------------
+        #     # current_idx = np.unravel_index(np.argmin((Xi - current_x) ** 2 + (Yi - 0.0) ** 2), Xi.shape)
+        #     # current_v = float(Vi[current_idx])
+        #     # ax.scatter(current_x, current_v, s=180, color="red", edgecolors="black", zorder=10, label="Current")
+        #     # ax.scatter(0.0, current_v, s=180, color="red", edgecolors="black", zorder=10, label="Current")
+        #     ax.scatter(current_x, 0.0, s=180, color="red", edgecolors="black", zorder=10, label="Current")
+        # ----------------------------------------
+        # DB best (uppmätt)
+        # ----------------------------------------
+        raw_max_v = float(np.max(raw_v))
+        ax.axhline(raw_max_v, color="orange", linestyle=":", linewidth=2, label="DB Best")
+        # ----------------------------------------
+        # RBF best (interpolerat)
+        # ----------------------------------------
+        interp_max_v = float(np.max(Vi))
+        ax.axhline(interp_max_v, color="black", linestyle="--", linewidth=2, label="RBF Best")
+        # ----------------------------------------
+        # Emitted %
+        # ----------------------------------------
+        if self.chkPercent.isChecked():
+            ax.axhline(100.0, color="green", linestyle="--", linewidth=2, label="100 % emitted")
+
+        interp_idx = np.unravel_index(np.argmax(Vi), Vi.shape)
+        interp_max_x = float(Xi[interp_idx])
+        interp_max_v = float(Vi[interp_idx])
+        # ax.scatter(interp_max_x, interp_max_v, s=250, marker="*", color="yellow", edgecolors="black", label="RBF Max Position")
+        # ax.scatter(0.0, interp_max_v, s=250, marker="*", color="yellow", edgecolors="black", label="RBF Max Position")
+        ax.scatter(interp_max_x, 0.0, s=250, marker="*", color="yellow", edgecolors="black", label="RBF Max Position")
+
+        # if hasattr(self, "_max_x"):
+        #     ax.axvline(self._max_x, color="lime", linestyle="--", label="Last GotoMax")
+        # ax.text(
+        #     0.01,
+        #     0.99,
+        #     f"Current={current_efficiency:.1f}%\n" f"DB Best={raw_max_v:.1f}%\n" f"RBF Best={interp_max_v:.1f}%",
+        #     transform=ax.transAxes,
+        #     va="top",
+        # )
+
+        plot_range = self.spinRange.value()
+        ax.set_xlim(-plot_range, plot_range)
+        ax.legend()
+        ax.grid(True)
+
+        self.canvas2d.draw_idle()
+
+    def _plot_2d_profile_old(self, Xi, Yi, Vi, raw_px, raw_py, raw_v):
 
         self.fig2d.clear()
         ax = self.fig2d.add_subplot(111)
@@ -540,8 +724,8 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         mid_x = Vi.shape[0] // 2
         mid_y = Vi.shape[1] // 2
 
-        ax.plot(Xi[mid_x], Vi[mid_x], label="X profile")
-        ax.plot(Yi[:, mid_y], Vi[:, mid_y], "--", label="Y profile")
+        ax.plot(Xi[mid_x] - current_x, Vi[mid_x], label="X profile")
+        ax.plot(Yi[:, mid_y] - current_y, Vi[:, mid_y], "--", label="Y profile")
 
         step_obj = find_step_by_id(App.ActiveDocument, self.comboStep.currentText())
 
@@ -565,6 +749,18 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
             # ax.scatter(self._current_heatmap_x, self._current_heatmap_y, s=120, color="red", edgecolors="black", label="Start")
 
             ax.scatter(current_x, current_y, s=120, color="red", edgecolors="black", label="Start")
+            ax.axvline(current_x, color="red", linestyle=":")
+
+            best_efficiency = float(np.max(raw_v))
+            ax.axhline(best_efficiency, color="orange", linestyle=":", linewidth=2, label="Scan best")
+
+            # tol = 0.02
+            # mask_x = np.abs(raw_py) < tol
+            # mask_y = np.abs(raw_px) < tol
+
+            # ax.scatter(raw_px[mask_x], raw_v[mask_x], s=40, color="white", edgecolors="black", label=label_a)
+            # ax.scatter(raw_py[mask_y], raw_v[mask_y], s=40, color="cyan", edgecolors="black", label=label_b)
+
         if hasattr(self, "_max_x"):
             ax.scatter(self._max_x, self._max_y, s=250, marker="*", color="yellow", edgecolors="black", label="Max")
 
@@ -582,8 +778,8 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
             # ----------------------------------------
             # DB best (uppmätt)
             # ----------------------------------------
-            raw_idx = np.argmax(self._raw_v)
-            raw_max_v = float(self._raw_v[raw_idx])
+            raw_idx = np.argmax(raw_v)
+            raw_max_v = float(raw_v[raw_idx])
             # ----------------------------------------
             # RBF best (interpolerat)
             # ----------------------------------------
@@ -607,6 +803,9 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
             gap_db = raw_max_v - current_value
             gap_rbf = interp_max_v - current_value
             ax.set_title(f"Current={current_value:.0f}   " f"DB Best={raw_max_v:.0f} (+{gap_db:.0f})   " f"RBF Best={interp_max_v:.0f} (+{gap_rbf:.0f})")
+
+        plot_range = self.spinRange.value()
+        ax.set_xlim(-plot_range, plot_range)
 
         ax.legend()
         ax.grid(True)
@@ -691,7 +890,10 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         result = self._compute_field()
         if result is None:
             return
-        Xi, Yi, Vi = result
+        Xi = result["Xi"]
+        Yi = result["Yi"]
+        Vi = result["Vi"]
+        # Xi, Yi, Vi = result
         idx = np.unravel_index(np.argmax(Vi), Vi.shape)
         x = float(Xi[idx])
         y = float(Yi[idx])

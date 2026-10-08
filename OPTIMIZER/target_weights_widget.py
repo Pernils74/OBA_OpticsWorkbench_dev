@@ -160,7 +160,8 @@ METRICS = {
             "emitterad effekt inom vald toleransradie.\n"
             "Belönar robusta lösningar som bibehåller effekt trots "
             "positioneringsfel. Ger ofta även högre koncentration "
-            "och densitet som en bieffekt."
+            "och densitet som en bieffekt.\n"
+            "Uppdaterar scanner-heatmap i GUI om den är öppen.\n"
         ),
     },
     "preserve_parameter": {

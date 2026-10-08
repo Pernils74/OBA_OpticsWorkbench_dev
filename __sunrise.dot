@@ -3,7 +3,7 @@ digraph G {
     node [shape = box; fontname = "Arial"; style = "filled"; fillcolor = "#f9f9f9"; width = 2;];
     
     
-    rankdir = TB;
+    rankdir = LR;
     // LR
     // Top to Bottom layout
     nodesep = 0.6;
@@ -222,9 +222,9 @@ digraph G {
         "833-00187" -> {"832-00161"};
         "832-00161" -> {"831-00308" "834-00023"};
     }
-    // 
     // SUNRISE
-    // 
+    
+    
     
     subgraph cluster_sunlight {
         label = "Sunlight";

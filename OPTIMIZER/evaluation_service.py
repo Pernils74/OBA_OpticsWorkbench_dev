@@ -8,11 +8,9 @@ import time
 import FreeCAD as App
 import FreeCADGui as Gui
 from PySide import QtCore
-from PySide import QtWidgets  # 🔥 FIX: Importera för att rensa Qt-kön
 
 from oba_rayengine.oba_intersect_mesh import _GLOBAL_MESH_CACHE
 from oba_rayengine.oba_ray_core import OBARayManager
-from oba_rayengine.oba_ray_engine import OBARayEngine
 
 # from vendor_optuna.numpy._core.strings import count
 
@@ -22,7 +20,6 @@ from .spreadsheet_utils import apply_cad_params, get_param_info, SPREADSHEET_NAM
 from oba_objects.oba_base import _trigger_ray_engine
 
 import numpy as np
-from collections import defaultdict
 from oba_rayengine.oba_ray_analyser import aggregate_interaction_clusters, get_emitted_power
 
 # ------------------------------------------------------------
@@ -741,9 +738,156 @@ def compute_distance(clusters, plane):
 
 
 def metric_scanner(metric, filtered_clusters, plane, context):
+    from PySide import QtCore
+    import numpy as np
+
+    from oba_scanner.scan_db import HitsDB
+    from oba_scanner.batch_runner import run_steps_for_batch, find_batch_object, find_step_by_id
+    from oba_scanner.heatmap_viewer import compute_field, DOCK_OBJECT_NAME
+    from oba_rayengine.oba_ray_analyser import get_emitted_power
+
+    doc = context["doc"]
+    step_id = metric.get("step_id")
+
+    if not step_id:
+        return 0.0
+
+    emitted_power, emitted_rays = get_emitted_power()
+    if emitted_power <= 1e-12:
+        return 0.0
+
+    targets = list({c.get("object") for c in filtered_clusters.values()})
+    if not targets:
+        return 0.0
+
+    db = HitsDB()
+    batch = find_batch_object(doc)
+    if not batch:
+        return 0.0
+
+    step = find_step_by_id(doc, step_id)
+    if not step:
+        return 0.0
+
+    class Dummy:
+        def setValue(self, v):
+            pass
+
+        def setRange(self, a, b):
+            pass
+
+        def setText(self, t):
+            pass
+
+    # 1. Kör scanner
+    db.clear_step(step_id)
+    run_steps_for_batch(
+        batch=batch,
+        prog_bar=Dummy(),
+        status_lbl=Dummy(),
+        pump_events_func=lambda: None,
+        stop_flag_func=lambda: False,
+        only_step_id=step_id,
+    )
+    QtCore.QCoreApplication.processEvents()
+
+    # 2. Hämta 2D-fältet
+    result = compute_field(
+        doc=doc,
+        db=db,
+        target=targets[0],
+        step_id=step_id,
+        plane=plane,
+        value_mode="Power In",
+        grid_size=60,
+    )
+    if result is None:
+        return 0.0
+
+    Xi = result["Xi"]  # 2D matris koordinater
+    Yi = result["Yi"]
+    Vi = result["Vi"]  # 2D matris intensitet
+
+    # Fallback om ingen energi träffat griddet
+    if np.sum(Vi) <= 1e-12:
+        return 0.0
+
+    # -------------------------------------------------------------
+    # 3. CENTRERING (Baserat på Tyngdpunkt / Center of Mass)
+    # -------------------------------------------------------------
+    # Istället för argmax(), beräkna tyngdpunkten för hela distributionen
+    total_mass = np.sum(Vi)
+    x_com = np.sum(Vi * Xi) / total_mass
+    y_com = np.sum(Vi * Yi) / total_mass
+
+    # Avstånd från griddets matematiska nollpunkt (centrum)
+    dist_from_zero = np.sqrt(x_com**2 + y_com**2)
+
+    # 1.0 vid perfekt centrering, sjunker snabbt om strålen driver iväg
+    center_score = 1.0 / (1.0 + dist_from_zero * 20.0)
+
+    # -------------------------------------------------------------
+    # 4. FORM (Jämför X- och Y-profilernas form oberoende av position)
+    # -------------------------------------------------------------
+    # Projicera ner 2D-ytan till oberoende 1D-vektorer för X och Y
+    x_proj = np.sum(Vi, axis=0)  # Summera längs raderna
+    y_proj = np.sum(Vi, axis=1)  # Summera längs kolumnerna
+
+    x_max = np.max(x_proj)
+    y_max = np.max(y_proj)
+
+    if x_max <= 1e-12 or y_max <= 1e-12:
+        return 0.0
+
+    # Normalisera amplituderna till 1.0
+    xp = x_proj / x_max
+    yp = y_proj / y_max
+
+    # För att kurvorna ska "se lika ut" trots att de är förskjutna på axeln (som i din bild),
+    # använder vi cross-correlation för att hitta bästa överlapp oavsett offset.
+    corr = np.correlate(xp, yp, mode="full")
+    max_corr = np.max(corr)
+
+    # Normalisera scoret mot den teoretiskt perfekta matchningen av formerna
+    auto_x = np.sum(xp**2)
+    auto_y = np.sum(yp**2)
+    shape_score = max_corr / np.sqrt(auto_x * auto_y)
+
+    # -------------------------------------------------------------
+    # 5. AREA & PEAK POWER (Energi i träffområdet)
+    # -------------------------------------------------------------
+    # Premierar att peaken är hög och samlad runt centrum (fönster på 20x20 celler)
+    mid_r, mid_c = Vi.shape[0] // 2, Vi.shape[1] // 2
+    w = 10
+    r1, r2 = max(0, mid_r - w), min(Vi.shape[0], mid_r + w + 1)
+    c1, c2 = max(0, mid_c - w), min(Vi.shape[1], mid_c + w + 1)
+
+    center_area_power = np.sum(Vi[r1:r2, c1:c2])
+    power_score = float(center_area_power) / emitted_power
+
+    # -------------------------------------------------------------
+    # 6. TOTALT SCORE
+    # -------------------------------------------------------------
+    # Om någon av parametrarna kollapsar (t.ex. strålen hamnar helt utanför centrum) blir score 0.
+    score = shape_score * center_score  # * power_score
+
+    # Uppdate heatmap_plot if open
+    from PySide import QtWidgets
+    import FreeCADGui as Gui
+
+    mw = Gui.getMainWindow()
+    dock = mw.findChild(QtWidgets.QDockWidget, DOCK_OBJECT_NAME)
+    if dock:
+        QtCore.QTimer.singleShot(0, dock.refresh_from_external_change)
+
+    return float(score)
+
+
+def metric_scanner_old(metric, filtered_clusters, plane, context):
     from oba_scanner.scan_db import HitsDB
     from oba_scanner.batch_runner import run_steps_for_batch, find_batch_object, find_step_by_id
     from oba_rayengine.oba_ray_analyser import get_emitted_power
+    from oba_scanner.heatmap_viewer import compute_field
     import numpy as np
 
     doc = context["doc"]
@@ -791,16 +935,35 @@ def metric_scanner(metric, filtered_clusters, plane, context):
 
     db.clear_step(step_id)
 
-    run_steps_for_batch(
-        batch=batch,
-        prog_bar=Dummy(),
-        status_lbl=Dummy(),
-        pump_events_func=lambda: None,
-        stop_flag_func=lambda: False,
-        only_step_id=step_id,
-    )
+    # spar undan step config
+    import json
 
-    QtCore.QCoreApplication.processEvents()
+    data = json.loads(step.DataJSON)
+    orig_end_radius = data.get("endRadius", 0.4)
+    orig_radial_steps = data.get("radialSteps", 6)
+    orig_points_per_circle = data.get("pointsPerCircle", 4)
+    search_radius = metric.get("radius", 0.2)
+    data["endRadius"] = search_radius
+    data["radialSteps"] = 4
+    data["pointsPerCircle"] = 4
+    step.DataJSON = json.dumps(data, indent=4)
+
+    try:
+        run_steps_for_batch(
+            batch=batch,
+            prog_bar=Dummy(),
+            status_lbl=Dummy(),
+            pump_events_func=lambda: None,
+            stop_flag_func=lambda: False,
+            only_step_id=step_id,
+        )
+        QtCore.QCoreApplication.processEvents()
+    finally:
+        # återställer Json step datat
+        data["endRadius"] = orig_end_radius
+        data["radialSteps"] = orig_radial_steps
+        data["pointsPerCircle"] = orig_points_per_circle
+        step.DataJSON = json.dumps(data, indent=4)
 
     # --------------------------------------------------
     # Läs scanner-grid
