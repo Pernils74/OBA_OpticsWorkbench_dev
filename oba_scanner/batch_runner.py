@@ -285,6 +285,7 @@ def _activate_step_state(step):
             objects[obj.Name] = obj
 
     snapshots = {name: snapshot_placement(obj) for name, obj in objects.items()}
+    # dump_snapshot(snapshots)
 
     step_base_offset = getattr(step, "StepOffset", App.Vector(0, 0, 0))
     state = {
@@ -819,6 +820,12 @@ def store_hits(db, step_id, hits, moved_objects):  # , optical_objects):
         move_obj = doc.getObject(move_target)
         wx = wy = wz = 0.0
         if move_obj and hasattr(move_obj, "Placement"):
+            # gpl = move_obj.getGlobalPlacement()
+
+            # wx = gpl.Base.x
+            # wy = gpl.Base.y
+            # wz = gpl.Base.z
+
             base = move_obj.Placement.Base
 
             wx = base.x

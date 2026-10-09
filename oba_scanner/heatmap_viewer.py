@@ -30,6 +30,47 @@ from .batch_runner import (
 
 DOCK_OBJECT_NAME = "BeamAbsorberHeatmapDock"
 
+_PLANE_AXIS_INDICES = {
+    "XY": (0, 1),
+    "XZ": (0, 2),
+    "YZ": (1, 2),
+}
+
+
+def _get_plane_axis_indices(plane):
+    try:
+        return _PLANE_AXIS_INDICES[plane]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported plane: {plane}") from exc
+
+
+def get_plane_axes(plane, x, y, z):
+    coordinates = (x, y, z)
+    axis1_index, axis2_index = _get_plane_axis_indices(plane)
+    return coordinates[axis1_index], coordinates[axis2_index]
+
+
+def get_plane_offset(step_offset, plane):
+    return get_plane_axes(
+        plane,
+        step_offset.x,
+        step_offset.y,
+        step_offset.z,
+    )
+
+
+def apply_plane_delta(offset, plane, axis1_delta, axis2_delta):
+    new_offset = App.Vector(offset)
+    axis_indices = _get_plane_axis_indices(plane)
+    axis_names = ("x", "y", "z")
+
+    for axis_index, delta in zip(axis_indices, (axis1_delta, axis2_delta)):
+        axis_name = axis_names[axis_index]
+        setattr(new_offset, axis_name, getattr(new_offset, axis_name) - delta)
+
+    return new_offset
+
+
 # DB
 #  └─ absoluta world coordinates
 
@@ -58,7 +99,6 @@ def compute_field(
     grid_size=60,
     rbf_function="thin_plate",  # "linear",
     rbf_smooth=0.0,
-    origin_offset=None,
 ):
     import numpy as np
     from scipy.interpolate import Rbf
@@ -113,23 +153,8 @@ def compute_field(
     # -------------------------------------------------------------
     # 1. HITTA NU-POSITIONEN (CURRENT ABSOLUT) FÖR VALT PLAN
     # -------------------------------------------------------------
-    if origin_offset is None:
-        origin_offset = App.Vector(step_obj.StepOffset)
-
-    if plane == "XY":
-        current_abs_x = origin_offset.x - step_obj.StepOffset.x
-        current_abs_y = origin_offset.y - step_obj.StepOffset.y
-        px_abs, py_abs = X, Y
-    elif plane == "XZ":
-        current_abs_x = origin_offset.x - step_obj.StepOffset.x
-        current_abs_y = origin_offset.z - step_obj.StepOffset.z
-        px_abs, py_abs = X, Z
-    elif plane == "YZ":
-        current_abs_x = origin_offset.y - step_obj.StepOffset.y
-        current_abs_y = origin_offset.z - step_obj.StepOffset.z
-        px_abs, py_abs = Y, Z
-    else:
-        raise ValueError(f"Unsupported plane: {plane}")
+    px_abs, py_abs = get_plane_axes(plane, X, Y, Z)
+    current_abs_x, current_abs_y = get_plane_offset(step_obj.StepOffset, plane)
 
     # -------------------------------------------------------------
     # 2. SKAPA DELTA-KOORDINATER (Relativt till Current som blir 0.0)
@@ -155,6 +180,9 @@ def compute_field(
     rbf = Rbf(px_delta, py_delta, V, function=rbf_function, smooth=rbf_smooth)
     Vi = rbf(Xi_delta, Yi_delta)
 
+    axis_names = ("X", "Y", "Z")
+    axis1_index, axis2_index = _get_plane_axis_indices(plane)
+
     return {
         "Xi": Xi_delta,  # 2D Grid med Delta-X (0.0 i centrum)
         "Yi": Yi_delta,  # 2D Grid med Delta-Y (0.0 i centrum)
@@ -162,29 +190,10 @@ def compute_field(
         "px": px_delta,  # Insamlade mätpunkter (Delta-X)
         "py": py_delta,  # Insamlade mätpunkter (Delta-Y)
         "V": V,  # Råa mätvärden
-        "axis1": plane[0],
-        "axis2": plane[1],
+        "axis1": axis_names[axis1_index],
+        "axis2": axis_names[axis2_index],
         "current_abs": (current_abs_x, current_abs_y),  # Sparat för GoToMax
     }
-
-
-def apply_plane_delta(step_obj, axis1_delta, axis2_delta, plane):
-
-    new_offset = App.Vector(step_obj.StepOffset)
-
-    if plane == "XY":
-        new_offset.x -= axis1_delta
-        new_offset.y -= axis2_delta
-
-    elif plane == "XZ":
-        new_offset.x -= axis1_delta
-        new_offset.z -= axis2_delta
-
-    elif plane == "YZ":
-        new_offset.y -= axis1_delta
-        new_offset.z -= axis2_delta
-
-    return new_offset
 
 
 # ==========================================================
@@ -537,7 +546,6 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDialog):  # QDockWidget
             emitters=self._get_selected_emitters(),
             grid_size=60,
             rbf_smooth=0.0,
-            origin_offset=self._origin_offset,
         )
 
         if result is None:
@@ -646,8 +654,8 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDialog):  # QDockWidget
         ax.scatter(raw_px, raw_py, raw_v, color="red", s=40, depthshade=False, edgecolors="black", alpha=0.8, label="DB Points", zorder=3)
 
         # Axelinställningar och visning
-        ax.set_xlabel(f"Δ {self.comboPlane.currentText()[0]}")
-        ax.set_ylabel(f"Δ {self.comboPlane.currentText()[1]}")
+        ax.set_xlabel("Axis 1 Δ")
+        ax.set_ylabel("Axis 2 Δ")
         ax.set_zlabel(self.comboValue.currentText())
 
         ax.legend()
@@ -715,12 +723,12 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDialog):  # QDockWidget
         max_idx = np.unravel_index(np.argmax(Vi), Vi.shape)
 
         # 1D-profiler skurna genom nuvarande position (0,0)
-        ax.plot(Xi[cur_idx[0]], Vi[cur_idx[0]], color="blue", linewidth=2, label="Current X Profile")
-        ax.plot(Yi[:, cur_idx[1]], Vi[:, cur_idx[1]], color="red", linewidth=2, label="Current Y Profile")
+        ax.plot(Xi[cur_idx[0]], Vi[cur_idx[0]], color="blue", linewidth=2, label="Current Axis 1 Profile")
+        ax.plot(Yi[:, cur_idx[1]], Vi[:, cur_idx[1]], color="red", linewidth=2, label="Current Axis 2 Profile")
 
         # 1D-profiler skurna genom det beräknade optimala RBF Maxmet
-        ax.plot(Xi[max_idx[0]], Vi[max_idx[0]], "--", color="lightblue", alpha=0.7, label="Best X Profile")
-        ax.plot(Yi[:, max_idx[1]], Vi[:, max_idx[1]], "--", color="orange", alpha=0.7, label="Best Y Profile")
+        ax.plot(Xi[max_idx[0]], Vi[max_idx[0]], "--", color="lightblue", alpha=0.7, label="Best Axis 1 Profile")
+        ax.plot(Yi[:, max_idx[1]], Vi[:, max_idx[1]], "--", color="orange", alpha=0.7, label="Best Axis 2 Profile")
 
         # Markera nollpunkten (komponentens nuvarande läge)
         ax.scatter(0.0, 0.0, s=180, color="red", edgecolors="black", zorder=10, label="Current")
@@ -741,7 +749,7 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDialog):  # QDockWidget
         ax.scatter(rbf_max_x, 0.0, s=250, marker="*", color="yellow", edgecolors="black", zorder=11, label="RBF Max Position")
 
         # Sätt en tydlig rubrik med exakt förflyttningsförslag
-        ax.set_title(f"Suggested Move: ΔX={rbf_max_x:.3f}  ΔY={rbf_max_y:.3f}")
+        ax.set_title(f"Suggested Move: Axis 1 Δ={rbf_max_x:.3f}  Axis 2 Δ={rbf_max_y:.3f}")
 
         plot_range = self.spinRange.value()
         ax.set_xlim(-plot_range, plot_range)
@@ -805,18 +813,12 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDialog):  # QDockWidget
 
     def _apply_heatmap_position(self, step_obj, delta_x, delta_y):
         plane = self.comboPlane.currentText()
-        new_offset = App.Vector(step_obj.StepOffset)
-        if plane == "XY":
-            new_offset.x -= delta_x
-            new_offset.y -= delta_y
-
-        elif plane == "XZ":
-            new_offset.x -= delta_x
-            new_offset.z -= delta_y
-
-        elif plane == "YZ":
-            new_offset.y -= delta_x
-            new_offset.z -= delta_y
+        new_offset = apply_plane_delta(
+            step_obj.StepOffset,
+            plane,
+            delta_x,
+            delta_y,
+        )
 
         step_obj.StepOffset = new_offset
 
@@ -827,19 +829,15 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDialog):  # QDockWidget
 
     def _apply_heatmap_position_old(self, step_obj, delta_x, delta_y):
         plane = self.comboPlane.currentText()
-        new_offset = App.Vector(step_obj.StepOffset)
 
         # Vi drar bort deltat eftersom förflyttningsriktningen i StepOffset
         # rör sig i motsatt riktning mot hur mätmatrisen förskjuts i compute_field.
-        if plane == "XY":
-            new_offset.x -= delta_x
-            new_offset.y -= delta_y
-        elif plane == "XZ":
-            new_offset.x -= delta_x
-            new_offset.z -= delta_y
-        else:  # YZ
-            new_offset.y -= delta_x
-            new_offset.z -= delta_y
+        new_offset = apply_plane_delta(
+            step_obj.StepOffset,
+            plane,
+            delta_x,
+            delta_y,
+        )
 
         # Uppdatera FreeCAD-komponentens faktiska läge i scenen
         step_obj.StepOffset = new_offset
@@ -900,15 +898,10 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDialog):  # QDockWidget
 
         # 2. Ta reda på var komponenten står just NU i absoluta koordinater på ytan
         plane = self.comboPlane.currentText()
-        if plane == "XY":
-            current_abs_x = self._origin_offset.x - step_obj.StepOffset.x
-            current_abs_y = self._origin_offset.y - step_obj.StepOffset.y
-        elif plane == "XZ":
-            current_abs_x = self._origin_offset.x - step_obj.StepOffset.x
-            current_abs_y = self._origin_offset.z - step_obj.StepOffset.z
-        else:  # YZ
-            current_abs_x = self._origin_offset.y - step_obj.StepOffset.y
-            current_abs_y = self._origin_offset.z - step_obj.StepOffset.z
+        origin_abs_x, origin_abs_y = get_plane_offset(self._origin_offset, plane)
+        offset_x, offset_y = get_plane_offset(step_obj.StepOffset, plane)
+        current_abs_x = origin_abs_x - offset_x
+        current_abs_y = origin_abs_y - offset_y
 
         # 3. Räkna ut det sanna deltat (sträckan från NU till MAX)
         delta_x = rbf_max_abs_x - current_abs_x
@@ -918,16 +911,12 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDialog):  # QDockWidget
         print(f"[GOTO MAX] Flyttvektor beräknad: ΔX={delta_x:.3f}, ΔY={delta_y:.3f}")
 
         # 4. Justera den nuvarande StepOffset-vektorn i FreeCAD med den sanna målsträckan
-        new_offset = App.Vector(step_obj.StepOffset)
-        if plane == "XY":
-            new_offset.x -= delta_x
-            new_offset.y -= delta_y
-        elif plane == "XZ":
-            new_offset.x -= delta_x
-            new_offset.z -= delta_y
-        else:  # YZ
-            new_offset.y -= delta_x
-            new_offset.z -= delta_y
+        new_offset = apply_plane_delta(
+            step_obj.StepOffset,
+            plane,
+            delta_x,
+            delta_y,
+        )
 
         # 5. Uppdatera objektet och flytta CAD-geometrin
         step_obj.StepOffset = new_offset

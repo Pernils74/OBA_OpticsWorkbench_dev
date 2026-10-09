@@ -494,6 +494,15 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         self.refresh_list()
 
     # --------------------------------------------------
+
+    def reset_all_step_offsets(self, batch):
+        for step in batch.Group:
+            if hasattr(step, "StepOffset"):
+                step.StepOffset = App.Vector(0, 0, 0)
+
+        if batch.Document:
+            batch.Document.recompute()
+
     def _re_run(self):
         self._clear_db()
 
@@ -503,6 +512,8 @@ class BatchGroupDock(QtWidgets.QDockWidget):
         if not batch:
             QtWidgets.QMessageBox.critical(self, "Error", "Batch object no longer exists")
             return
+
+        self.reset_all_step_offsets(batch)
 
         run_steps_for_batch(
             batch,
