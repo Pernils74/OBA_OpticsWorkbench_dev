@@ -79,9 +79,6 @@ class HitsDB:
                 wy REAL,
                 wz REAL,
 
-                x REAL,
-                y REAL,
-                z REAL,
                 hits INTEGER,
                 power_in REAL,
                 power_out REAL,
@@ -93,8 +90,7 @@ class HitsDB:
                     emitter_id,
                     optical_type,
                     moved_objects,
-                    wx, wy, wz,
-                    x, y, z
+                    wx, wy, wz
                 )
             )
         """)
@@ -114,7 +110,7 @@ class HitsDB:
 
         fixed_rows = []
         for r in rows:
-            step_id, hit_target, move_target, emitter, opticalType, moved_objects_str, wx, wy, wz, x, y, z, hits, pin, pout, absorbed = r
+            step_id, hit_target, move_target, emitter, opticalType, moved_objects_str, wx, wy, wz, hits, pin, pout, absorbed = r
             fixed_rows.append(
                 (
                     step_id,
@@ -126,9 +122,6 @@ class HitsDB:
                     trunc(wx),
                     trunc(wy),
                     trunc(wz),
-                    trunc(x),
-                    trunc(y),
-                    trunc(z),
                     hits,
                     pin,
                     pout,
@@ -147,13 +140,12 @@ class HitsDB:
                     optical_type,
                     moved_objects,
                     wx,wy, wz,
-                    x, y, z,
                     hits,
                     power_in,
                     power_out,
                     absorbed_power
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(
                     step_id,
                     hit_target,
@@ -161,8 +153,7 @@ class HitsDB:
                     emitter_id,
                     optical_type,
                     moved_objects,
-                    wx, wy, wz,
-                    x, y, z
+                    wx, wy, wz
                 )
                 DO UPDATE SET
                     hits = excluded.hits,
@@ -192,7 +183,6 @@ class HitsDB:
             cur = self.conn.execute(
                 """
                 SELECT wx, wy, wz,
-                       x, y, z,
                        hits,
                        power_in,
                        power_out,
@@ -206,22 +196,28 @@ class HitsDB:
             )
             rows = cur.fetchall()
 
-        WX, WY, WZ, X, Y, Z, H, PIN, POUT, MOVE_OBJECT, MOVED_OBJECTS = [], [], [], [], [], [], [], [], [], [], []
+        WX, WY, WZ, H, PIN, POUT, MOVE_OBJECT, MOVED_OBJECTS = (
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
 
-        for wx, wy, wz, x, y, z, h, pin, pout, move_object, moved_objects in rows:
+        for wx, wy, wz, h, pin, pout, move_object, moved_objects in rows:
             WX.append(wx)
             WY.append(wy)
             WZ.append(wz)
-            X.append(x)
-            Y.append(y)
-            Z.append(z)
             H.append(h)
             PIN.append(pin)
             POUT.append(pout)
             MOVE_OBJECT.append(move_object)
             MOVED_OBJECTS.append(moved_objects)
 
-        return WX, WY, WZ, X, Y, Z, H, PIN, POUT, MOVE_OBJECT, MOVED_OBJECTS
+        return WX, WY, WZ, H, PIN, POUT, MOVE_OBJECT, MOVED_OBJECTS
 
     # --------------------------------------------------
     # LIST

@@ -545,10 +545,7 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
                     # STORE
 
                     step_id = step.Id
-                    dx_eff = dx + step_base_offset.x
-                    dy_eff = dy + step_base_offset.y
-                    dz_eff = dz + step_base_offset.z
-                    store_hits(db, step_id, hits, dx_eff, dy_eff, dz_eff, moved_obj)  # , optical_obj)
+                    store_hits(db, step_id, hits, moved_obj)  # , optical_obj)
 
                     done_iters += 1
                     prog_bar.setValue(done_iters)
@@ -763,7 +760,7 @@ def objects_to_name_string(objects):
     return ";".join(names)
 
 
-def store_hits(db, step_id, hits, dx, dy, dz, moved_objects):  # , optical_objects):
+def store_hits(db, step_id, hits, moved_objects):  # , optical_objects):
     doc = App.ActiveDocument
 
     all_emitters = collect_scene_emitters(doc)
@@ -848,9 +845,6 @@ def store_hits(db, step_id, hits, dx, dy, dz, moved_objects):  # , optical_objec
                 wx,
                 wy,
                 wz,
-                dx,
-                dy,
-                dz,
                 info["count"],
                 info["power_in"],
                 info["power_out"],

@@ -30,28 +30,40 @@ from .batch_runner import (
 
 DOCK_OBJECT_NAME = "BeamAbsorberHeatmapDock"
 
+# DB
+#  └─ absoluta world coordinates
+
+# compute_field
+#  └─ RBF i absoluta koordinater
+
+# Viewer
+#  └─ räknar current-relativa deltan
+
+# GotoMax
+#  └─ jobbar med current ↔ RBF max
+
+
+# Convert world coordinates into coordinates relative to
+# the current object position and build an RBF field.
+
 
 def compute_field(
     doc,
     db,
     target,
-    step_id,
+    step_obj,
     plane="XY",
     value_mode="Power In",
     emitters=None,
     grid_size=60,
-    rbf_function="linear",  # "thin_plate",  # "linear"
+    rbf_function="thin_plate",  # "linear",
     rbf_smooth=0.0,
+    origin_offset=None,
 ):
     import numpy as np
-    import FreeCAD as App
-
     from scipy.interpolate import Rbf
 
-    if target is None:
-        return None
-
-    if step_id in (None, "<none>"):
+    if target is None or step_obj is None:
         return None
 
     if emitters is None:
@@ -59,31 +71,35 @@ def compute_field(
 
     X = Y = Z = V = None
     for emitter in emitters:
-        data = db.read_grid(target, emitter, step_id)
+        data = db.read_grid(target, emitter, step_obj.Id)
         if not data:
             continue
 
-        WX, WY, WZ, _Xi, _Yi, _Zi, hits, power_in, power_out, move_object, _moved_objects = data
+        WX, WY, WZ, hits, power_in, power_out, move_object, _moved_objects = data
         if not WX or not move_object:
             continue
+
         if value_mode == "Hits":
             values = np.asarray(hits, dtype=float)
         elif value_mode == "Power In":
             values = np.asarray(power_in, dtype=float)
         else:
             values = np.asarray(power_out, dtype=float)
+
         selected_name = move_object[0]
         selected_object = doc.getObject(selected_name)
-        # selected_object = App.ActiveDocument.getObject(selected_name)
 
         if selected_object is None:
             continue
+
         mask = np.asarray(move_object) == selected_name
         wx = np.asarray(WX)[mask]
         wy = np.asarray(WY)[mask]
         wz = np.asarray(WZ)[mask]
         values = values[mask]
+
         if V is None:
+            # Beräkna råa absoluta world-koordinater för mätpunkterna
             X = selected_object.Placement.Base.x - wx
             Y = selected_object.Placement.Base.y - wy
             Z = selected_object.Placement.Base.z - wz
@@ -94,56 +110,96 @@ def compute_field(
     if V is None:
         return None
 
-    # ---------------------------------------
-    # välj plan
-    # ---------------------------------------
+    # -------------------------------------------------------------
+    # 1. HITTA NU-POSITIONEN (CURRENT ABSOLUT) FÖR VALT PLAN
+    # -------------------------------------------------------------
+    if origin_offset is None:
+        origin_offset = App.Vector(step_obj.StepOffset)
 
     if plane == "XY":
-        px = X
-        py = Y
+        current_abs_x = origin_offset.x - step_obj.StepOffset.x
+        current_abs_y = origin_offset.y - step_obj.StepOffset.y
+        px_abs, py_abs = X, Y
     elif plane == "XZ":
-        px = X
-        py = Z
+        current_abs_x = origin_offset.x - step_obj.StepOffset.x
+        current_abs_y = origin_offset.z - step_obj.StepOffset.z
+        px_abs, py_abs = X, Z
     elif plane == "YZ":
-        px = Y
-        py = Z
+        current_abs_x = origin_offset.y - step_obj.StepOffset.y
+        current_abs_y = origin_offset.z - step_obj.StepOffset.z
+        px_abs, py_abs = Y, Z
     else:
         raise ValueError(f"Unsupported plane: {plane}")
-    # ---------------------------------------
-    # skapa jämnt rutnät
-    # ---------------------------------------
-    Xi, Yi = np.meshgrid(
-        np.linspace(px.min(), px.max(), grid_size),
-        np.linspace(py.min(), py.max(), grid_size),
+
+    # -------------------------------------------------------------
+    # 2. SKAPA DELTA-KOORDINATER (Relativt till Current som blir 0.0)
+    # -------------------------------------------------------------
+    px_delta = px_abs - current_abs_x
+    py_delta = py_abs - current_abs_y
+
+    # Unika punkter för att säkra stabil RBF
+    pts = np.round(np.column_stack([px_delta, py_delta]), 9)
+    _, unique_idx = np.unique(pts, axis=0, return_index=True)
+    px_delta = px_delta[unique_idx]
+    py_delta = py_delta[unique_idx]
+    V = V[unique_idx]
+
+    # -------------------------------------------------------------
+    # 3. RUTNÄT OCH INTERPOLATION (I DELTA-RYMD)
+    # -------------------------------------------------------------
+    Xi_delta, Yi_delta = np.meshgrid(
+        np.linspace(px_delta.min(), px_delta.max(), grid_size),
+        np.linspace(py_delta.min(), py_delta.max(), grid_size),
     )
 
-    # ---------------------------------------
-    # RBF interpolation
-    # ---------------------------------------
-    rbf = Rbf(px, py, V, function=rbf_function, smooth=rbf_smooth)
+    rbf = Rbf(px_delta, py_delta, V, function=rbf_function, smooth=rbf_smooth)
+    Vi = rbf(Xi_delta, Yi_delta)
 
-    rbf_at_samples = rbf(px, py)
-    error = rbf_at_samples - V
-    print("mean abs error =", np.mean(np.abs(error)))
-    print("max abs error =", np.max(np.abs(error)))
-
-    Vi = rbf(Xi, Yi)
     return {
-        "Xi": Xi,
-        "Yi": Yi,
-        "Vi": Vi,
-        "px": px,
-        "py": py,
-        "V": V,
+        "Xi": Xi_delta,  # 2D Grid med Delta-X (0.0 i centrum)
+        "Yi": Yi_delta,  # 2D Grid med Delta-Y (0.0 i centrum)
+        "Vi": Vi,  # Interpolerade intensiteter
+        "px": px_delta,  # Insamlade mätpunkter (Delta-X)
+        "py": py_delta,  # Insamlade mätpunkter (Delta-Y)
+        "V": V,  # Råa mätvärden
+        "axis1": plane[0],
+        "axis2": plane[1],
+        "current_abs": (current_abs_x, current_abs_y),  # Sparat för GoToMax
     }
 
 
+def apply_plane_delta(step_obj, axis1_delta, axis2_delta, plane):
+
+    new_offset = App.Vector(step_obj.StepOffset)
+
+    if plane == "XY":
+        new_offset.x -= axis1_delta
+        new_offset.y -= axis2_delta
+
+    elif plane == "XZ":
+        new_offset.x -= axis1_delta
+        new_offset.z -= axis2_delta
+
+    elif plane == "YZ":
+        new_offset.y -= axis1_delta
+        new_offset.z -= axis2_delta
+
+    return new_offset
+
+
 # ==========================================================
-class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
+class BeamAbsorberHeatmapDock(QtWidgets.QDialog):  # QDockWidget
     # ==========================================================
+
     def __init__(self, parent=None):
-        super().__init__("Heatmap Viewer", parent)
+
+        super().__init__(parent)
+
+        # def __init__(self, parent=None):
+        #     super().__init__("Heatmap Viewer", parent)
         self.setObjectName(DOCK_OBJECT_NAME)
+        self.setWindowTitle("Heatmap Viewer")
+        # self.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
 
         self.db = HitsDB(get_doc_db_path())
         self._last_mtime = None
@@ -176,14 +232,17 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
     # ==========================================================
     # UI
     # ==========================================================
+
+    # ==========================================================
+    # UI
+    # ==========================================================
     def _build_ui(self):
-        central = QtWidgets.QWidget(self)
-        self.setWidget(central)
-        layout = QtWidgets.QVBoxLayout(central)
+        # Skapa huvudlayouten direkt för fönstret (QDialog använder setLayout)
+        layout = QtWidgets.QVBoxLayout(self)
 
         form = QtWidgets.QFormLayout()
 
-        # DB
+        # DB-raden
         db_row = QtWidgets.QHBoxLayout()
         self.lblDB = QtWidgets.QLabel("")
 
@@ -201,34 +260,37 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         db_row.addWidget(self.btnRun)
         db_row.addWidget(self.btnStop)
         db_row.addWidget(self.btnDelete)
-
         db_row.addWidget(self.btnCommitClose)
 
         form.addRow(db_row)
 
-        # Progress
+        # Progress och Statusmeddelanden
         # --------------------------------------------------
         self.prog = QtWidgets.QProgressBar()
         self.lbl = QtWidgets.QLabel("")
+        layout.addLayout(form)  # Lägg till formuläret i huvudlayouten först
         layout.addWidget(self.prog)
         layout.addWidget(self.lbl)
 
+        # Nytt formulärblock för parametrar och alternativ
+        form_opts = QtWidgets.QFormLayout()
+
         self.comboStep = QtWidgets.QComboBox()
-        form.addRow("Step:", self.comboStep)
+        form_opts.addRow("Step:", self.comboStep)
 
         self.comboTarget = QtWidgets.QComboBox()
-        form.addRow("Target:", self.comboTarget)
+        form_opts.addRow("Target:", self.comboTarget)
 
         self.comboValue = QtWidgets.QComboBox()
         self.comboValue.addItems(["Hits", "Power In", "Power Out"])
-        form.addRow("Value:", self.comboValue)
+        form_opts.addRow("Value:", self.comboValue)
 
-        # Emitters
+        # Emitters GroupBox
         self.emitterBox = QtWidgets.QGroupBox("Emitters")
         self.emitterLayout = QtWidgets.QVBoxLayout(self.emitterBox)
-        form.addRow(self.emitterBox)
+        form_opts.addRow(self.emitterBox)
 
-        # Options
+        # Inställningar för plan, range och knappar
         self.comboPlane = QtWidgets.QComboBox()
         self.comboPlane.addItems(["XY", "XZ", "YZ"])
 
@@ -236,36 +298,34 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         self.spinRange.setRange(0.01, 100.0)
         self.spinRange.setDecimals(2)
         self.spinRange.setSingleStep(0.05)
-        self.spinRange.setValue(0.50)
+        self.spinRange.setValue(0.40)
 
-        self.chkPercent = QtWidgets.QCheckBox(f"Show % of emitted rays/power")
+        self.chkPercent = QtWidgets.QCheckBox("Show % of emitted rays/power")
         self.chkPlane2D = QtWidgets.QCheckBox("2D plane view")
         self.btnGotoMax = QtWidgets.QPushButton("Go to Max")
 
-        row = QtWidgets.QHBoxLayout()
-        row.addWidget(QtWidgets.QLabel("Plane"))
-        row.addWidget(self.comboPlane)
-        row.addSpacing(15)
-        row.addWidget(QtWidgets.QLabel("Range"))
-        row.addWidget(self.spinRange)
-
-        row.addSpacing(15)
-        row.addWidget(self.chkPercent)
-
-        row.addSpacing(15)
-        row.addWidget(self.chkPlane2D)
-        row.addSpacing(15)
-        row.addWidget(self.btnGotoMax)
-        row.addStretch()
+        row_opts = QtWidgets.QHBoxLayout()
+        row_opts.addWidget(QtWidgets.QLabel("Plane"))
+        row_opts.addWidget(self.comboPlane)
+        row_opts.addSpacing(15)
+        row_opts.addWidget(QtWidgets.QLabel("Range"))
+        row_opts.addWidget(self.spinRange)
+        row_opts.addSpacing(15)
+        row_opts.addWidget(self.chkPercent)
+        row_opts.addSpacing(15)
+        row_opts.addWidget(self.chkPlane2D)
+        row_opts.addSpacing(15)
+        row_opts.addWidget(self.btnGotoMax)
+        row_opts.addStretch()
 
         self.lblMoved = QtWidgets.QLabel("Moved: -")
-        form.addRow("Moving:", self.lblMoved)
+        form_opts.addRow("Moving:", self.lblMoved)
         self.lblMoved.setText(self._current_moved_objects)
 
-        form.addRow(row)
-        layout.addLayout(form)
+        form_opts.addRow(row_opts)
+        layout.addLayout(form_opts)
 
-        # PLOTS
+        # PLOTS (Matplotlib fönster)
         plotRow = QtWidgets.QHBoxLayout()
 
         self.fig3d = Figure()
@@ -281,9 +341,11 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
 
         layout.addLayout(plotRow, 1)
 
-        # signals
-        self.btnGotoMax.clicked.connect(self._goto_maximum)
+        # Sätt hela layouten till QDialog-fönstret
+        self.setLayout(layout)
 
+        # Koppla signaler
+        self.btnGotoMax.clicked.connect(self._goto_maximum)
         self.spinRange.valueChanged.connect(self._update_plot)
 
         self.comboStep.currentIndexChanged.connect(self._update_plot)
@@ -296,7 +358,6 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         self.btnRun.clicked.connect(self._run_single)
         self.btnStop.clicked.connect(self._stop_run)
         self.btnDelete.clicked.connect(self._delete_step)
-
         self.btnCommitClose.clicked.connect(self._commit_and_close)
 
     # ==========================================================
@@ -464,28 +525,24 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
     def _compute_field(self):
         hit_target = self.comboTarget.currentData()
         step_id = self.comboStep.currentText()
+        step_obj = find_step_by_id(App.ActiveDocument, step_id)
 
         result = compute_field(
             doc=App.ActiveDocument,
             db=self.db,
             target=hit_target,
-            step_id=step_id,
+            step_obj=step_obj,
             plane=self.comboPlane.currentText(),
             value_mode=self.comboValue.currentText(),
             emitters=self._get_selected_emitters(),
             grid_size=60,
             rbf_smooth=0.0,
+            origin_offset=self._origin_offset,
         )
 
         if result is None:
             self._clear()
             return
-        # Xi = result["Xi"]
-        # Yi = result["Yi"]
-        # Vi = result["Vi"]
-        # self._raw_px = result["px"]
-        # self._raw_py = result["py"]
-        # self._raw_v = result["V"]
 
         Xi = result["Xi"]
         Yi = result["Yi"]
@@ -533,280 +590,161 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
 
         hits, _stats = collect_ray_hits_and_stats(mode="final")
 
-        store_hits(self.db, step_obj.Id, hits, dx, dy, dz, self._moved_objects)
+        store_hits(self.db, step_obj.Id, hits, self._moved_objects)
 
         self.db.commit()
 
     def _plot_3d(self, Xi, Yi, Vi, raw_px, raw_py, raw_v):
-
         self.fig3d.clear()
         ax = self.fig3d.add_subplot(111, projection="3d")
-        ax.plot_surface(Xi, Yi, Vi, cmap="viridis", alpha=0.9)
+
+        step_obj = find_step_by_id(App.ActiveDocument, self.comboStep.currentText())
+        # if not step_obj or not self._origin_offset:
+        #     ax.plot_surface(Xi, Yi, Vi, cmap="viridis", alpha=0.9)
+        #     self.canvas3d.draw_idle()
+        #     return
+
+        if not step_obj:
+            self.canvas3d.draw_idle()
+            return
+
+        # 1. Ytan plottas direkt med rena delta-koordinater från compute_field
+        ax.plot_surface(Xi, Yi, Vi, cmap="viridis", alpha=0.8)
+
+        # Hämta gränser för att dimensionera ghost-planen korrekt
         xmin, xmax = Xi.min(), Xi.max()
         ymin, ymax = Yi.min(), Yi.max()
         zmin, zmax = Vi.min(), Vi.max()
 
-        step_obj = find_step_by_id(
-            App.ActiveDocument,
-            self.comboStep.currentText(),
-        )
+        # Nu-positionen (Current) motsvarar cellen närmast (0,0) i delta-griddet
+        current_idx = np.unravel_index(np.argmin(Xi**2 + Yi**2), Xi.shape)
+        row, col = current_idx[0], current_idx[1]
 
+        # 2. Skapa och rita transparenta ghost planes genom aktuellt läge (0, 0)
+        # Vertikalt plan längs Y-axeln skuren vid X = 0.0
+        Yp, Zp = np.meshgrid(np.linspace(ymin, ymax, 30), np.linspace(zmin, zmax, 30))
+        Xp = np.full_like(Yp, 0.0)
+        ax.plot_surface(Xp, Yp, Zp, color="white", alpha=0.15, edgecolor="none", zorder=1)
+
+        # Vertikalt plan längs X-axeln skuren vid Y = 0.0
+        Xp, Zp = np.meshgrid(np.linspace(xmin, xmax, 30), np.linspace(zmin, zmax, 30))
+        Yp = np.full_like(Xp, 0.0)
+        ax.plot_surface(Xp, Yp, Zp, color="cyan", alpha=0.15, edgecolor="none", zorder=1)
+
+        # 3. Profiler skurna genom nuvarande position (0,0) på ytan
+        ax.plot(Xi[row, :], Yi[row, :], Vi[row, :], color="white", linewidth=2.5, label="X profile", zorder=4)
+        ax.plot(Xi[:, col], Yi[:, col], Vi[:, col], color="cyan", linewidth=2.5, label="Y profile", zorder=4)
+
+        # 4. Karaktäristiska punkter ( RBF Max och DB Max)
+        raw_max_idx = np.argmax(raw_v)
+        ax.scatter(raw_px[raw_max_idx], raw_py[raw_max_idx], raw_v[raw_max_idx], color="yellow", s=150, marker="*", edgecolors="black", label="DB Max", zorder=5)
+
+        interp_idx = np.unravel_index(np.argmax(Vi), Vi.shape)
+        ax.scatter(Xi[interp_idx], Yi[interp_idx], Vi[interp_idx], color="black", s=150, marker="*", edgecolors="white", label="RBF Max", zorder=5)
+
+        # 5. Råa mätpunkter (px, py, V) tagna direkt från databasen via compute_field
+        ax.scatter(raw_px, raw_py, raw_v, color="red", s=40, depthshade=False, edgecolors="black", alpha=0.8, label="DB Points", zorder=3)
+
+        # Axelinställningar och visning
+        ax.set_xlabel(f"Δ {self.comboPlane.currentText()[0]}")
+        ax.set_ylabel(f"Δ {self.comboPlane.currentText()[1]}")
+        ax.set_zlabel(self.comboValue.currentText())
+
+        ax.legend()
+        self.canvas3d.draw_idle()
+
+    def _plot_3d_old(self, Xi, Yi, Vi, raw_px, raw_py, raw_v):
+        self.fig3d.clear()
+        ax = self.fig3d.add_subplot(111, projection="3d")
+
+        step_obj = find_step_by_id(App.ActiveDocument, self.comboStep.currentText())
         if not step_obj or not self._origin_offset:
+            ax.plot_surface(Xi, Yi, Vi, cmap="viridis", alpha=0.9)
             self.canvas3d.draw_idle()
             return
 
-        # --------------------------------------------------
-        # current position i valt plan
-        # --------------------------------------------------
-        if self.comboPlane.currentText() == "XY":
-            current_x = self._origin_offset.x - step_obj.StepOffset.x
-            current_y = self._origin_offset.y - step_obj.StepOffset.y
-        elif self.comboPlane.currentText() == "XZ":
-            current_x = self._origin_offset.x - step_obj.StepOffset.x
-            current_y = self._origin_offset.z - step_obj.StepOffset.z
-        else:
-            current_x = self._origin_offset.y - step_obj.StepOffset.y
-            current_y = self._origin_offset.z - step_obj.StepOffset.z
+        # Ytan plottas direkt med rena delta-koordinater från compute_field
+        ax.plot_surface(Xi, Yi, Vi, cmap="viridis", alpha=0.9)
 
-        # --------------------------------------------------
-        # närmaste cell till current position
-        # --------------------------------------------------
+        xmin, xmax = Xi.min(), Xi.max()
+        ymin, ymax = Yi.min(), Yi.max()
+        zmin, zmax = Vi.min(), Vi.max()
 
-        current_idx = np.unravel_index(np.argmin((Xi - current_x) ** 2 + (Yi - current_y) ** 2), Xi.shape)
-        row = current_idx[0]
-        col = current_idx[1]
-        current_v = float(Vi[row, col])
+        # Nu-positionen motsvarar den cell som ligger närmast (0,0) i delta-griddet
+        current_idx = np.unravel_index(np.argmin(Xi**2 + Yi**2), Xi.shape)
+        row, col = current_idx[0], current_idx[1]
 
-        # --------------------------------------------------
-        # ghost planes genom current
-        # --------------------------------------------------
+        # Ghost planes genom (0, 0)
         Yp, Zp = np.meshgrid(np.linspace(ymin, ymax, 30), np.linspace(zmin, zmax, 30))
-
-        Xp = np.full_like(Yp, current_x)
+        Xp = np.full_like(Yp, 0.0)
         ax.plot_surface(Xp, Yp, Zp, color="white", alpha=0.15, edgecolor="none")
+
         Xp, Zp = np.meshgrid(np.linspace(xmin, xmax, 30), np.linspace(zmin, zmax, 30))
-        Yp = np.full_like(Xp, current_y)
+        Yp = np.full_like(Xp, 0.0)
         ax.plot_surface(Xp, Yp, Zp, color="cyan", alpha=0.15, edgecolor="none")
 
-        # --------------------------------------------------
-        # profiler genom current
-        # --------------------------------------------------
+        # Profiler skurna genom nuvarande position (0,0)
         ax.plot(Xi[row, :], Yi[row, :], Vi[row, :], color="white", linewidth=2, label="X profile")
         ax.plot(Xi[:, col], Yi[:, col], Vi[:, col], color="cyan", linewidth=2, label="Y profile")
-        # --------------------------------------------------
-        # current punkt
-        # --------------------------------------------------
-        # ax.scatter(current_x, current_y, current_v, color="red", s=200, edgecolors="black", label="Current")
-        # --------------------------------------------------
-        # DB max
-        # --------------------------------------------------
+
+        # Karaktäristiska punkter (allt ritas stabilt i delta-rymd)
+        ax.scatter(0.0, 0.0, float(Vi[row, col]), color="red", s=200, edgecolors="black", label="Current (0,0)")
+
         raw_idx = np.argmax(raw_v)
         ax.scatter(raw_px[raw_idx], raw_py[raw_idx], raw_v[raw_idx], color="yellow", s=150, marker="*", label="DB Max")
-        # --------------------------------------------------
-        # RBF max
-        # --------------------------------------------------
+
         interp_idx = np.unravel_index(np.argmax(Vi), Vi.shape)
         ax.scatter(Xi[interp_idx], Yi[interp_idx], Vi[interp_idx], color="black", s=150, marker="*", label="RBF Max")
-        # --------------------------------------------------
-        # råa mätpunkter
-        # --------------------------------------------------
-        ax.scatter(raw_px, raw_py, raw_v, color="red", s=40, depthshade=False, label="DB")
+
+        # Råa historiska mätpunkter
+        ax.scatter(raw_px, raw_py, raw_v, color="red", s=40, depthshade=False, label="DB Points")
         ax.legend()
         self.canvas3d.draw_idle()
 
     def _plot_2d_profile(self, Xi, Yi, Vi, raw_px, raw_py, raw_v):
         self.fig2d.clear()
         ax = self.fig2d.add_subplot(111)
-        # mid_x = Vi.shape[0] // 2
-        # mid_y = Vi.shape[1] // 2
-        # ax.plot(Xi[mid_x], Vi[mid_x], label="X profile")
-        # ax.plot(Yi[:, mid_y], Vi[:, mid_y], "--", label="Y profile")
-
-        step_obj = find_step_by_id(
-            App.ActiveDocument,
-            self.comboStep.currentText(),
-        )
-
-        if step_obj and not self._origin_offset:
-            self._origin_offset = App.Vector(step_obj.StepOffset)
-
-        if self.comboPlane.currentText() == "XY":
-            current_x = self._origin_offset.x - step_obj.StepOffset.x
-            current_y = self._origin_offset.y - step_obj.StepOffset.y
-
-        elif self.comboPlane.currentText() == "XZ":
-            current_x = self._origin_offset.x - step_obj.StepOffset.x
-            current_y = self._origin_offset.z - step_obj.StepOffset.z
-
-        else:
-            current_x = self._origin_offset.y - step_obj.StepOffset.y
-            current_y = self._origin_offset.z - step_obj.StepOffset.z
-
-        current_idx = np.unravel_index(
-            np.argmin((Xi - current_x) ** 2 + (Yi - current_y) ** 2),
-            Xi.shape,
-        )
-
-        row = current_idx[0]
-        col = current_idx[1]
-
-        ax.plot(Xi[row], Vi[row], label="X profile")
-        ax.plot(Yi[:, col], Vi[:, col], "--", label="Y profile")
-
-        ax.scatter(0.0, 0.0, s=180, color="red", edgecolors="black", zorder=10, label="Current")
-
-        # step_obj = find_step_by_id(
-        #     App.ActiveDocument,
-        #     self.comboStep.currentText(),
-        # )
-        # if step_obj and not self._origin_offset:
-        #     self._origin_offset = App.Vector(step_obj.StepOffset)
-        # if step_obj:
-        #     if self.comboPlane.currentText() == "XY":
-        #         current_x = self._origin_offset.x - step_obj.StepOffset.x
-        #     elif self.comboPlane.currentText() == "XZ":
-        #         current_x = self._origin_offset.x - step_obj.StepOffset.x
-        #     else:
-        #         current_x = self._origin_offset.y - step_obj.StepOffset.y
-        #     # -----------------------------
-        #     # Current position
-        #     # -----------------------------
-        #     # current_idx = np.unravel_index(np.argmin((Xi - current_x) ** 2 + (Yi - 0.0) ** 2), Xi.shape)
-        #     # current_v = float(Vi[current_idx])
-        #     # ax.scatter(current_x, current_v, s=180, color="red", edgecolors="black", zorder=10, label="Current")
-        #     # ax.scatter(0.0, current_v, s=180, color="red", edgecolors="black", zorder=10, label="Current")
-        #     ax.scatter(current_x, 0.0, s=180, color="red", edgecolors="black", zorder=10, label="Current")
-        # ----------------------------------------
-        # DB best (uppmätt)
-        # ----------------------------------------
-        raw_max_v = float(np.max(raw_v))
-        ax.axhline(raw_max_v, color="orange", linestyle=":", linewidth=2, label="DB Best")
-        # ----------------------------------------
-        # RBF best (interpolerat)
-        # ----------------------------------------
-        interp_max_v = float(np.max(Vi))
-        ax.axhline(interp_max_v, color="black", linestyle="--", linewidth=2, label="RBF Best")
-        # ----------------------------------------
-        # Emitted %
-        # ----------------------------------------
-        if self.chkPercent.isChecked():
-            ax.axhline(100.0, color="green", linestyle="--", linewidth=2, label="100 % emitted")
-
-        interp_idx = np.unravel_index(np.argmax(Vi), Vi.shape)
-        interp_max_x = float(Xi[interp_idx])
-        interp_max_v = float(Vi[interp_idx])
-        # ax.scatter(interp_max_x, interp_max_v, s=250, marker="*", color="yellow", edgecolors="black", label="RBF Max Position")
-        # ax.scatter(0.0, interp_max_v, s=250, marker="*", color="yellow", edgecolors="black", label="RBF Max Position")
-        ax.scatter(interp_max_x, 0.0, s=250, marker="*", color="yellow", edgecolors="black", label="RBF Max Position")
-
-        # if hasattr(self, "_max_x"):
-        #     ax.axvline(self._max_x, color="lime", linestyle="--", label="Last GotoMax")
-        # ax.text(
-        #     0.01,
-        #     0.99,
-        #     f"Current={current_efficiency:.1f}%\n" f"DB Best={raw_max_v:.1f}%\n" f"RBF Best={interp_max_v:.1f}%",
-        #     transform=ax.transAxes,
-        #     va="top",
-        # )
-
-        plot_range = self.spinRange.value()
-        ax.set_xlim(-plot_range, plot_range)
-        ax.legend()
-        ax.grid(True)
-
-        self.canvas2d.draw_idle()
-
-    def _plot_2d_profile_old(self, Xi, Yi, Vi, raw_px, raw_py, raw_v):
-
-        self.fig2d.clear()
-        ax = self.fig2d.add_subplot(111)
-
-        mid_x = Vi.shape[0] // 2
-        mid_y = Vi.shape[1] // 2
-
-        ax.plot(Xi[mid_x] - current_x, Vi[mid_x], label="X profile")
-        ax.plot(Yi[:, mid_y] - current_y, Vi[:, mid_y], "--", label="Y profile")
 
         step_obj = find_step_by_id(App.ActiveDocument, self.comboStep.currentText())
+        if not step_obj:
+            self.canvas2d.draw_idle()
+            return
 
-        # spar ner orginal vid första visningen
-        if step_obj and not self._origin_offset:
-            self._origin_offset = App.Vector(step_obj.StepOffset)
+        # Index för nuvarande (0,0) och interpolerat RBF Max
+        cur_idx = np.unravel_index(np.argmin(Xi**2 + Yi**2), Xi.shape)
+        max_idx = np.unravel_index(np.argmax(Vi), Vi.shape)
 
-        if step_obj:
-            if self.comboPlane.currentText() == "XY":
-                current_x = self._origin_offset.x - step_obj.StepOffset.x
-                current_y = self._origin_offset.y - step_obj.StepOffset.y
+        # 1D-profiler skurna genom nuvarande position (0,0)
+        ax.plot(Xi[cur_idx[0]], Vi[cur_idx[0]], color="blue", linewidth=2, label="Current X Profile")
+        ax.plot(Yi[:, cur_idx[1]], Vi[:, cur_idx[1]], color="red", linewidth=2, label="Current Y Profile")
 
-            elif self.comboPlane.currentText() == "XZ":
-                current_x = self._origin_offset.x - step_obj.StepOffset.x
-                current_y = self._origin_offset.z - step_obj.StepOffset.z
+        # 1D-profiler skurna genom det beräknade optimala RBF Maxmet
+        ax.plot(Xi[max_idx[0]], Vi[max_idx[0]], "--", color="lightblue", alpha=0.7, label="Best X Profile")
+        ax.plot(Yi[:, max_idx[1]], Vi[:, max_idx[1]], "--", color="orange", alpha=0.7, label="Best Y Profile")
 
-            else:
-                current_x = self._origin_offset.y - step_obj.StepOffset.y
-                current_y = self._origin_offset.z - step_obj.StepOffset.z
+        # Markera nollpunkten (komponentens nuvarande läge)
+        ax.scatter(0.0, 0.0, s=180, color="red", edgecolors="black", zorder=10, label="Current")
 
-            # ax.scatter(self._current_heatmap_x, self._current_heatmap_y, s=120, color="red", edgecolors="black", label="Start")
+        # Horisontella linjer för bästa uppmätta vs interpolerade värden
+        raw_max_v = float(np.max(raw_v))
+        ax.axhline(raw_max_v, color="orange", linestyle=":", linewidth=2, label="DB Best")
 
-            ax.scatter(current_x, current_y, s=120, color="red", edgecolors="black", label="Start")
-            ax.axvline(current_x, color="red", linestyle=":")
-
-            best_efficiency = float(np.max(raw_v))
-            ax.axhline(best_efficiency, color="orange", linestyle=":", linewidth=2, label="Scan best")
-
-            # tol = 0.02
-            # mask_x = np.abs(raw_py) < tol
-            # mask_y = np.abs(raw_px) < tol
-
-            # ax.scatter(raw_px[mask_x], raw_v[mask_x], s=40, color="white", edgecolors="black", label=label_a)
-            # ax.scatter(raw_py[mask_y], raw_v[mask_y], s=40, color="cyan", edgecolors="black", label=label_b)
-
-        if hasattr(self, "_max_x"):
-            ax.scatter(self._max_x, self._max_y, s=250, marker="*", color="yellow", edgecolors="black", label="Max")
+        interp_max_v = float(np.max(Vi))
+        ax.axhline(interp_max_v, color="black", linestyle="--", linewidth=2, label="RBF Best")
 
         if self.chkPercent.isChecked():
-            current_idx = np.unravel_index(
-                np.argmin((Xi - current_x) ** 2 + (Yi - current_y) ** 2),
-                Xi.shape,
-            )
-            current_efficiency = float(Vi[current_idx])
-            best_efficiency = float(np.max(Vi))
-            gain = best_efficiency - current_efficiency
-            ax.set_title(f"Current={current_efficiency:.1f}%   " f"Best={best_efficiency:.1f}%   " f"Diff=+{gain:.1f} pts")
-            ax.axhline(100, color="green", linestyle="--", linewidth=2, label="100 % emitted")
-        else:
-            # ----------------------------------------
-            # DB best (uppmätt)
-            # ----------------------------------------
-            raw_idx = np.argmax(raw_v)
-            raw_max_v = float(raw_v[raw_idx])
-            # ----------------------------------------
-            # RBF best (interpolerat)
-            # ----------------------------------------
-            interp_idx = np.unravel_index(np.argmax(Vi), Vi.shape)
-            interp_max_v = float(Vi[interp_idx])
+            ax.axhline(100.0, color="green", linestyle="--", linewidth=2, label="100 % Emitted")
 
-            # ----------------------------------------
-            # Current (verklig senaste trace)
-            # ----------------------------------------
-            hits, _stats = collect_ray_hits_and_stats(mode="final")
-            value_mode = self.comboValue.currentText()
-            hit_target = self.comboTarget.currentData()
-            selected_emitters = set(self._get_selected_emitters())
-            target_hits = [h for h in hits if h.get("object") == hit_target and h.get("emitter_id") in selected_emitters]
-            if value_mode == "Hits":
-                current_value = len(target_hits)
-            elif value_mode == "Power In":
-                current_value = sum(h.get("power_in", 0.0) for h in target_hits)
-            else:  # Power Out
-                current_value = sum(h.get("power_out", 0.0) for h in target_hits)
-            gap_db = raw_max_v - current_value
-            gap_rbf = interp_max_v - current_value
-            ax.set_title(f"Current={current_value:.0f}   " f"DB Best={raw_max_v:.0f} (+{gap_db:.0f})   " f"RBF Best={interp_max_v:.0f} (+{gap_rbf:.0f})")
+        # Markera hur långt bort (förskjutning) RBF-Max ligger i förhållande till 0.0
+        rbf_max_x = float(Xi[max_idx])
+        rbf_max_y = float(Yi[max_idx])
+        ax.scatter(rbf_max_x, 0.0, s=250, marker="*", color="yellow", edgecolors="black", zorder=11, label="RBF Max Position")
+
+        # Sätt en tydlig rubrik med exakt förflyttningsförslag
+        ax.set_title(f"Suggested Move: ΔX={rbf_max_x:.3f}  ΔY={rbf_max_y:.3f}")
 
         plot_range = self.spinRange.value()
         ax.set_xlim(-plot_range, plot_range)
-
         ax.legend()
         ax.grid(True)
         self.canvas2d.draw_idle()
@@ -846,65 +784,158 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
         self.setEnabled(False)
 
         try:
-            step_obj, dx, dy, dz = self._apply_heatmap_position(event.xdata, event.ydata)
-            self._trace_and_store(step_obj, dx, dy, dz)
-            self._update_plot()
+            step_id = self.comboStep.currentText()
+            step_obj = find_step_by_id(App.ActiveDocument, step_id)
+            if step_obj:
+                # Eftersom vyn visar rena deltan, är event.xdata och event.ydata
+                # exakt det avstånd (det delta) som vi ska flytta oss från nuvarande position!
+                delta_x = event.xdata
+                delta_y = event.ydata
+
+                # Beräkna ny offset, flytta objekten och hämta de modifierade komponenterna
+                step_obj, new_offset = self._apply_heatmap_position(step_obj, delta_x, delta_y)
+
+                # Kör raytrace och spara på den nya positionen
+                self._trace_and_store(step_obj, new_offset.x, new_offset.y, new_offset.z)
+                self._update_plot()
         finally:
             self.setEnabled(True)
             QtWidgets.QApplication.restoreOverrideCursor()
             self._click_busy = False
 
-    def _apply_heatmap_position(self, x, y):
-
-        # self._current_heatmap_x = x
-        # self._current_heatmap_y = y
-
+    def _apply_heatmap_position(self, step_obj, delta_x, delta_y):
         plane = self.comboPlane.currentText()
-
+        new_offset = App.Vector(step_obj.StepOffset)
         if plane == "XY":
-            dx, dy, dz = x, y, 0.0
+            new_offset.x -= delta_x
+            new_offset.y -= delta_y
+
         elif plane == "XZ":
-            dx, dy, dz = x, 0.0, y
-        else:
-            dx, dy, dz = 0.0, x, y
+            new_offset.x -= delta_x
+            new_offset.z -= delta_y
 
-        step_obj = find_step_by_id(
-            App.ActiveDocument,
-            self.comboStep.currentText(),
-        )
+        elif plane == "YZ":
+            new_offset.y -= delta_x
+            new_offset.z -= delta_y
 
-        default_offset = step_obj.StepOffset
+        step_obj.StepOffset = new_offset
 
-        dx = default_offset.x - dx
-        dy = default_offset.y - dy
-        dz = default_offset.z - dz
-
-        step_obj.StepOffset = App.Vector(dx, dy, dz)
         moved_objects = apply_step_offset(step_obj)
         self._set_moved_objects(moved_objects)
 
-        return step_obj, dx, dy, dz
+        return step_obj, new_offset
+
+    def _apply_heatmap_position_old(self, step_obj, delta_x, delta_y):
+        plane = self.comboPlane.currentText()
+        new_offset = App.Vector(step_obj.StepOffset)
+
+        # Vi drar bort deltat eftersom förflyttningsriktningen i StepOffset
+        # rör sig i motsatt riktning mot hur mätmatrisen förskjuts i compute_field.
+        if plane == "XY":
+            new_offset.x -= delta_x
+            new_offset.y -= delta_y
+        elif plane == "XZ":
+            new_offset.x -= delta_x
+            new_offset.z -= delta_y
+        else:  # YZ
+            new_offset.y -= delta_x
+            new_offset.z -= delta_y
+
+        # Uppdatera FreeCAD-komponentens faktiska läge i scenen
+        step_obj.StepOffset = new_offset
+        moved_objects = apply_step_offset(step_obj)
+        self._set_moved_objects(moved_objects)
+
+        return step_obj, new_offset
 
     def _goto_maximum(self):
-
         result = self._compute_field()
         if result is None:
+            print("[GOTO MAX] No data available to compute maximum.")
             return
+
         Xi = result["Xi"]
         Yi = result["Yi"]
         Vi = result["Vi"]
-        # Xi, Yi, Vi = result
+
+        # Eftersom Xi och Yi i det nya koordinatsystemet redan är rena deltan (0.0 = där vi står nu),
+        # så motsvarar koordinaten vid max_idx direkt sträckan (deltat) till toppen!
         idx = np.unravel_index(np.argmax(Vi), Vi.shape)
-        x = float(Xi[idx])
-        y = float(Yi[idx])
+        delta_x = float(Xi[idx])
+        delta_y = float(Yi[idx])
 
-        self._max_x = x
-        self._max_y = y
+        step_id = self.comboStep.currentText()
+        step_obj = find_step_by_id(App.ActiveDocument, step_id)
+        if not step_obj:
+            return
 
-        print(f"[MAX] X={x:.3f} " f"Y={y:.3f} " f"V={float(Vi[idx]):.3f}")
+        print(f"[GOTO MAX] Delta-förflyttning till topp: ΔX={delta_x:.3f}, ΔY={delta_y:.3f}")
 
-        step_obj, dx, dy, dz = self._apply_heatmap_position(x, y)
-        self._trace_and_store(step_obj, dx, dy, dz)
+        # Använd samma strömlinjeformade metod som 2D-klicket för att flytta komponenten det beräknade deltat
+        step_obj, new_offset = self._apply_heatmap_position(step_obj, delta_x, delta_y)
+
+        # Kör en ny raytrace på den optimala punkten och lagra i DB
+        self._trace_and_store(step_obj, new_offset.x, new_offset.y, new_offset.z)
+        self._update_plot()
+
+    def _goto_maximu_old(self):
+        result = self._compute_field()
+        if result is None:
+            print("[GOTO MAX] No data available to compute maximum.")
+            return
+
+        Xi = result["Xi"]
+        Yi = result["Yi"]
+        Vi = result["Vi"]
+
+        # 1. Hitta RBF max i absoluta world-koordinater på mät-ytan
+        idx = np.unravel_index(np.argmax(Vi), Vi.shape)
+        rbf_max_abs_x = float(Xi[idx])
+        rbf_max_abs_y = float(Yi[idx])
+
+        step_id = self.comboStep.currentText()
+        step_obj = find_step_by_id(App.ActiveDocument, step_id)
+        if not step_obj:
+            return
+
+        # 2. Ta reda på var komponenten står just NU i absoluta koordinater på ytan
+        plane = self.comboPlane.currentText()
+        if plane == "XY":
+            current_abs_x = self._origin_offset.x - step_obj.StepOffset.x
+            current_abs_y = self._origin_offset.y - step_obj.StepOffset.y
+        elif plane == "XZ":
+            current_abs_x = self._origin_offset.x - step_obj.StepOffset.x
+            current_abs_y = self._origin_offset.z - step_obj.StepOffset.z
+        else:  # YZ
+            current_abs_x = self._origin_offset.y - step_obj.StepOffset.y
+            current_abs_y = self._origin_offset.z - step_obj.StepOffset.z
+
+        # 3. Räkna ut det sanna deltat (sträckan från NU till MAX)
+        delta_x = rbf_max_abs_x - current_abs_x
+        delta_y = rbf_max_abs_y - current_abs_y
+
+        print(f"[GOTO MAX] Absolut mål: X={rbf_max_abs_x:.3f}, Y={rbf_max_abs_y:.3f}")
+        print(f"[GOTO MAX] Flyttvektor beräknad: ΔX={delta_x:.3f}, ΔY={delta_y:.3f}")
+
+        # 4. Justera den nuvarande StepOffset-vektorn i FreeCAD med den sanna målsträckan
+        new_offset = App.Vector(step_obj.StepOffset)
+        if plane == "XY":
+            new_offset.x -= delta_x
+            new_offset.y -= delta_y
+        elif plane == "XZ":
+            new_offset.x -= delta_x
+            new_offset.z -= delta_y
+        else:  # YZ
+            new_offset.y -= delta_x
+            new_offset.z -= delta_y
+
+        # 5. Uppdatera objektet och flytta CAD-geometrin
+        step_obj.StepOffset = new_offset
+        moved_objects = apply_step_offset(step_obj)
+        self._set_moved_objects(moved_objects)
+
+        # 6. Kör en verifierande raytrace på den nya mittpunkten och lagra i DB
+        self._trace_and_store(step_obj, new_offset.x, new_offset.y, new_offset.z)
         self._update_plot()
 
     # ==========================================================
@@ -939,7 +970,18 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDockWidget):
 # ==========================================================
 def ShowHeatmapViewer():
     mw = Gui.getMainWindow()
-    old = mw.findChild(QtWidgets.QDockWidget, DOCK_OBJECT_NAME)
+    old = mw.findChild(QtWidgets.QDialog, DOCK_OBJECT_NAME)
+    if old:
+        old.close()
+        old.deleteLater()
+    win = BeamAbsorberHeatmapDock(mw)
+    win.show()
+    return win
+
+
+def ShowHeatmapViewer_old():
+    mw = Gui.getMainWindow()
+    old = mw.findChild(QtWidgets.QDialog, DOCK_OBJECT_NAME)
     if old:
         mw.removeDockWidget(old)
         old.deleteLater()

@@ -738,6 +738,180 @@ def compute_distance(clusters, plane):
 
 
 def metric_scanner(metric, filtered_clusters, plane, context):
+    import numpy as np
+    from PySide import QtCore, QtWidgets
+    import FreeCADGui as Gui
+
+    from oba_scanner.scan_db import HitsDB
+    from oba_scanner.batch_runner import run_steps_for_batch, find_batch_object, find_step_by_id
+    from oba_scanner.heatmap_viewer import compute_field, DOCK_OBJECT_NAME
+    from oba_rayengine.oba_ray_analyser import get_emitted_power
+
+    doc = context.get("doc")
+    if doc is None:
+        return 0.0
+
+    step_id = metric.get("step_id")
+    if not step_id:
+        return 0.0
+
+    emitted_power, emitted_rays = get_emitted_power()
+    if emitted_power <= 1e-12:
+        return 0.0
+    # -------------------------------------------------------------
+    # 1. HÄMTA TARGETS
+    # -------------------------------------------------------------
+    targets = list({cluster.get("object") for cluster in filtered_clusters.values() if cluster.get("object")})
+    if not targets:
+        return 0.0
+    # -------------------------------------------------------------
+    # 2. HÄMTA SCANNER OCH STEP
+    # -------------------------------------------------------------
+    db = HitsDB()
+    try:
+        batch = find_batch_object(doc)
+        if batch is None:
+            return 0.0
+        step_obj = find_step_by_id(doc, step_id)
+        if step_obj is None:
+            return 0.0
+
+        class Dummy:
+            def setValue(self, value):
+                pass
+
+            def setRange(self, minimum, maximum):
+                pass
+
+            def setText(self, text):
+                pass
+
+        # ---------------------------------------------------------
+        # 3. KÖR SCANNER FÖR AKTUELLT STEP
+        # ---------------------------------------------------------
+        db.clear_step(step_id)
+        run_steps_for_batch(
+            batch=batch,
+            prog_bar=Dummy(),
+            status_lbl=Dummy(),
+            pump_events_func=lambda: None,
+            stop_flag_func=lambda: False,
+            only_step_id=step_id,
+        )
+        QtCore.QCoreApplication.processEvents()
+        # ---------------------------------------------------------
+        # 4. BERÄKNA FÄLTET
+        #
+        # compute_field kräver step_obj, inte step_id.
+        # Xi och Yi returneras i delta-koordinater relativt
+        # det aktuella läget.
+        # ---------------------------------------------------------
+        result = compute_field(
+            doc=doc,
+            db=db,
+            target=targets[0],
+            step_obj=step_obj,
+            plane=plane,
+            value_mode="Power In",
+            grid_size=60,
+        )
+
+        if result is None:
+            return 0.0
+
+        Xi = np.asarray(result["Xi"], dtype=float)
+        Yi = np.asarray(result["Yi"], dtype=float)
+        Vi = np.asarray(result["Vi"], dtype=float)
+
+        if Xi.size == 0 or Yi.size == 0 or Vi.size == 0 or not np.all(np.isfinite(Vi)):
+            return 0.0
+        # Negativa interpolationsvärden ska inte bidra till
+        # energifördelningens tyngdpunkt eller form.
+        Vi = np.maximum(Vi, 0.0)
+        total_mass = float(np.sum(Vi))
+        if total_mass <= 1e-12:
+            return 0.0
+        # ---------------------------------------------------------
+        # 5. CENTER OF MASS
+        #
+        # Nollpunkten (0, 0) motsvarar aktuellt läge.
+        # ---------------------------------------------------------
+        x_com = float(np.sum(Vi * Xi) / total_mass)
+        y_com = float(np.sum(Vi * Yi) / total_mass)
+        dist_from_zero = float(np.hypot(x_com, y_com))
+        center_score = 1.0 / (1.0 + dist_from_zero * 20.0)
+        # ---------------------------------------------------------
+        # 6. FORM: JÄMFÖR X- OCH Y-PROFILER
+        # ---------------------------------------------------------
+        x_proj = np.sum(Vi, axis=0)
+        y_proj = np.sum(Vi, axis=1)
+
+        x_max = float(np.max(x_proj))
+        y_max = float(np.max(y_proj))
+
+        if x_max <= 1e-12 or y_max <= 1e-12:
+            return 0.0
+
+        xp = x_proj / x_max
+        yp = y_proj / y_max
+
+        corr = np.correlate(xp, yp, mode="full")
+        max_corr = float(np.max(corr))
+
+        auto_x = float(np.sum(xp**2))
+        auto_y = float(np.sum(yp**2))
+
+        denominator = np.sqrt(auto_x * auto_y)
+        if denominator <= 1e-12:
+            return 0.0
+
+        shape_score = max_corr / denominator
+
+        # ---------------------------------------------------------
+        # 7. ENERGI NÄRA AKTUELLT LÄGE
+        #
+        # Hitta rutnätscellen närmast (0, 0), i stället för
+        # att anta att centrum alltid är gridens mittindex.
+        # ---------------------------------------------------------
+        current_idx = np.unravel_index(
+            np.argmin(Xi**2 + Yi**2),
+            Xi.shape,
+        )
+
+        mid_r, mid_c = current_idx
+        w = 10
+
+        r1 = max(0, mid_r - w)
+        r2 = min(Vi.shape[0], mid_r + w + 1)
+        c1 = max(0, mid_c - w)
+        c2 = min(Vi.shape[1], mid_c + w + 1)
+
+        center_area_power = float(np.sum(Vi[r1:r2, c1:c2]))
+
+        power_score = center_area_power / emitted_power
+
+        # ---------------------------------------------------------
+        # 8. SLUTLIG SCANNER SCORE
+        #
+        # Behåller tidigare viktning:
+        # shape_score * center_score.
+        # power_score beräknas men ingår inte i slutresultatet.
+        # ---------------------------------------------------------
+        score = shape_score * center_score
+
+        # ---------------------------------------------------------
+        # 9. UPPDATERA HEATMAP OM DEN ÄR ÖPPEN
+        # ---------------------------------------------------------
+        main_window = Gui.getMainWindow()
+        dock = main_window.findChild(QtWidgets.QDialog, DOCK_OBJECT_NAME)
+        if dock:
+            QtCore.QTimer.singleShot(0, dock.refresh_from_external_change)
+        return float(score)
+    finally:
+        db.close()
+
+
+def metric_scanner_old(metric, filtered_clusters, plane, context):
     from PySide import QtCore
     import numpy as np
 
@@ -881,184 +1055,6 @@ def metric_scanner(metric, filtered_clusters, plane, context):
         QtCore.QTimer.singleShot(0, dock.refresh_from_external_change)
 
     return float(score)
-
-
-def metric_scanner_old(metric, filtered_clusters, plane, context):
-    from oba_scanner.scan_db import HitsDB
-    from oba_scanner.batch_runner import run_steps_for_batch, find_batch_object, find_step_by_id
-    from oba_rayengine.oba_ray_analyser import get_emitted_power
-    from oba_scanner.heatmap_viewer import compute_field
-    import numpy as np
-
-    doc = context["doc"]
-    step_id = metric.get("step_id")
-    radius = metric.get("radius", 0.2)
-
-    if not step_id:
-        return 0.0
-
-    emitted_power, emitted_rays = get_emitted_power()
-
-    # print("[SCANNER]", "emitted_power=", emitted_power, "emitted_rays=", emitted_rays)
-
-    if emitted_power <= 1e-12:
-        print("[SCANNER]", "No emitted rays found, returning 0.0. Total emitted_power=", emitted_power, "and emitted_rays=", emitted_rays)
-        return 0.0
-
-    db = HitsDB()
-
-    targets = list({c.get("object") for c in filtered_clusters.values()})
-    if not targets:
-        return 0.0
-
-    batch = find_batch_object(doc)
-    if not batch:
-        return 0.0
-
-    step = find_step_by_id(doc, step_id)
-    if not step:
-        return 0.0
-
-    class Dummy:
-        def setValue(self, v):
-            pass
-
-        def setRange(self, a, b):
-            pass
-
-        def setText(self, t):
-            pass
-
-    # --------------------------------------------------
-    # Kör scanner
-    # --------------------------------------------------
-
-    db.clear_step(step_id)
-
-    # spar undan step config
-    import json
-
-    data = json.loads(step.DataJSON)
-    orig_end_radius = data.get("endRadius", 0.4)
-    orig_radial_steps = data.get("radialSteps", 6)
-    orig_points_per_circle = data.get("pointsPerCircle", 4)
-    search_radius = metric.get("radius", 0.2)
-    data["endRadius"] = search_radius
-    data["radialSteps"] = 4
-    data["pointsPerCircle"] = 4
-    step.DataJSON = json.dumps(data, indent=4)
-
-    try:
-        run_steps_for_batch(
-            batch=batch,
-            prog_bar=Dummy(),
-            status_lbl=Dummy(),
-            pump_events_func=lambda: None,
-            stop_flag_func=lambda: False,
-            only_step_id=step_id,
-        )
-        QtCore.QCoreApplication.processEvents()
-    finally:
-        # återställer Json step datat
-        data["endRadius"] = orig_end_radius
-        data["radialSteps"] = orig_radial_steps
-        data["pointsPerCircle"] = orig_points_per_circle
-        step.DataJSON = json.dumps(data, indent=4)
-
-    # --------------------------------------------------
-    # Läs scanner-grid
-    # --------------------------------------------------
-
-    X_all = []
-    Y_all = []
-    Z_all = []
-    V_all = []
-
-    for tgt in targets:
-
-        for em in db.list_emitters(tgt):
-            # WX, WY, WZ, X, Y, Z, H, PIN, POUT, MOVE_OBJECT, MOVED_OBJECTS
-            WX, WY, WZ, X, Y, Z, H, PIN, POUT, MOVE_OBJECT, MOVED_OBJECTS = db.read_grid(tgt, em, step_id)
-            if not X:
-                continue
-
-            X_all.extend(X)
-            Y_all.extend(Y)
-            Z_all.extend(Z)
-
-            # power på målobjektet
-            V_all.extend(PIN)
-
-    if not V_all:
-        return 0.0
-
-    X = np.asarray(X_all, dtype=float)
-    Y = np.asarray(Y_all, dtype=float)
-    Z = np.asarray(Z_all, dtype=float)
-    V = np.asarray(V_all, dtype=float)
-
-    # --------------------------------------------------
-    # Välj projektionsplan
-    # --------------------------------------------------
-
-    if plane == "XY":
-        A = X
-        B = Y
-
-    elif plane == "XZ":
-        A = X
-        B = Z
-
-    elif plane == "YZ":
-        A = Y
-        B = Z
-
-    else:
-        A = X
-        B = Y
-
-    # --------------------------------------------------
-    # Mätområde runt origo
-    # --------------------------------------------------
-
-    dist = np.sqrt(A * A + B * B)
-
-    inside = dist <= radius
-
-    if not np.any(inside):
-        return 0.0
-
-    # --------------------------------------------------
-    # Effekt inom mätområdet
-    # --------------------------------------------------
-
-    power_inside = float(np.sum(V[inside]))
-
-    # --------------------------------------------------
-    # Normalisera mot emitterad effekt
-    # --------------------------------------------------
-
-    # print("GRID POWER =", np.sum(V))
-    # print("EMITTED POWER =", emitted_power)
-
-    score = power_inside / emitted_power
-
-    # print(
-    #     "[SCANNER]",
-    #     "power_inside=",
-    #     power_inside,
-    #     "emitted_power=",
-    #     emitted_power,
-    #     "score=",
-    #     score,
-    # )
-    # print("radius=", radius)
-    # print("inside cells=", np.count_nonzero(inside))
-    # print("all cells=", len(V))
-
-    # print("avg power per cell =", np.sum(V) / len(V))
-
-    return score
 
 
 def compute_cluster_position_matching(clusters, axis):
