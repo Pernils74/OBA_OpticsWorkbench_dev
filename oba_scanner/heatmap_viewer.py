@@ -162,6 +162,10 @@ def compute_field(
     px_delta = px_abs - current_abs_x
     py_delta = py_abs - current_abs_y
 
+    # fix för att inte det skall driva
+    px_delta = px_abs
+    py_delta = py_abs
+
     # Unika punkter för att säkra stabil RBF
     pts = np.round(np.column_stack([px_delta, py_delta]), 9)
     _, unique_idx = np.unique(pts, axis=0, return_index=True)
@@ -706,6 +710,7 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDialog):  # QDockWidget
 
         # Råa historiska mätpunkter
         ax.scatter(raw_px, raw_py, raw_v, color="red", s=40, depthshade=False, label="DB Points")
+        ax.legend(loc="upper right")
         ax.legend()
         self.canvas3d.draw_idle()
 
@@ -754,6 +759,7 @@ class BeamAbsorberHeatmapDock(QtWidgets.QDialog):  # QDockWidget
         plot_range = self.spinRange.value()
         ax.set_xlim(-plot_range, plot_range)
         ax.legend()
+        ax.legend(loc="upper right")
         ax.grid(True)
         self.canvas2d.draw_idle()
 
