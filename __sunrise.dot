@@ -57,7 +57,7 @@ digraph G {
     
     
     // PBAS
-    "833-00162" [label = "Art: 833-00162\nPBAS K70";fillcolor = "#dbffcd";];
+    "832-00162" [label = "Art: 832-00162\nPBAS K107-CF";fillcolor = "#dbffcd";];
     "833-00161" [label = "Art: 833-00161\nPBAS K70 10000ppm";fillcolor = "#dbffcd";];
     "832-00161" [label = "Art: 832-00161\nPBAS K107-H";fillcolor = "#dbffcd";];
     "832-00133" [label = "Art: 832-00133\nPBAS K108SC R32";fillcolor = "#dbffcd";];
@@ -80,7 +80,7 @@ digraph G {
     "831-00306" [label = "Art: 831-00306\nPBA K107-CF";fillcolor = "#dbffcd";];
     "831-00401" [label = "Art: 831-00401\nPBA K107-HS";fillcolor = "#dbffcd";];
     "831-00308" [label = "Art: 831-00308\nPBA K107-HF";fillcolor = "#dbffcd";];
-    // sunrise
+    // sunriseK102
     "831-00275" [label = "Art: 831-00275\nPBA K102-F";fillcolor = "#dbffcd";];
     "831-00295" [label = "Art: 831-00275\nPBA K103-F";fillcolor = "#dbffcd";];
     
@@ -123,8 +123,8 @@ digraph G {
         // --- SUNLIGHT BOM ---
         "006-1-0100" [label = "Art: 006-1-0100\nSenseair Sunlight CO2";fillcolor = "#fffacd";];
         "006-1-0100" -> {"740-00600" "833-00167"};
-        "833-00167" -> {"833-00162"};
-        "833-00162" -> {"740-00993" "831-00306"};
+        "833-00167" -> {"832-00162"};
+        "832-00162" -> {"740-00993" "831-00306" "711-00783"};
         
         
         
@@ -143,7 +143,7 @@ digraph G {
         
         "006-1-0104" [label = "Art: 006-1-0104\nSenseair Sunlight 2% CO2 PH - 8,51";fillcolor = "#fffacd";];
         "006-1-0104" -> {"740-01964" "792-00013" "833-00192" "120-00452" "120-00453"};
-        "833-00192" -> {"833-00162"};
+        "833-00192" -> {"832-00162"};
         
         
         "006-1-0105" [label = "Art: 006-1-0105\nSenseair Sunlight 2% CO2 PH - 10,92";fillcolor = "#fffacd";];

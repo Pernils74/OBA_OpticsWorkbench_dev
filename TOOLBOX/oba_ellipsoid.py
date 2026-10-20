@@ -43,6 +43,8 @@ ELLIPSOID_PROPERTIES = [
     {"name": "APlaneHeight", "type": "App::PropertyLength", "group": "Box", "unit": "mm", "min": 0, "max": 10, "doc": "Aperture plane height"},
     {"name": "APlaneZoffset", "type": "App::PropertyFloat", "group": "Box", "unit": "mm", "min": -2, "max": 5, "step": 0.1, "doc": "Additional Z offset from focus point"},
     {"name": "APlaneYoffset", "type": "App::PropertyFloat", "group": "Box", "unit": "mm", "min": -2, "max": 5, "step": 0.1, "doc": "Additional Y offset from focus point"},
+    {"name": "FilterPlaneSize", "type": "App::PropertyLength", "group": "Filter", "default": 2.0, "unit": "mm", "min": 0, "max": 100, "doc": "Square filter side length"},
+    {"name": "FilterPlaneOffset", "type": "App::PropertyFloat", "group": "Filter", "default": 0.5, "unit": "mm", "min": -50, "max": 50, "step": 0.1, "doc": "Offset from aperture plane along optical axis"},
     # --------------------------------------------------------
     # Orientation.
     # --------------------------------------------------------
@@ -66,7 +68,7 @@ ELLIPSOID_PROPERTIES = [
 
 class OBAEllipsoid:
 
-    CHILD_OBJECTS = ("_box", "_box_ext", "_box_bound", "_fuse", "_ellipsoid", "_cut", "_focus1", "_focus2", "_focal_surface")
+    CHILD_OBJECTS = ("_box", "_box_ext", "_box_bound", "_fuse", "_ellipsoid", "_cut", "_focus1", "_focus2", "_focal_surface", "_filter_surface")
 
     def _init_runtime_state(self):
         """
@@ -84,7 +86,9 @@ class OBAEllipsoid:
         self._focus1 = None
         self._focus2 = None
         self._focal_surface = None
+        self._filter_surface = None
         self._focal_surface_signature = None
+        self._filter_surface_signature = None
 
         self._box = None
         self._box_ext = None
@@ -163,6 +167,7 @@ class OBAEllipsoid:
         self._ellipsoid = self._get_or_create(doc, f"{obj.Name}_Ellipsoid", "Part::Ellipsoid", f"{obj.Label} Ellipsoid")
         self._cut = self._get_or_create(doc, f"{obj.Name}_Cut", "Part::Cut", f"{obj.Label} Cut")
         self._focal_surface = self._get_or_create(doc, f"{obj.Name}_FocalSurface", "Part::Feature", f"{obj.Label} FOCAL--SURFACE")
+        self._filter_surface = self._get_or_create(doc, f"{obj.Name}_FilterSurface", "Part::Feature", f"{obj.Label} FILTER-SURFACE")
 
         self._focus1 = self._get_or_create(doc, f"{obj.Name}_Focus1", "Part::Sphere", f"{obj.Label} Focus1")
         self._focus2 = self._get_or_create(doc, f"{obj.Name}_Focus2", "Part::Sphere", f"{obj.Label} Focus2")
@@ -175,6 +180,7 @@ class OBAEllipsoid:
             self._ellipsoid,
             self._cut,
             self._focal_surface,
+            self._filter_surface,
             self._focus1,
             self._focus2,
         ]
@@ -192,6 +198,11 @@ class OBAEllipsoid:
         vo = self._focal_surface.ViewObject
         changed |= set_property_if_changed(vo, "ShapeColor", (1.0, 1.0, 0.0))
         changed |= set_property_if_changed(vo, "Transparency", 50)
+        changed |= set_property_if_changed(vo, "LineWidth", 2)
+
+        vo = self._filter_surface.ViewObject
+        changed |= set_property_if_changed(vo, "ShapeColor", (1.0, 0.0, 1.0))
+        changed |= set_property_if_changed(vo, "Transparency", 60)
         changed |= set_property_if_changed(vo, "LineWidth", 2)
 
         # --------------------------------------------------------------
@@ -376,7 +387,15 @@ class OBAEllipsoid:
         p3 = App.Vector(+width / 2, +height / 2 + obj.APlaneYoffset, obj.APlaneZoffset)
         p4 = App.Vector(-width / 2, +height / 2 + obj.APlaneYoffset, obj.APlaneZoffset)
 
-        signature = tuple(round(float(value), 9) for point in (p1, p2, p3, p4) for value in (focus.x + point.x, focus.y + point.y, focus.z + point.z))
+        signature = tuple(
+            round(float(value), 9)
+            for point in (p1, p2, p3, p4)
+            for value in (
+                focus.x + point.x,
+                focus.y + point.y,
+                focus.z + point.z,
+            )
+        )
         if signature == getattr(self, "_focal_surface_signature", None):
             return False
 
@@ -388,6 +407,53 @@ class OBAEllipsoid:
 
         self._focal_surface.Shape = face
         self._focal_surface_signature = signature
+        return True
+
+    def _update_filter_surface(self, obj):
+        import Part
+
+        size = float(obj.FilterPlaneSize)
+
+        if size <= 0:
+            self._filter_surface.Shape = Part.Shape()
+            self._filter_surface_signature = None
+            return True
+        # if size <= 0:
+        #     return False
+
+        f1, _ = self.focal_points_world(obj)
+
+        y = float(obj.APlaneYoffset)
+        z = float(obj.APlaneZoffset) + float(obj.FilterPlaneOffset)
+
+        p1 = App.Vector(-size / 2, -size / 2 + y, z)
+        p2 = App.Vector(+size / 2, -size / 2 + y, z)
+        p3 = App.Vector(+size / 2, +size / 2 + y, z)
+        p4 = App.Vector(-size / 2, +size / 2 + y, z)
+
+        signature = (
+            round(size, 9),
+            round(y, 9),
+            round(z, 9),
+            round(f1.x, 9),
+            round(f1.y, 9),
+            round(f1.z, 9),
+        )
+
+        if signature == getattr(self, "_filter_surface_signature", None):
+            return False
+
+        wire = Part.makePolygon([p1, p2, p3, p4, p1])
+        face = Part.Face(wire)
+
+        face.Placement = App.Placement(
+            f1,
+            App.Rotation(),
+        )
+
+        self._filter_surface.Shape = face
+        self._filter_surface_signature = signature
+
         return True
 
     # ========================================================
@@ -403,6 +469,7 @@ class OBAEllipsoid:
             changed |= self._update_ellipsoid(obj)
             changed |= self._update_cubes(obj)
             changed |= self._update_focal_surface(obj)
+            changed |= self._update_filter_surface(obj)
 
             changed |= self._update_debug(obj)
 
@@ -506,7 +573,18 @@ class OBAEllipsoid:
         # ----------------------------------------------------
         # Geometry
         # ----------------------------------------------------
-        if prop in ("A", "B", "Radius3Offset", "APlaneWidth", "APlaneHeight", "WidthFactor", "APlaneZoffset", "APlaneYoffset"):
+        if prop in (
+            "A",
+            "B",
+            "Radius3Offset",
+            "APlaneWidth",
+            "APlaneHeight",
+            "WidthFactor",
+            "APlaneZoffset",
+            "APlaneYoffset",
+            "FilterPlaneSize",
+            "FilterPlaneOffset",
+        ):
             try:
                 self._rebuild(obj)
             except Exception as exc:

@@ -109,6 +109,10 @@ WHITE_CELL_PROPERTIES = [
     {"name": "EmitterAPlaneZoffset", "label": "A-Plane offset in Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
     {"name": "EmitterAPlaneYoffset", "label": "A-Plane offset in y", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
     {"name": "EmitterNormalOffset", "label": "Normal Offset", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.7, "unit": "mm", "min": 0, "max": 20, "optuna_locked": False},
+    # Filter
+    {"name": "EmitterFilterPlaneSize", "label": "Filter Size", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 2.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "EmitterFilterPlaneOffset", "label": "Filter Offset", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.5, "unit": "mm", "min": -20, "max": 20, "step": 0.1, "optuna_locked": False},
+    # ---
     {"name": "EmitterA", "label": "A", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "EmitterB", "label": "B", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 6.4, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "EmitterRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
@@ -127,6 +131,10 @@ WHITE_CELL_PROPERTIES = [
     {"name": "DetectorAPlaneZoffset", "label": "A-Plane offset in Z", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
     {"name": "DetectorAPlaneYoffset", "label": "A-Plane offset in y", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
     {"name": "DetectorNormalOffset", "label": "Normal Offset", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.7, "unit": "mm", "min": 0, "max": 20, "optuna_locked": False},
+    # Filter
+    {"name": "DetectorFilterPlaneSize", "label": "Filter Size", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "DetectorFilterPlaneOffset", "label": "Filter Offset", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.5, "unit": "mm", "min": -20, "max": 20, "step": 0.1, "optuna_locked": False},
+    # ....
     {"name": "DetectorA", "label": "A", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "DetectorB", "label": "B", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 6.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "DetectorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
@@ -552,11 +560,11 @@ class OBAWhiteCell:
             if hasattr(ellipsoid, "APlaneHeight"):
                 changed |= set_quantity_if_changed(ellipsoid, "APlaneHeight", getattr(obj, f"{prefix}APlaneHeight"), "mm")
 
-            # if hasattr(ellipsoid, "APlaneZoffset"):
-            #     ellipsoid.APlaneZoffset = float(getattr(obj, f"{prefix}APlaneZoffset"))
+            if hasattr(ellipsoid, "FilterPlaneSize"):
+                changed |= set_quantity_if_changed(ellipsoid, "FilterPlaneSize", getattr(obj, f"{prefix}FilterPlaneSize"), "mm")
 
-            # if hasattr(ellipsoid, "APlaneYoffset"):
-            #     ellipsoid.APlaneYoffset = float(getattr(obj, f"{prefix}APlaneYoffset"))
+            if hasattr(ellipsoid, "FilterPlaneOffset"):
+                changed |= _set_float_if_changed(ellipsoid, "FilterPlaneOffset", getattr(obj, f"{prefix}FilterPlaneOffset"))
 
             if hasattr(ellipsoid, "APlaneZoffset"):
                 changed |= _set_float_if_changed(ellipsoid, "APlaneZoffset", getattr(obj, f"{prefix}APlaneZoffset"))
@@ -751,6 +759,8 @@ class OBAWhiteCell:
             "EmitterAPlaneZoffset",
             "EmitterAPlaneYoffset",
             "EmitterNormalOffset",
+            "EmitterFilterPlaneSize",
+            "EmitterFilterPlaneOffset",
             "EmitterA",
             "EmitterB",
             "EmitterRadius3Offset",
@@ -767,6 +777,8 @@ class OBAWhiteCell:
             "DetectorAPlaneZoffset",
             "DetectorAPlaneYoffset",
             "DetectorNormalOffset",
+            "DetectorFilterPlaneSize",
+            "DetectorFilterPlaneOffset",
             "DetectorA",
             "DetectorB",
             "DetectorRadius3Offset",
