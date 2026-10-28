@@ -554,14 +554,27 @@ class OBAViewProviderBase:
     def attach(self, vobj):
         """Called when ViewProvider is attached to ViewObject."""
         self.ViewObject = vobj
+        self.Object = vobj.Object
         # Ensure attributes are initialized
         if not hasattr(self, "_preview_root"):
             self._preview_root = None
         if not hasattr(self, "_final_root"):
             self._final_root = None
 
+    # def getIcon(self):
+    #     return get_optical_icon_path(self.Object) or ""
+
     def getIcon(self):
-        return get_optical_icon_path(self.Object) or ""
+        try:
+            obj = getattr(self, "Object", None)
+
+            if not obj:
+                return ""
+
+            return get_optical_icon_path(obj) or ""
+
+        except Exception:
+            return ""
 
     # def getIcon(self):
     #     try:
