@@ -692,8 +692,14 @@ class OBABaseDialog(QtWidgets.QDialog):
         # OK / Close
         # -------------------------------------------------
         btn = QtWidgets.QPushButton("Done/Close")
-        btn.clicked.connect(self.accept)
+        btn.clicked.connect(self._recompute_and_accept)
         self.layout.addWidget(btn)
+
+    def _recompute_and_accept(self):
+        doc = getattr(self.obj, "Document", None)
+        if doc:
+            doc.recompute()
+        self.accept()
 
     # ====================================================
     # Binder / surface helpers

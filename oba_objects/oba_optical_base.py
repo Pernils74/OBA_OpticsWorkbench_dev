@@ -77,6 +77,7 @@ class OBAOpticalObject(OBAElementProxy):
         self._updating = False
         self._init_done = False
         self.dialog = None
+        self._placement_update_pending = False
 
         add_prop(obj, "App::PropertyBool", "IsOptical", "Base", True)
         add_prop(obj, "App::PropertyString", "OpticalType", "Base", "None")
@@ -107,17 +108,47 @@ class OBAOpticalObject(OBAElementProxy):
     def _set_shape_placement_from_properties(self, obj):
         shape_obj = get_shape_obj(obj)
         if not shape_obj:
-            return
+            return False
 
         required = ("WorldX", "WorldY", "WorldZ", "RotX", "RotY", "RotZ")
         if not all(name in obj.PropertiesList for name in required):
-            return
+            return False
 
         rotation = _world_axis_rotation(obj.RotX, obj.RotY, obj.RotZ)
-        shape_obj.Placement = App.Placement(
+        placement = App.Placement(
             App.Vector(float(obj.WorldX), float(obj.WorldY), float(obj.WorldZ)),
             rotation,
         )
+        if shape_obj.Placement.isSame(placement):
+            return False
+
+        shape_obj.Placement = placement
+        return True
+
+    def _schedule_shape_placement_update(self, obj):
+        if self._placement_update_pending:
+            return
+
+        self._placement_update_pending = True
+        QtCore.QTimer.singleShot(
+            0,
+            lambda target=obj: self._apply_deferred_shape_placement(target),
+        )
+
+    def _apply_deferred_shape_placement(self, obj):
+        self._placement_update_pending = False
+        doc = getattr(obj, "Document", None)
+        if not doc:
+            return
+
+        self._updating = True
+        try:
+            placement_changed = self._set_shape_placement_from_properties(obj)
+        finally:
+            self._updating = False
+
+        if placement_changed:
+            doc.recompute()
 
     def _ensure_optical_properties(self, obj):
         model = str(obj.OpticalModel)
@@ -218,11 +249,7 @@ class OBAOpticalObject(OBAElementProxy):
         }
 
         if prop in placement_props:
-            self._updating = True
-            try:
-                self._set_shape_placement_from_properties(obj)
-            finally:
-                self._updating = False
+            self._schedule_shape_placement_update(obj)
             return
 
         # if not self._init_done or self._updating:
@@ -248,7 +275,7 @@ class OBAOpticalObject(OBAElementProxy):
             shape_obj = getattr(obj, "ShapeObj", None)
             if shape_obj and getattr(shape_obj, "Proxy", None):
                 shape_obj.Proxy.Group = obj
-            self._set_shape_placement_from_properties(obj)
+            self._schedule_shape_placement_update(obj)
             return
 
         mod = OPTICAL_MODULES.get(str(obj.OpticalModel))
@@ -291,6 +318,7 @@ class OBAOpticalObject(OBAElementProxy):
         obj.Proxy = self
         self._updating = False
         self._init_done = True
+        self._placement_update_pending = False
 
         add_prop(obj, "App::PropertyLinkList", "Binders", "Optics")
         add_prop(obj, "App::PropertyString", "GeomHash", "Internal", "")
@@ -336,6 +364,7 @@ class OBAOpticalObject(OBAElementProxy):
         self._updating = False
         self._init_done = False
         self.dialog = None
+        self._placement_update_pending = False
 
 
 class OpticalShape:
@@ -345,6 +374,8 @@ class OpticalShape:
         self.Object = obj
         self.Group = group
         self._updating = False
+        self._geometry_dirty = True
+        self._placement_sync_pending = False
         obj.Proxy = self
         self._initializing = True
 
@@ -364,6 +395,10 @@ class OpticalShape:
         if current not in shapes:
             obj.ShapeType = shapes[0]
         self._ensure_shape_properties(obj)
+        self.mark_geometry_dirty()
+
+    def mark_geometry_dirty(self):
+        self._geometry_dirty = True
 
     def _ensure_shape_properties(self, obj):
         for p in oba_optical_shapes.SHAPE_PROPERTIES.get(str(obj.ShapeType), []):
@@ -408,13 +443,39 @@ class OpticalShape:
             self._set_placement_from_properties(obj)
             return
 
+        if self._placement_sync_pending:
+            return
+
+        self._placement_sync_pending = True
+        QtCore.QTimer.singleShot(
+            0,
+            lambda source=obj, target=group: self._apply_deferred_group_placement(
+                source, target
+            ),
+        )
+
+    def _apply_deferred_group_placement(self, obj, group):
+        self._placement_sync_pending = False
+        doc = getattr(obj, "Document", None)
+        if not doc or getattr(group, "Document", None) is not doc:
+            return
+
+        group_proxy = getattr(group, "Proxy", None)
+        if not group_proxy or not hasattr(
+            group_proxy, "_set_shape_placement_from_properties"
+        ):
+            return
+
+        placement_props = ("WorldX", "WorldY", "WorldZ", "RotX", "RotY", "RotZ")
         group_proxy._updating = True
         try:
             for name in placement_props:
                 setattr(group, name, float(getattr(obj, name)))
         finally:
             group_proxy._updating = False
-        group_proxy._set_shape_placement_from_properties(group)
+
+        if group_proxy._set_shape_placement_from_properties(group):
+            doc.recompute()
 
     def _set_placement_from_properties_fel(self, obj):
         required = (
@@ -472,12 +533,22 @@ class OpticalShape:
                 self._ensure_shape_properties(obj)
             finally:
                 self._updating = False
+            self.mark_geometry_dirty()
+            return
+
+        shape_properties = {
+            p["name"]
+            for properties in oba_optical_shapes.SHAPE_PROPERTIES.values()
+            for p in properties
+        }
+        if prop in shape_properties:
+            self.mark_geometry_dirty()
 
     def execute(self, obj):
         if getattr(self, "_updating", False):
             return
 
-        if self._updating:
+        if not getattr(self, "_geometry_dirty", True):
             return
         self._updating = True
 
@@ -519,6 +590,7 @@ class OpticalShape:
                             group_proxy._clear_optical_binders()
                     elif geometry_changed or len(binders) != len(shape.Faces):
                         group_proxy._build_optical_binders()
+                self._geometry_dirty = False
 
             try:
                 _trigger_ray_engine("OpticalShape rebuilt", group)
@@ -548,6 +620,8 @@ class OpticalShape:
         self.Object = obj
         obj.Proxy = self
         self._updating = False
+        self._geometry_dirty = True
+        self._placement_sync_pending = False
         self._initializing = False
         self._ensure_shape_properties(obj)
 
@@ -563,6 +637,8 @@ class OpticalShape:
         self.Object = None
         self.Group = None
         self._updating = False
+        self._geometry_dirty = True
+        self._placement_sync_pending = False
         self._initializing = False
 
 
