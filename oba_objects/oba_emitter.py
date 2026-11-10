@@ -10,6 +10,90 @@ from .oba_lens_materials import get_material_list
 #  O B J E K T -   E M I T T E R
 # ============================================================
 
+OPTICAL_PROPERTIES = [
+    {
+        "name": "StartMedium",
+        "type": "App::PropertyEnumeration",
+        "group": "Optics",
+        "default": get_material_list(),
+    },
+    {
+        "name": "Lambertian",
+        "type": "App::PropertyBool",
+        "group": "Emitter",
+        "default": True,
+    },
+    {
+        "name": "SpreadAngle",
+        "type": "App::PropertyFloat",
+        "group": "Emitter",
+        "default": 5.0,
+    },
+    {
+        "name": "EmissionMode",
+        "type": "App::PropertyEnumeration",
+        "group": "Emitter",
+        "default": ["Cone", "Focus"],
+    },
+    {
+        "name": "FocusDistance",
+        "type": "App::PropertyFloat",
+        "group": "Emitter",
+        "default": 100.0,
+        "doc": "Distance to focus point along surface normal",
+    },
+    {
+        "name": "Power",
+        "type": "App::PropertyFloat",
+        "group": "Emitter",
+        "default": 100.0,
+        "doc": "Total emitted power (W)",
+    },
+    {
+        "name": "Wavelength",
+        "type": "App::PropertyFloat",
+        "group": "Emitter",
+        "default": 585.0,
+    },
+    {
+        "name": "MaxRays",
+        "type": "App::PropertyInteger",
+        "group": "Emitter",
+        "default": 50,
+    },
+    {
+        "name": "MaxBounce",
+        "type": "App::PropertyInteger",
+        "group": "Emitter",
+        "default": 100,
+    },
+    {
+        "name": "MaxRayLength",
+        "type": "App::PropertyFloat",
+        "group": "Emitter",
+        "default": 5000.0,
+    },
+    {
+        "name": "FlipNormal",
+        "type": "App::PropertyBool",
+        "group": "NormalSettings",
+        "default": False,
+        "doc": "Invert surface normal for optical computation",
+    },
+    {
+        "name": "PreviewRayLength",
+        "type": "App::PropertyFloat",
+        "group": "Emitter",
+        "default": 2.0,
+    },
+]
+
+
+def ensure_initialized(obj):
+    if "OpticalType" not in obj.PropertiesList:
+        obj.addProperty("App::PropertyString", "OpticalType", "Base")
+    obj.OpticalType = "Emitter"
+
 
 class OBAEmitter(OBAElementProxy):
     def __init__(self, obj, source_obj=None, sub_elements=None):

@@ -1,290 +1,137 @@
-import FreeCAD as App
-from PySide import QtWidgets
-
-from .oba_lens_materials import (
-    get_material_list,
-    get_refractive_index,
-)
-
-# ============================================================
-# OPTICAL PROPERTIES (✅ endast optik)
-# ============================================================
+from .oba_lens_materials import get_material_list, get_refractive_index
 
 EXTRA_PROPERTIES = [
-    {
-        "type": "App::PropertyFloat",
-        "name": "Focal",
-        "group": "Optical",
-        "default": 100.0,
-    },
-    {
-        "type": "App::PropertyEnumeration",
-        "name": "Material",
-        "group": "Optical",
-    },
-    {
-        "type": "App::PropertyFloat",
-        "name": "Wavelength",
-        "group": "Optical",
-        "default": 550.0,
-    },
-    {
-        "type": "App::PropertyBool",
-        "name": "UseFresnel",
-        "group": "Optical",
-        "default": False,
-    },
+    {"type": "App::PropertyFloat", "name": "Focal", "group": "Optics", "default": 100.0},
+    {"type": "App::PropertyEnumeration", "name": "Material", "group": "Optics"},
+    {"type": "App::PropertyFloat", "name": "Wavelength", "group": "Optics", "default": 550.0},
+    {"type": "App::PropertyBool", "name": "UseFresnel", "group": "Optics", "default": False},
 ]
-
 
 SUPPORTED_SHAPES = ["Plane", "PlanoConvex", "PlanoConcave", "BiConvex", "BiConcave"]
 
-
-TRIGGER_PROPS = {
-    "Material",
-    "Focal",
-    "Wavelength",
-    "UseFresnel",
-}
-
+TRIGGER_PROPS = {"Focal", "Material", "Wavelength"}
 AFFECTS_GEOMETRY = True
-
-# ============================================================
-# INIT MATERIAL ENUM (helper)
-# ============================================================
-
-
-def init_material(obj):
-    if not hasattr(obj, "Material"):
-        return
-
-    mats = [m for m in get_material_list() if m != "Air"]
-
-    # # ✅ Sätt enum-lista
-    obj.Material = mats
-
-    # # ✅ Sätt värde SOM FINNS I LISTAN
-    if obj.Material not in mats:
-        obj.Material = mats[0]
 
 
 def ensure_initialized(obj):
-    if not hasattr(obj, "_init_done"):
-        obj.addProperty("App::PropertyBool", "_init_done", "Internal")
-        obj._init_done = False
+    if "OpticalType" not in obj.PropertiesList:
+        obj.addProperty("App::PropertyString", "OpticalType", "Base")
+    obj.OpticalType = "Lens"
 
-    if obj._init_done:
+
+def init_material(obj):
+    if "Material" not in obj.PropertiesList:
         return
-    init_material(obj)
-
-    if obj.ShapeType == "Plane":
-        return
-
-    if getattr(obj, "Focal", 0.0) != 0:
-        update_calculated_properties(obj)
-    obj._init_done = True
+    materials = [m for m in get_material_list() if m != "Air"]
+    if materials:
+        obj.Material = materials
+        if str(obj.Material) not in materials:
+            obj.Material = materials[0]
 
 
-# ============================================================
-# CALCULATE FOCAL FROM GEOMETRY
-# ============================================================
+def _number(obj, name, default=0.0):
+    value = getattr(obj, name, default)
+    return float(value.Value if hasattr(value, "Value") else value)
 
 
-def calculate_focal(obj):
+def _has_expression(obj, prop):
+    try:
+        return bool(obj.getExpression(prop))
+    except Exception:
+        return False
+
+
+def calculate_focal(group, shape_obj=None):
+    shape_obj = shape_obj or getattr(group, "ShapeObj", None)
+    if not shape_obj:
+        return 0.0
+
     n = get_refractive_index(
-        getattr(obj, "Material", "N-BK7"),
-        wavelength_nm=getattr(obj, "Wavelength", 550.0),
+        str(group.Material),
+        wavelength_nm=_number(group, "Wavelength", 550.0),
     )
-
-    st = obj.ShapeType
-    r = getattr(obj, "Radius1", 0.0)
-    r2 = getattr(obj, "Radius2", 0.0)
-    d = getattr(obj, "Thickness", 0.0)
-
     if n <= 1.0:
         return 0.0
 
+    r1 = _number(shape_obj, "Radius1")
+    r2 = _number(shape_obj, "Radius2")
+    thickness = _number(shape_obj, "Thickness")
+    st = str(shape_obj.ShapeType)
+
     try:
-        # ----------------------------------------------------
-        # PLANO CONVEX
-        # ----------------------------------------------------
         if st == "PlanoConvex":
-            if r == 0:
-                return 0.0
-            return r / (n - 1.0)
-        # ----------------------------------------------------
-        # PLANO CONCAVE
-        # ----------------------------------------------------
+            return r1 / (n - 1.0) if r1 else 0.0
         if st == "PlanoConcave":
-            if r == 0:
-                return 0.0
-            return -r / (n - 1.0)
-        # ----------------------------------------------------
-        # BI CONVEX / BI CONCAVE (LENSMAKER)
-        # ----------------------------------------------------
+            return -abs(r1) / (n - 1.0) if r1 else 0.0
         if st in ("BiConvex", "BiConcave"):
-            inv_f = (n - 1.0) * ((1.0 / r if r != 0 else 0.0) - (1.0 / r2 if r2 != 0 else 0.0) + ((n - 1.0) * d) / (n * r * r2 if r * r2 != 0 else 1e9))
-            if inv_f == 0:
+            if not r1 or not r2:
                 return 0.0
-            return 1.0 / inv_f
-    except:
+            inv_f = (n - 1.0) * (1.0 / r1 - 1.0 / r2 + ((n - 1.0) * thickness) / (n * r1 * r2))
+            return 1.0 / inv_f if inv_f else 0.0
+    except (ValueError, ZeroDivisionError, TypeError):
         return 0.0
     return 0.0
 
 
-# ============================================================
-# APPLY OPTICS → WRITE INTO SHAPE
-# ============================================================
+def update_calculated_properties(group, shape_obj=None):
+    """Apply Focal to radii unless the radii are expression-driven."""
+    shape_obj = shape_obj or getattr(group, "ShapeObj", None)
+    if not shape_obj:
+        return []
 
+    n = get_refractive_index(
+        str(group.Material),
+        wavelength_nm=_number(group, "Wavelength", 550.0),
+    )
+    focal = _number(group, "Focal")
+    if n <= 1.0 or focal == 0:
+        return []
 
-def update_calculated_properties(obj):
+    st = str(shape_obj.ShapeType)
+    if st == "PlanoConvex":
+        targets = {"Radius1": focal * (n - 1.0)}
+    elif st == "PlanoConcave":
+        targets = {"Radius1": abs(focal * (n - 1.0))}
+    elif st == "BiConvex":
+        radius = 2.0 * focal * (n - 1.0)
+        targets = {"Radius1": radius, "Radius2": -radius}
+    elif st == "BiConcave":
+        radius = -2.0 * focal * (n - 1.0)
+        targets = {"Radius1": radius, "Radius2": -radius}
+    else:
+        return []
+
     updated = []
-
-    material = getattr(obj, "Material", "N-BK7")
-
-    n = get_refractive_index(material, wavelength_nm=getattr(obj, "Wavelength", 550.0))
-
-    if n <= 1.0:
-        return updated
-
-    f = obj.Focal
-    st = obj.ShapeType
-
-    try:
-        if st == "PlanoConvex":
-            if f == 0:
-                return updated
-
-            R = f * (n - 1.0)
-
-            if obj.Radius1 != R:
-                obj.Radius1 = R
-                updated.append("Radius1")
-
-        elif st == "PlanoConcave":
-            if f == 0:
-                return updated
-
-            R = -f * (n - 1.0)
-            R = abs(R)
-
-            if obj.Radius1 != R:
-                obj.Radius1 = R
-                updated.append("Radius1")
-
-        elif st == "BiConvex":
-            if f == 0:
-                return updated
-
-            R = 2.0 * f * (n - 1.0)
-
-            if obj.Radius1 != R:
-                obj.Radius1 = R
-                updated.append("Radius1")
-
-            if obj.Radius2 != -R:
-                obj.Radius2 = -R
-                updated.append("Radius2")
-
-        elif st == "BiConcave":
-            if f == 0:
-                return updated
-
-            R = -2.0 * f * (n - 1.0)
-
-            if obj.Radius1 != R:
-                obj.Radius1 = R
-                updated.append("Radius1")
-
-            if obj.Radius2 != -R:
-                obj.Radius2 = -R
-                updated.append("Radius2")
-
-    except:
-        pass
-
+    for prop, value in targets.items():
+        if prop not in shape_obj.PropertiesList or _has_expression(shape_obj, prop):
+            continue
+        if abs(_number(shape_obj, prop) - value) > 1e-9:
+            setattr(shape_obj, prop, value)
+            updated.append(prop)
     return updated
 
 
-# ============================================================
-# DIALOG (✅ endast optical UI)
-# ============================================================
-
-
 def build_dialog(dlg, obj, layout):
-    from .oba_optical_dialog_builder import create_widget
-
     from PySide import QtWidgets
+    from .oba_optical_dialog_builder import create_widget
 
     box = QtWidgets.QGroupBox("Lens")
     lay = QtWidgets.QVBoxLayout(box)
 
-    # -------------------------
-    # Material (special-case)
-    # -------------------------
-    if hasattr(obj, "Material"):
+    if "Material" in obj.PropertiesList:
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel("Material"))
-
-        cmb = QtWidgets.QComboBox()
-        mats = [m for m in get_material_list() if m != "Air"]
-        cmb.addItems(mats)
-
-        if obj.Material in mats:
-            cmb.setCurrentText(obj.Material)
-
-        def changed(v, p="Material"):
-            obj.Material = mats
-            if v in mats:
-                obj.Material = v
-
-        cmb.currentTextChanged.connect(changed)
-        row.addWidget(cmb)
+        combo = QtWidgets.QComboBox()
+        materials = [m for m in get_material_list() if m != "Air"]
+        combo.addItems(materials)
+        combo.setCurrentText(str(obj.Material))
+        combo.currentTextChanged.connect(lambda value: setattr(obj, "Material", value))
+        row.addWidget(combo)
         lay.addLayout(row)
 
-    # -------------------------
-    # Standard properties
-    # -------------------------
-    for prop in ["Focal", "Wavelength", "UseFresnel"]:
-        w = create_widget(dlg, obj, prop)
-        if w:
-            lay.addLayout(w)
+    for prop in ("Focal", "Wavelength", "UseFresnel"):
+        row = create_widget(dlg, obj, prop)
+        if row:
+            lay.addLayout(row)
 
     layout.addWidget(box)
-
-
-def build_dialog_old(dlg, obj, layout):
-
-    # ✅ Material
-    if hasattr(obj, "Material"):
-        row = QtWidgets.QHBoxLayout()
-        row.addWidget(QtWidgets.QLabel("Material"))
-        cmb = QtWidgets.QComboBox()
-        mats = [m for m in get_material_list() if m != "Air"]
-        cmb.addItems(mats)
-
-        if obj.Material in mats:
-            cmb.setCurrentText(obj.Material)
-
-        def changed(v):
-            mats = [m for m in get_material_list() if m != "Air"]
-            print("Materials", mats)
-            # ✅ säkerställ att enum är korrekt innan set
-            obj.Material = mats
-
-            if v in mats:
-                obj.Material = v
-
-        cmb.currentTextChanged.connect(changed)
-
-        row.addWidget(cmb)
-        layout.addLayout(row)
-
-    print("objjj", obj)
-    if obj.ShapeModel != "Plane":
-        # ✅ Focal
-        dlg._create_widget(layout, "Focal")
-        # ✅ Wavelength
-        dlg._create_widget(layout, "Wavelength")
-
-        dlg._create_widget(layout, "UseFresnel")

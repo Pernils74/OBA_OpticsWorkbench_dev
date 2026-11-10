@@ -10,6 +10,43 @@ from .oba_base import OBABaseDialog, OBAElementProxy, OBAViewProviderBase
 #  O B J E K T  –  D E T E C T O R
 # ============================================================
 
+OPTICAL_PROPERTIES = [
+    {
+        "name": "Offset",
+        "type": "App::PropertyFloat",
+        "group": "Detector",
+        "default": 0.004,
+        "doc": "Offset distance along normal",
+    },
+    {
+        "name": "Enabled",
+        "type": "App::PropertyBool",
+        "group": "Detector",
+        "default": True,
+        "doc": "Enable detection",
+    },
+    {
+        "name": "ShowSurfaceNormal",
+        "type": "App::PropertyBool",
+        "group": "NormalSettings",
+        "default": False,
+        "doc": "Show surface normal preview",
+    },
+    {
+        "name": "HitMode",
+        "type": "App::PropertyEnumeration",
+        "group": "Detector",
+        "default": ["Front", "Back", "Both"],
+        "doc": "Detection direction",
+    },
+]
+
+
+def ensure_initialized(obj):
+    if "OpticalType" not in obj.PropertiesList:
+        obj.addProperty("App::PropertyString", "OpticalType", "Base")
+    obj.OpticalType = "Detector"
+
 
 class OBADetector(OBAElementProxy):
 

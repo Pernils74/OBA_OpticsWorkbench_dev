@@ -2,7 +2,7 @@
 
 from PySide import QtWidgets
 
-from .oba_mirror import MIRROR_PROPERTIES as OPTICAL_PROPERTIES
+from .oba_absorber import OPTICAL_PROPERTIES
 
 # ============================================================
 # OPTICAL PROPERTIES (✅ endast optik)
@@ -24,26 +24,31 @@ SUPPORTED_SHAPES = [
 ]
 
 
-OPTICAL_PROPERTIES = [
-    {
-        "type": "App::PropertyFloat",
-        "name": "Absorption",
-        "group": "Absorber",
-        "default": 1.0,
-    },
-    #     {
-    #         "type": "App::PropertyFloat",
-    #         "name": "Transmissivity",
-    #         "group": "Optical",
-    #         "default": 0.0,
-    #     },
-]
+# OPTICAL_PROPERTIES = [
+#     {
+#         "type": "App::PropertyFloat",
+#         "name": "Absorption",
+#         "group": "Absorber",
+#         "default": 1.0,
+#     },
+#     #     {
+#     #         "type": "App::PropertyFloat",
+#     #         "name": "Transmissivity",
+#     #         "group": "Optical",
+#     #         "default": 0.0,
+#     #     },
+# ]
 
 AFFECTS_GEOMETRY = False
 
 # ============================================================
 # CALCULATE (geometry → optics)
 # ============================================================
+
+def ensure_initialized(obj):
+    if "OpticalType" not in obj.PropertiesList:
+        obj.addProperty("App::PropertyString", "OpticalType", "Base")
+    obj.OpticalType = "Absorber"
 
 
 # def update_calculated_properties(obj):

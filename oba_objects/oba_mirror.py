@@ -25,6 +25,12 @@ OPTICAL_PROPERTIES = [
 ]
 
 
+def ensure_initialized(obj):
+    if "OpticalType" not in obj.PropertiesList:
+        obj.addProperty("App::PropertyString", "OpticalType", "Base")
+    obj.OpticalType = "Mirror"
+
+
 class OBAMirror(OBAElementProxy):
 
     def __init__(self, obj, source_obj=None, sub_elements=None):

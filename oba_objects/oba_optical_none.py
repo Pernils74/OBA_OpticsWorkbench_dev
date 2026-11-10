@@ -34,7 +34,9 @@ OPTICAL_PROPERTIES = []
 
 
 def ensure_initialized(obj):
-    pass
+    if "OpticalType" not in obj.PropertiesList:
+        obj.addProperty("App::PropertyString", "OpticalType", "Base")
+    obj.OpticalType = "None"
 
 
 # ============================================================
