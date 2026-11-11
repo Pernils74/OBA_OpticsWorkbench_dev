@@ -2,39 +2,23 @@
      width="64" height="64"
      viewBox="0 0 64 64"
      fill="none"
+     stroke-linecap="round"
      stroke-linejoin="round">
 
-  <!-- Incoming rays -->
-  <line x1="6" y1="22" x2="26" y2="30"
-        stroke="#f57900"
-        stroke-width="5"
-        stroke-linecap="round"/>
-  <line x1="6" y1="42" x2="26" y2="34"
-        stroke="#f57900"
-        stroke-width="5"
-        stroke-linecap="round"/>
+  <g stroke="#4c4c4c" stroke-width="4">
+    <path d="M17 18 A22 22 0 0 1 49 17"/>
+    <polyline points="41 13 49 17 51 9"/>
+    <path d="M47 46 A22 22 0 0 1 15 47"/>
+    <polyline points="23 51 15 47 13 55"/>
+  </g>
 
-  <!-- Lightning bolt (engine power) -->
-  <path d="
-    M 36 6
-    L 26 30
-    H 34
-    L 24 58
-    L 46 30
-    H 36
-    Z"
-    fill="#edd400"
-    stroke="#c4a000"
-    stroke-width="5"/>
+  <g stroke="#f57900" stroke-width="5">
+    <line x1="20" y1="27" x2="31" y2="31"/>
+    <line x1="20" y1="37" x2="31" y2="33"/>
+    <line x1="33" y1="32" x2="45" y2="24"/>
+    <line x1="33" y1="32" x2="45" y2="40"/>
+  </g>
 
-  <!-- Outgoing rays -->
-  <line x1="38" y1="30" x2="58" y2="22"
-        stroke="#edd400"
-        stroke-width="5"
-        stroke-linecap="round"/>
-  <line x1="38" y1="34" x2="58" y2="42"
-        stroke="#8ae234"
-        stroke-width="5"
-        stroke-linecap="round"/>
+  <circle cx="32" cy="32" r="4" fill="#edd400" stroke="#c4a000" stroke-width="2"/>
 
 </svg>

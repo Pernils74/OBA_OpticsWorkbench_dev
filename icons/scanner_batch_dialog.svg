@@ -1,31 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg"
-     width="24" height="24"
-     viewBox="0 0 24 24"
+     width="64" height="64"
+     viewBox="0 0 64 64"
      fill="none"
      stroke-linecap="round"
      stroke-linejoin="round">
 
-  <!-- Koncentriska cirklar -->
-  <g stroke="#ff6600" stroke-width="1.4">
-    <circle cx="12" cy="12" r="3"/>
-    <circle cx="12" cy="12" r="6"/>
-    <circle cx="12" cy="12" r="9"/>
+  <g stroke="#9a9a9a" stroke-width="1.5">
+    <circle cx="32" cy="32" r="9"/>
+    <circle cx="32" cy="32" r="18"/>
+    <circle cx="32" cy="32" r="27"/>
   </g>
 
-  <!-- Radie till yttersta cirkeln -->
-  <g stroke="#000000" stroke-width="1.4">
-    <line x1="12" y1="12" x2="21" y2="12"/>
-    <polyline points="21 12 19.5 10.8"/>
-    <polyline points="21 12 19.5 13.2"/>
-  </g>
+  <path d="M32 32
+           C38 32 41 36 41 41
+           C41 49 34 54 26 53
+           C15 52 9 43 10 32
+           C11 18 22 9 36 10
+           C48 11 56 19 58 29"
+        stroke="#ff6600" stroke-width="4.8"/>
+  <polyline points="52 25 58 29 60 22"
+            stroke="#ff6600" stroke-width="6.8"/>
 
-  <!-- Rotationspil på yttre varvet (uppflyttad) -->
-  <g stroke="#000000" stroke-width="1.4">
-    <polyline points="14 2 10.6 3.2 14 4.5"/>
-  </g>
+  <circle cx="32" cy="32" r="3" fill="#4c4c4c" stroke="none"/>
 
-  <!-- Centrum -->
-  <circle cx="12" cy="12" r="1.4"
-          fill="#ff6600"
-          stroke="none"/>
 </svg>
