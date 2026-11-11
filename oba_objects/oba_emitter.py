@@ -22,18 +22,19 @@ OPTICAL_PROPERTIES = [
         "type": "App::PropertyBool",
         "group": "Emitter",
         "default": True,
+        "doc": "Apply cosine weighting to emitted ray power",
     },
     {
         "name": "SpreadAngle",
         "type": "App::PropertyFloat",
         "group": "Emitter",
-        "default": 5.0,
+        "default": 80.0,
     },
     {
         "name": "EmissionMode",
         "type": "App::PropertyEnumeration",
         "group": "Emitter",
-        "default": ["Cone", "Focus"],
+        "default": ["Cone (position)", "Cone (radial)", "Cone (lambert)", "Focus"],
     },
     {
         "name": "FocusDistance",
@@ -116,8 +117,17 @@ class OBAEmitter(OBAElementProxy):
             obj.addProperty("App::PropertyFloat", "SpreadAngle", "Emitter").SpreadAngle = 5.0
         if not hasattr(obj, "EmissionMode"):
             obj.addProperty("App::PropertyEnumeration", "EmissionMode", "Emitter")
-            obj.EmissionMode = ["Cone", "Focus"]
-            # obj.EmissionMode = ["Cone"]
+        current_emission_mode = getattr(obj, "EmissionMode", "Cone")
+        emission_modes = ["Cone (position)", "Cone (radial)", "Cone (lambert)", "Focus"]
+        obj.EmissionMode = emission_modes
+        current_emission_mode = {
+            "Cone": "Cone (position)",
+            "Position Cone": "Cone (position)",
+            "Radial Cone": "Cone (radial)",
+            "Lambert Cone": "Cone (lambert)",
+        }.get(current_emission_mode, current_emission_mode)
+        if current_emission_mode in emission_modes:
+            obj.EmissionMode = current_emission_mode
 
         if not hasattr(obj, "FocusDistance"):
             obj.addProperty("App::PropertyFloat", "FocusDistance", "Emitter", "Distance to focus point along surface normal").FocusDistance = 100.0
@@ -247,7 +257,12 @@ class EmitterDialog(OBABaseDialog):
     def _build_emission_geometry(self, layout):
         """Strålgeometri, spridning och riktning."""
         self.emission_mode_combo = self._add_enum("Emission mode", "EmissionMode", layout)
-        self._add_check("Lambertian", "Lambertian", layout)
+        self.lambert_power_checkbox = self._add_check(
+            "Lambert (power)",
+            "Lambertian",
+            layout,
+            "Apply cosine weighting to ray power. Disable this when Cone (lambert) " "direction sampling alone should represent the Lambert distribution.",
+        )
         self.spread_angle_widget = self._add_spin("Spread angle (deg)", "SpreadAngle", 0.0, 180.0, layout)
         self.focus_distance_widget = self._add_spin("Focus distance", "FocusDistance", -1e9, 1e9, layout)
         self._add_check("Flip normal", "FlipNormal", layout)
@@ -267,11 +282,13 @@ class EmitterDialog(OBABaseDialog):
     # ----------------------------------------------------------
 
     def _update_emission_mode_ui(self, mode):
-        is_cone = mode == "Cone"
+        is_cone = mode in ("Cone", "Cone (position)", "Cone (radial)", "Cone (lambert)")
         is_focus = mode == "Focus"
 
         self.spread_angle_widget.setEnabled(is_cone)
         self.focus_distance_widget.setEnabled(is_focus)
+        if mode == "Cone (lambert)":
+            self.lambert_power_checkbox.setChecked(False)
 
     def _add_material(self, label, prop, layout):
         from .oba_lens_materials import get_material_list
@@ -319,20 +336,6 @@ class EmitterDialog(OBABaseDialog):
         layout.addLayout(row)
         return w
 
-    def _add_spin_old(self, label, prop, mn, mx, layout):
-        row = QtWidgets.QHBoxLayout()
-        row.addWidget(QtWidgets.QLabel(label))
-
-        w = QtWidgets.QDoubleSpinBox()
-        w.setRange(mn, mx)
-        w.setValue(getattr(self.obj, prop))
-        w.valueChanged.connect(lambda v, p=prop: setattr(self.obj, p, v))
-
-        row.addWidget(w)
-        layout.addLayout(row)
-        return w
-        # self.custom_layout.addLayout(row)
-
     def _add_int(self, label, prop, mn, mx, layout):
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel(label))
@@ -346,15 +349,18 @@ class EmitterDialog(OBABaseDialog):
         layout.addLayout(row)
         # self.custom_layout.addLayout(row)
 
-    def _add_check(self, label, prop, layout):
+    def _add_check(self, label, prop, layout, tooltip=None):
         row = QtWidgets.QHBoxLayout()
 
         w = QtWidgets.QCheckBox(label)
         w.setChecked(getattr(self.obj, prop))
+        if tooltip:
+            w.setToolTip(tooltip)
         w.stateChanged.connect(lambda v, p=prop: setattr(self.obj, p, bool(v)))
 
         row.addWidget(w)
         layout.addLayout(row)
+        return w
         # self.custom_layout.addLayout(row)
 
     def _add_enum(self, label, prop, layout):

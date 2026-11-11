@@ -132,6 +132,7 @@ def populate_emitter_rays(face, max_rays, use_lambert, spread_angle, flip_normal
     focus_point = center + center_normal * focus_distance
 
     max_dist = max((vtx.Point - center).Length for vtx in face.Vertexes)
+    rectangle_frame = _get_planar_rectangle_frame(face, center, center_normal)
 
     count = 0
     for i in range(grid_n):
@@ -148,6 +149,21 @@ def populate_emitter_rays(face, max_rays, use_lambert, spread_angle, flip_normal
 
             if emission_mode == "Focus":
                 direction = (focus_point - p).normalize()
+            elif emission_mode == "Cone (lambert)":
+                direction = get_lambert_cone_dir(
+                    center_normal=center_normal,
+                    max_angle_deg=spread_angle,
+                    sample_index=i * grid_n + j,
+                    sample_count=grid_n * grid_n,
+                )
+            elif emission_mode == "Cone (radial)":
+                direction = get_emitter_cone_radial_dir(
+                    center=center,
+                    center_normal=center_normal,
+                    p=p,
+                    max_angle_deg=spread_angle,
+                    max_dist=max_dist,
+                )
             else:  # emmission_mode == "Cone"
                 direction = get_emitter_cone_surface_dir(
                     center=center,
@@ -155,6 +171,7 @@ def populate_emitter_rays(face, max_rays, use_lambert, spread_angle, flip_normal
                     p=p,
                     max_angle_deg=spread_angle,
                     max_dist=max_dist,
+                    rectangle_frame=rectangle_frame,
                 )
 
             if use_lambert:
@@ -167,7 +184,118 @@ def populate_emitter_rays(face, max_rays, use_lambert, spread_angle, flip_normal
             count += 1
 
 
-def get_emitter_cone_surface_dir(center, center_normal, p, max_angle_deg, max_dist):
+def _radical_inverse(index, base):
+    value = 0.0
+    fraction = 1.0 / base
+    while index:
+        value += (index % base) * fraction
+        index //= base
+        fraction /= base
+    return value
+
+
+def get_lambert_cone_dir(center_normal, max_angle_deg, sample_index, sample_count):
+    import math
+    import FreeCAD as App
+
+    if sample_count <= 1 or max_angle_deg <= 0.0:
+        return center_normal
+
+    max_angle = math.radians(min(max_angle_deg, 90.0))
+    sample = sample_index + 1
+    radial_sample = _radical_inverse(sample, 2)
+    azimuth_sample = _radical_inverse(sample, 3)
+    theta = math.asin(math.sqrt(radial_sample) * math.sin(max_angle))
+    phi = 2.0 * math.pi * azimuth_sample
+
+    reference = App.Vector(1, 0, 0)
+    tangent = reference - center_normal * reference.dot(center_normal)
+    if tangent.Length < 1e-9:
+        reference = App.Vector(0, 1, 0)
+        tangent = reference - center_normal * reference.dot(center_normal)
+    tangent.normalize()
+    bitangent = center_normal.cross(tangent).normalize()
+
+    azimuth_dir = tangent * math.cos(phi) + bitangent * math.sin(phi)
+    return (center_normal * math.cos(theta) + azimuth_dir * math.sin(theta)).normalize()
+
+
+def _get_planar_rectangle_frame(face, center, center_normal):
+    if not isinstance(face.Surface, Part.Plane) or len(face.Wires) != 1:
+        return None
+
+    edges = face.OuterWire.Edges
+    if len(edges) != 4 or any(not isinstance(edge.Curve, Part.Line) for edge in edges):
+        return None
+    if any(len(edge.Vertexes) != 2 for edge in edges):
+        return None
+
+    vertices = []
+    scale = 0.0
+    for vertex in face.Vertexes:
+        point = vertex.Point
+        scale = max(scale, (point - center).Length)
+        if not any((point - existing).Length <= 1e-7 for existing in vertices):
+            vertices.append(point)
+    if len(vertices) != 4:
+        return None
+
+    tolerance = max(1e-7, scale * 1e-7)
+    axis_x = (edges[0].Vertexes[-1].Point - edges[0].Vertexes[0].Point).normalize()
+    axis_y = center_normal.cross(axis_x).normalize()
+
+    for edge in edges:
+        edge_direction = (edge.Vertexes[-1].Point - edge.Vertexes[0].Point).normalize()
+        if max(abs(edge_direction.dot(axis_x)), abs(edge_direction.dot(axis_y))) < 1.0 - 1e-7:
+            return None
+
+    projected_x = [(point - center).dot(axis_x) for point in vertices]
+    projected_y = [(point - center).dot(axis_y) for point in vertices]
+    half_width = (max(projected_x) - min(projected_x)) / 2.0
+    half_height = (max(projected_y) - min(projected_y)) / 2.0
+    if half_width <= tolerance or half_height <= tolerance:
+        return None
+    if abs(min(projected_x) + half_width) > tolerance or abs(min(projected_y) + half_height) > tolerance:
+        return None
+
+    expected_corners = {(sx * half_width, sy * half_height) for sx in (-1, 1) for sy in (-1, 1)}
+    for x, y in zip(projected_x, projected_y):
+        if not any(abs(x - ex) <= tolerance and abs(y - ey) <= tolerance for ex, ey in expected_corners):
+            return None
+
+    return axis_x, half_width, axis_y, half_height
+
+
+def get_emitter_cone_surface_dir(center, center_normal, p, max_angle_deg, max_dist, rectangle_frame=None):
+    offset = p - center
+    dist = offset.Length
+
+    if dist < 1e-9:
+        return center_normal
+
+    # tangentkomponenten
+    offset_tangent = offset - center_normal * offset.dot(center_normal)
+    if offset_tangent.Length < 1e-9:
+        return center_normal
+    offset_tangent.normalize()
+
+    if rectangle_frame is not None:
+        axis_x, half_width, axis_y, half_height = rectangle_frame
+        nx = abs(offset.dot(axis_x)) / half_width
+        ny = abs(offset.dot(axis_y)) / half_height
+        relative = min(1.0, max(nx, ny))
+    else:
+        relative = dist / max_dist
+
+    max_angle_rad = math.radians(max_angle_deg)
+    local_angle = relative * max_angle_rad
+
+    # axis*cos + tangent*sin
+    dir_vec = center_normal * math.cos(local_angle) + offset_tangent * math.sin(local_angle)
+    return dir_vec.normalize()
+
+
+def get_emitter_cone_radial_dir(center, center_normal, p, max_angle_deg, max_dist):
     offset = p - center
     dist = offset.Length
 
