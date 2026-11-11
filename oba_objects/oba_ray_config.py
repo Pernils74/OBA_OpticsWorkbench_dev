@@ -1,5 +1,7 @@
 # oba_ray_config.py
 
+import os
+
 import FreeCAD as App
 import FreeCADGui as Gui
 from PySide import QtWidgets
@@ -140,6 +142,11 @@ class OBARayConfig(OBAElementProxy):
                 obj.ViewObject.Proxy.dialog_class = RayConfigDialog
 
             obj.ViewObject.update()
+
+    def onChanged(self, obj, prop):
+        if prop == "RunMode":
+            self.update_icon(obj)
+        super().onChanged(obj, prop)
 
 
 # ============================================================
@@ -347,6 +354,15 @@ class RayConfigViewProvider(OBAViewProviderBase):
     def __init__(self, vobj):
         super().__init__(vobj)
         self.dialog_class = RayConfigDialog
+
+    def getIcon(self):
+        if getattr(self.Object, "RunMode", "") == "MANUAL":
+            return os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                "icons",
+                "oba_rayconfig_manualmode.svg",
+            )
+        return super().getIcon()
 
 
 # ============================================================
