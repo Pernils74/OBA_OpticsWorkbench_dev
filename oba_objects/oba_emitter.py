@@ -2,7 +2,7 @@
 
 import FreeCAD as App
 import FreeCADGui as Gui
-from PySide import QtWidgets
+from PySide import QtCore, QtWidgets
 from .oba_base import OBABaseDialog, OBAElementProxy, OBAViewProviderBase  # , runRaytracer
 from .oba_lens_materials import get_material_list
 
@@ -193,6 +193,27 @@ class OBAEmitter(OBAElementProxy):
 class EmitterDialog(OBABaseDialog):
     ALLOW_SURFACE_SELECTION = True  # ℹ️ För att visa face select listan
     ALLOW_NORMAL_FLIPPING = True
+    EMISSION_MODE_TOOLTIPS = {
+        "Cone (position)": (
+            "Rays start at sampled positions on the face and tilt away from the face-center "
+            "normal toward each position. The tilt grows from 0 at the center to the Spread "
+            "angle at the edge."
+        ),
+        "Cone (radial)": (
+            "Rays start at sampled positions on the face and tilt radially away from the "
+            "face-center normal. The tilt grows with distance from the center, reaching the "
+            "Spread angle at the farthest face vertex."
+        ),
+        "Cone (lambert)": (
+            "Ray directions are sampled from a Lambert cosine distribution around the "
+            "face-center normal, within the Spread angle (up to 90 degrees). Lambert (power) "
+            "is turned off for this mode to avoid applying cosine weighting twice."
+        ),
+        "Focus": (
+            "Each ray points from its sampled face position toward a focus point located "
+            "along the face-center normal at the Focus distance. Spread angle is not used."
+        ),
+    }
 
     # def __init____old(self, obj):
     #     super().__init__(obj, title="Emitter Settings")
@@ -257,6 +278,13 @@ class EmitterDialog(OBABaseDialog):
     def _build_emission_geometry(self, layout):
         """Strålgeometri, spridning och riktning."""
         self.emission_mode_combo = self._add_enum("Emission mode", "EmissionMode", layout)
+        for index in range(self.emission_mode_combo.count()):
+            mode = self.emission_mode_combo.itemText(index)
+            self.emission_mode_combo.setItemData(
+                index,
+                self.EMISSION_MODE_TOOLTIPS.get(mode, ""),
+                QtCore.Qt.ToolTipRole,
+            )
         self.lambert_power_checkbox = self._add_check(
             "Lambert (power)",
             "Lambertian",
@@ -287,6 +315,7 @@ class EmitterDialog(OBABaseDialog):
 
         self.spread_angle_widget.setEnabled(is_cone)
         self.focus_distance_widget.setEnabled(is_focus)
+        self.emission_mode_combo.setToolTip(self.EMISSION_MODE_TOOLTIPS.get(mode, ""))
         if mode == "Cone (lambert)":
             self.lambert_power_checkbox.setChecked(False)
 

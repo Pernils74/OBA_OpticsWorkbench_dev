@@ -27,6 +27,20 @@ METRICS = {
         "direction": "maximize",
         "tooltip": ("Hit score baseras på hur stor andel av emitterade " "rays som träffar målet.\n" "\n" "Threshold:\n" "Percent anger minsta tillåtna andel träffande rays.\n" "Används endast när Threshold är aktiv."),
     },
+    "hit_count_at_bounce": {
+        "label": "🎯 hit_count_at_bounce",
+        "threshold": False,
+        "widget": ["targets", "bounce"],
+        "direction": "maximize",
+        "tooltip": (
+            "Maximerar antalet träffar på valda targets.\n"
+            "Bounce 0 = alla bounce; 1 = första interaktionen, 2 = den andra."
+        ),
+        "bounce_tooltip": (
+            "Bounce-numret som ska räknas. 0 = alla bounce; "
+            "1 = första interaktionen, 2 = andra interaktionen."
+        ),
+    },
     "target_cluster_count": {
         "label": "⚡ target_cluster_count",
         "threshold": True,
@@ -368,6 +382,7 @@ class MetricRowWidget(QtWidgets.QWidget):
 
         if "bounce" in widgets:
             w = BounceWidget()
+            w.setToolTip(cfg.get("bounce_tooltip", ""))
             layout.insertWidget(insert_index, w)
             self.dynamic_widgets.append(w)
             self.bounceWidget = w

@@ -208,6 +208,14 @@ def _format_number(value):
         return str(value)
 
 
+def _range_highlight_color(position):
+    """Return a pastel color that grows stronger toward either range limit."""
+    distance = abs(position - 0.5) * 2.0
+    endpoint = (130, 185, 235) if position < 0.5 else (245, 160, 120)
+    channels = [round(255 + (channel - 255) * distance) for channel in endpoint]
+    return QtGui.QColor(*channels)
+
+
 def _is_locked(value):
     if isinstance(value, bool):
         return value
@@ -633,6 +641,8 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
             self.tbl.blockSignals(False)
             self._loading = False
 
+        self._update_range_highlighting()
+
         # ---------------------------------------------
         # Read current C/D and derive initial %
         # ---------------------------------------------
@@ -823,6 +833,7 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
         finally:
             self.tbl.blockSignals(False)
             self._loading = False
+        self._update_range_highlighting()
         self.statusLabel.setText("Min {:.2f}% / Max {:.2f}% -> " "{} rows updated directly.".format(min_percent, max_percent, changed))
 
     # =====================================================
@@ -975,6 +986,8 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
                 # -----------------------------------------
 
                 self._reload_sheet()
+            elif c in (COL_VALUE, COL_MIN, COL_MAX):
+                self._update_range_highlighting()
 
         except Exception as e:
             try:
@@ -982,6 +995,40 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
 
             except Exception:
                 pass
+
+    def _update_range_highlighting(self):
+        signals_were_blocked = self.tbl.blockSignals(True)
+        try:
+            for row in range(self.tbl.rowCount()):
+                min_item = self.tbl.item(row, COL_MIN)
+                max_item = self.tbl.item(row, COL_MAX)
+                for item in (min_item, max_item):
+                    if item is not None:
+                        item.setBackground(QtGui.QBrush())
+
+                value_item = self.tbl.item(row, COL_VALUE)
+                if value_item is None or min_item is None or max_item is None:
+                    continue
+
+                value = _to_float(value_item.text())
+                min_value = _to_float(min_item.text())
+                max_value = _to_float(max_item.text())
+                if value is None or min_value is None or max_value is None:
+                    continue
+
+                low, high = sorted((min_value, max_value))
+                if high <= low:
+                    continue
+
+                position = (value - low) / (high - low)
+                position = max(0.0, min(1.0, position))
+                if position == 0.5:
+                    continue
+
+                target_item = min_item if position < 0.5 else max_item
+                target_item.setBackground(QtGui.QBrush(_range_highlight_color(position)))
+        finally:
+            self.tbl.blockSignals(signals_were_blocked)
 
     # =====================================================
     # Visible cell refresh

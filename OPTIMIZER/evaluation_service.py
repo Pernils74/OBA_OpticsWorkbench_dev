@@ -544,6 +544,9 @@ class EvaluationService(QtCore.QObject):
                 # constraint = threshold - ratio
                 constraint = threshold - ratio
 
+        elif base == "hit_count_at_bounce":
+            value = compute_hit_count_at_bounce(filtered, metric.get("bounce", 1))
+
         elif base == "density":
             value = compute_density(filtered, plane, metric.get("bounce", 0))
 
@@ -641,6 +644,16 @@ def compute_hit_count(clusters, targets=None):
         return float(current), 0.0
     ratio = current / emitted_rays
     return float(current), ratio
+
+
+def compute_hit_count_at_bounce(clusters, bounce_count):
+    return float(
+        sum(
+            c.get("hit_count", 0)
+            for c in clusters.values()
+            if bounce_count is None or bounce_count <= 0 or c.get("bounce") == bounce_count
+        )
+    )
 
 
 def compute_target_face_centering(clusters, bounce_count=0):

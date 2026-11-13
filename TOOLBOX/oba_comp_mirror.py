@@ -291,9 +291,9 @@ class OBACompMirror:
         # obj.setEditorMode("Placement", 1)
 
         try:
-            for legacy_property in ("UseIndependentRadius3", "B2"):
-                if legacy_property in obj.PropertiesList:
-                    obj.removeProperty(legacy_property)
+            # for legacy_property in ("UseIndependentRadius3", "B2"):
+            #     if legacy_property in obj.PropertiesList:
+            #         obj.removeProperty(legacy_property)
             install_properties(obj, COMP_MIRROR_PROPERTIES)
             if hasattr(obj, "FocusDistance"):
                 obj.setEditorMode("FocusDistance", 1)

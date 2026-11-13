@@ -36,6 +36,8 @@ from .oba_toolbox_base import (
     set_quantity_if_changed,
 )
 
+from OPTIMIZER.optimize_worker import is_optimization_running
+
 MAIN_MIRROR_PROPERTIES = [
     {"name": "Width", "type": "App::PropertyLength", "group": "Main Mirror", "default": 80.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Width of the cube/body along X"},
     {"name": "Height", "type": "App::PropertyLength", "group": "Main Mirror", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Height of the cube/body along Z"},
@@ -298,9 +300,7 @@ class OBAMainMirror:
     def onChanged(self, obj, prop):
 
         # print("MainMirror onChanged:", prop)
-
         IGNORE = {"Group", "Shape"}
-
         if prop in IGNORE:
             return
 
@@ -323,7 +323,7 @@ class OBAMainMirror:
             except Exception as exc:
                 App.Console.PrintError(f"[OBA] Main Mirror rebuild failed: {exc}\n")
 
-        if prop in ("Placement"):
+        if prop in ("Placement") and not is_optimization_running():
             try:
                 self._rebuild(obj)
             except Exception as exc:
@@ -350,9 +350,10 @@ class OBAMainMirror:
         # obj.setEditorMode("Placement", 1)
 
         try:
-            for legacy_property in ("UseIndependentRadius3", "B2"):
-                if legacy_property in obj.PropertiesList:
-                    obj.removeProperty(legacy_property)
+            # for legacy_property in ("UseIndependentRadius3", "B2"):
+            #     if legacy_property in obj.PropertiesList:
+            #         obj.removeProperty(legacy_property)
+
             install_properties(obj, MAIN_MIRROR_PROPERTIES)
             if hasattr(obj, "FocusDistance"):
                 obj.setEditorMode("FocusDistance", 1)

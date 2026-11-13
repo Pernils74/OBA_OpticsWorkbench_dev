@@ -26,6 +26,8 @@ from .oba_toolbox_base import (
     set_quantity_if_changed,
 )
 
+from OPTIMIZER.optimize_worker import is_optimization_running
+
 # ============================================================
 #  P R O P E R T I E S
 # ============================================================
@@ -41,10 +43,10 @@ ELLIPSOID_PROPERTIES = [
     {"name": "ShowDebugFoci", "type": "App::PropertyBool", "group": "Debug", "doc": "Show focal points"},
     {"name": "APlaneWidth", "type": "App::PropertyLength", "group": "Box", "unit": "mm", "min": 0, "max": 100, "doc": "Aperture plane width"},
     {"name": "APlaneHeight", "type": "App::PropertyLength", "group": "Box", "unit": "mm", "min": 0, "max": 10, "doc": "Aperture plane height"},
-    {"name": "APlaneZoffset", "type": "App::PropertyFloat", "group": "Box", "unit": "mm", "min": -2, "max": 5, "step": 0.1, "doc": "Additional Z offset from focus point"},
-    {"name": "APlaneYoffset", "type": "App::PropertyFloat", "group": "Box", "unit": "mm", "min": -2, "max": 5, "step": 0.1, "doc": "Additional Y offset from focus point"},
+    {"name": "APlaneZoffset", "type": "App::PropertyFloat", "group": "Box", "unit": "", "min": -2, "max": 5, "step": 0.1, "doc": "Additional Z offset from focus point"},
+    {"name": "APlaneYoffset", "type": "App::PropertyFloat", "group": "Box", "unit": "", "min": -2, "max": 5, "step": 0.1, "doc": "Additional Y offset from focus point"},
     {"name": "FilterPlaneSize", "type": "App::PropertyLength", "group": "Filter", "default": 2.0, "unit": "mm", "min": 0, "max": 100, "doc": "Square filter side length"},
-    {"name": "FilterPlaneOffset", "type": "App::PropertyFloat", "group": "Filter", "default": 0.5, "unit": "mm", "min": -50, "max": 50, "step": 0.1, "doc": "Offset from aperture plane along optical axis"},
+    {"name": "FilterPlaneOffset", "type": "App::PropertyFloat", "group": "Filter", "default": 0.5, "unit": "", "min": -50, "max": 50, "step": 0.1, "doc": "Offset from aperture plane along optical axis"},
     # --------------------------------------------------------
     # Orientation.
     # --------------------------------------------------------
@@ -78,6 +80,9 @@ class OBAEllipsoid:
         """
         self._initializing = True
         self._rebuilding = False
+        self._dirty = False
+        self._sync_aim_after_rebuild = False
+        self._sync_rotation_before_rebuild = False
 
         self._syncing_orientation = False
         self._suppress_onchange = False
@@ -456,32 +461,6 @@ class OBAEllipsoid:
 
         return True
 
-    # ========================================================
-    #  R E B U I L D
-    # ========================================================
-
-    def _rebuild(self, obj):
-        if self._rebuilding:
-            return
-        self._rebuilding = True
-        try:
-            changed = False
-            changed |= self._update_ellipsoid(obj)
-            changed |= self._update_cubes(obj)
-            changed |= self._update_focal_surface(obj)
-            changed |= self._update_filter_surface(obj)
-
-            changed |= self._update_debug(obj)
-
-            if changed and not self._suppress_onchange:
-                obj.Document.recompute()
-                pass
-
-        finally:
-            self._rebuilding = False
-
-    # ========================================================
-
     def _update_debug(self, obj):
         changed = False
         if self._ellipsoid:
@@ -535,10 +514,167 @@ class OBAEllipsoid:
         set_quantity_if_changed(obj, "RotZ", rz, "deg")
 
     # ========================================================
+    #  R E B U I L D
+    # ========================================================
+
+    def execute(self, obj):
+        if self._initializing or self._rebuilding or not self._dirty:
+            return
+
+        if self._sync_rotation_before_rebuild:
+            self._syncing_orientation = True
+            try:
+                self.synchronize_rotation_from_aim(obj)
+            finally:
+                self._syncing_orientation = False
+            self._sync_rotation_before_rebuild = False
+
+        self._rebuild(obj)
+
+        if self._sync_aim_after_rebuild:
+            self._syncing_orientation = True
+            try:
+                self.synchronize_aim_from_rotation(obj)
+            finally:
+                self._syncing_orientation = False
+            self._sync_aim_after_rebuild = False
+
+        self._dirty = False
+
+    def _rebuild(self, obj):
+        if self._rebuilding:
+            return
+        self._rebuilding = True
+        try:
+            changed = False
+            changed |= self._update_ellipsoid(obj)
+            changed |= self._update_cubes(obj)
+            changed |= self._update_focal_surface(obj)
+            changed |= self._update_filter_surface(obj)
+
+            changed |= self._update_debug(obj)
+
+            if changed and not self._suppress_onchange and not is_optimization_running():
+                # Optuna's evaluation performs the document recompute after applying parameters.
+                print("=== ellipsoid recompute ===")
+                obj.Document.recompute()
+                pass
+
+        finally:
+            self._rebuilding = False
+
+    # ========================================================
+
+    # ========================================================
     #  C H A N G E D
     # ========================================================
 
     def onChanged(self, obj, prop):
+
+        IGNORE = {"Group", "Shape"}
+        if prop in IGNORE:
+            # print("//// Ellipsoid IGNORE:", prop)
+            return
+
+        if self._rebuilding:
+            return
+        if self._syncing_orientation:
+            return
+        if self._initializing:
+            return
+
+        print("Ellipsoid onChanged:", prop)
+        # ----------------------------------------------------
+        # Debug visibility.
+        # ----------------------------------------------------
+        if prop in {"ShowDebugEllipsoid", "ShowDebugFoci"}:
+            self._update_debug(obj)
+
+        if self._suppress_onchange:
+            return
+
+        # print("----------------")
+        # print(f"onChanged: {prop}, rebuilding={self._rebuilding}, syncing_ori={self._syncing_orientation} , init={self._initializing}", obj.UseAimPoint)
+        # print("value =", getattr(obj, prop))
+
+        # ----------------------------------------------------
+        # Geometry
+        # ----------------------------------------------------
+        main_properties = {
+            "A",
+            "B",
+            "Radius3Offset",
+            "APlaneWidth",
+            "APlaneHeight",
+            "WidthFactor",
+            "APlaneZoffset",
+            "APlaneYoffset",
+            "FilterPlaneSize",
+            "FilterPlaneOffset",
+        }
+        # rotation_properties = {"RotX", "RotY", "RotZ"}
+        # aim_properties = {"AimX", "AimY", "AimZ"}
+        # rebuild_properties = main_properties | rotation_properties | aim_properties | {"Placement"}
+
+        # if prop in rebuild_properties and is_optimization_running():
+        #     if prop in rotation_properties and not obj.UseAimPoint:
+        #         self._sync_aim_after_rebuild = True
+        #     elif prop in aim_properties and obj.UseAimPoint:
+        #         self._sync_rotation_before_rebuild = True
+
+        #     self._dirty = True
+        #     obj.touch()
+        #     return
+
+        if prop in main_properties:
+            try:
+                self._rebuild(obj)
+            except Exception as exc:
+                App.Console.PrintError("[OBA] Ellipsoid rebuild failed: " f"{exc}\n")
+        # ----------------------------------------------------
+        # Orientation.
+        # ----------------------------------------------------
+
+        if prop in ("RotX", "RotY", "RotZ") and not obj.UseAimPoint:
+            self._syncing_orientation = True
+            try:
+                self._rebuild(obj)
+                self.synchronize_aim_from_rotation(obj)
+                # print("Aim coords", obj.AimX, obj.AimY, obj.AimZ)
+            finally:
+                dialog = getattr(self, "_dialog", None)
+                if dialog:
+                    dialog.refresh_from_object()
+                self._syncing_orientation = False
+
+        if prop in ("AimX", "AimY", "AimZ") and obj.UseAimPoint:
+            self._syncing_orientation = True
+            try:
+                self.synchronize_rotation_from_aim(obj)
+                dialog = getattr(self, "_dialog", None)
+                if dialog:
+                    dialog.refresh_from_object()
+                self._rebuild(obj)
+            finally:
+                # dialog = getattr(self, "_dialog", None)
+                # dialog.refresh_from_object()
+
+                self._syncing_orientation = False
+
+        # ----------------------------------------------------
+        # Main placement changed. This event is for the use of Transform Gizmo
+        # ----------------------------------------------------
+        if prop == "Placement" and not is_optimization_running():
+            try:
+                self._rebuild(obj)
+            except Exception as exc:
+                App.Console.PrintError("[OBA] Ellipsoid placement update failed: " f"{exc}\n")
+
+        # dialog = getattr(self, "_dialog", None)
+        # if dialog:
+        #     dialog.refresh_from_object()
+
+    def onChanged_old(self, obj, prop):
 
         # print("MainMirror onChanged:", prop)
 
@@ -640,10 +776,38 @@ class OBAEllipsoid:
         self._init_runtime_state()
         obj.Proxy = self
         self.Object = obj
-        for legacy_property in ("UseIndependentRadius3", "B2"):
-            if legacy_property in obj.PropertiesList:
-                obj.removeProperty(legacy_property)
+        # for legacy_property in ("UseIndependentRadius3", "B2"):
+        #     if legacy_property in obj.PropertiesList:
+        #         obj.removeProperty(legacy_property)
+
         install_properties(obj, ELLIPSOID_PROPERTIES)
+
+        print("dddddddd ", obj.A, obj.B)
+
+        print("Expression A:", obj.getExpression("A"))
+        print("Expression B:", obj.getExpression("B"))
+
+        sheet = obj.Document.getObject("Spreadsheet")
+
+        print("Alias B2:", sheet.getAlias("B2"))
+        print("Alias B3:", sheet.getAlias("B3"))
+
+        print("B2:", sheet.get("B2"))
+        print("B3:", sheet.get("B3"))
+
+        sheet = obj.Document.getObject("Spreadsheet")
+
+        if sheet:
+            try:
+                print("B2 =", sheet.get("B2"))
+            except Exception as e:
+                print("B2 failed", e)
+
+            try:
+                print("Alias B2 =", sheet.getAlias("B2"))
+            except Exception as e:
+                print("Alias failed", e)
+
         ensure_debug_property(obj)
         make_calculated_length(obj, "FocusDistance", "Distance from ellipsoid centre to focus")
         self._initializing = False

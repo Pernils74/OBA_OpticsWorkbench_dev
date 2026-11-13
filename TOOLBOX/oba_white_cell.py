@@ -798,7 +798,8 @@ class OBAWhiteCell:
             if is_optimization_running():
                 # print("== optimisering körs ==")
                 self._dirty = True
-                # return
+                obj.touch()
+                return
 
             self._rebuild(obj)
 
