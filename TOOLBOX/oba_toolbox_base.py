@@ -590,6 +590,9 @@ class OBAToolboxDialogBase(OBABaseDialog):
                 if prop_def.get("type") == "App::PropertyAngle":
                     numeric_value = float(value)
                     sheet.set(f"B{row}", f"={numeric_value:g} deg")
+                elif prop_def.get("type") == "App::PropertyLength":
+                    numeric_value = float(value)
+                    sheet.set(f"B{row}", f"={numeric_value:g} mm")
                 else:
                     sheet.set(f"B{row}", str(value))
 
@@ -801,6 +804,27 @@ class OBAToolboxDialogBase(OBABaseDialog):
         self.obj.Document.recompute()
         Gui.updateGui()
         super().closeEvent(event)
+
+
+def rename_property(
+    obj,
+    old_name: str,
+    new_name: str,
+    property_type: str = "App::PropertyLength",
+    group: str = "Base",
+):
+    if old_name not in obj.PropertiesList:
+        return False
+    if new_name in obj.PropertiesList:
+        return False
+    value = getattr(obj, old_name)
+    # expr = obj.getExpression(old_name)
+    obj.addProperty(property_type, new_name, group)
+    setattr(obj, new_name, value)
+    # if expr:
+    #     obj.setExpression(new_name, expr)
+    obj.removeProperty(old_name)
+    return True
 
 
 def ensure_debug_property(obj):

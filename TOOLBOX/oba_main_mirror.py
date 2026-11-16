@@ -24,17 +24,7 @@ import FreeCADGui as Gui
 
 # from oba_objects.oba_base import OBAElementProxy
 
-from .oba_toolbox_base import (
-    OBAToolboxDialogBase,
-    OBAToolboxViewProviderBase,
-    focus_distance,
-    install_properties,
-    make_calculated_length,
-    make_optical_type,
-    restore_view_provider,
-    set_property_if_changed,
-    set_quantity_if_changed,
-)
+from .oba_toolbox_base import OBAToolboxDialogBase, OBAToolboxViewProviderBase, focus_distance, install_properties, make_calculated_length, make_optical_type, restore_view_provider, set_property_if_changed, set_quantity_if_changed, rename_property
 
 from OPTIMIZER.optimize_worker import is_optimization_running
 
@@ -42,8 +32,8 @@ MAIN_MIRROR_PROPERTIES = [
     {"name": "Width", "type": "App::PropertyLength", "group": "Main Mirror", "default": 80.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Width of the cube/body along X"},
     {"name": "Height", "type": "App::PropertyLength", "group": "Main Mirror", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Height of the cube/body along Z"},
     {"name": "SplitOffset", "type": "App::PropertyLength", "group": "Main Mirror", "default": 40.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Distance between the two ellipsoid focal points"},
-    {"name": "A", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 40.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Ellipsoid semi-major axis"},
-    {"name": "B", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Ellipsoid semi-minor radius"},
+    {"name": "A_", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 40.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Ellipsoid semi-major axis"},
+    {"name": "B_", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Ellipsoid semi-minor radius"},
     {"name": "Radius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Amount subtracted from Radius2 (B) to produce Radius3"},
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 26.4575131106, "unit": "mm", "display_only": True, "doc": "Distance from ellipsoid centre to focus"},
     {"name": "Ellipsoid1FocusX", "type": "App::PropertyLength", "group": "Calculated", "unit": "mm", "display_only": True, "doc": "X position of first ellipsoid focus"},
@@ -52,9 +42,9 @@ MAIN_MIRROR_PROPERTIES = [
     {"name": "TiltAngle", "type": "App::PropertyAngle", "group": "Ellipsoid", "default": 0.0, "unit": "deg", "min": -90, "max": 90, "doc": "Tilt angle of the ellipsoids around the Z axis"},
     {"name": "TiltAngleOffset", "label": "Tilt Angle Offset", "type": "App::PropertyAngle", "group": "Ellipsoid", "default": 0.0, "unit": "deg", "min": -90, "max": 90, "doc": "Additional tilt applied to the left ellipsoid"},
     {"name": "ShowDebugEllipsoids", "type": "App::PropertyBool", "group": "Debug", "default": False, "doc": "Show ellipsoids for debugging"},
-    {"name": "PosX", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "X coordinate"},
-    {"name": "PosY", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "Y coordinate"},
-    {"name": "PosZ", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "Z coordinate"},
+    # {"name": "PosX", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "X coordinate"},
+    # {"name": "PosY", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "Y coordinate"},
+    # {"name": "PosZ", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "Z coordinate"},
 ]
 
 
@@ -163,7 +153,7 @@ class OBAMainMirror:
         height = float(obj.Height)
 
         # Keep enough depth for the ellipsoid geometry.
-        depth = 1.0 * float(obj.B)
+        depth = 1.0 * float(obj.B_)
 
         changed = False
         changed |= set_quantity_if_changed(self._cube, "Length", width, "mm")
@@ -171,7 +161,7 @@ class OBAMainMirror:
         changed |= set_quantity_if_changed(self._cube, "Height", height, "mm")
 
         base = obj.Placement
-        cube_local = App.Placement(App.Vector(-width / 2.0, float(obj.B * 0.4), -height / 2.0), App.Rotation())
+        cube_local = App.Placement(App.Vector(-width / 2.0, float(obj.B_ * 0.4), -height / 2.0), App.Rotation())
         changed |= set_property_if_changed(self._cube, "Placement", base.multiply(cube_local))
         return changed
 
@@ -184,8 +174,8 @@ class OBAMainMirror:
         """
         split = float(obj.SplitOffset)
 
-        a = float(obj.A)
-        b = float(obj.B)
+        a = float(obj.A_)
+        b = float(obj.B_)
 
         radius3 = max(0.0, b - float(obj.Radius3Offset))
 
@@ -279,7 +269,7 @@ class OBAMainMirror:
 
             changed |= self._update_debug_visibility(obj)
 
-            c = focus_distance(float(obj.A), float(obj.B))
+            c = focus_distance(float(obj.A_), float(obj.B_))
 
             changed |= set_quantity_if_changed(obj, "FocusDistance", c, "mm")
             changed |= set_quantity_if_changed(obj, "Ellipsoid1FocusX", -float(obj.SplitOffset) / 2.0, "mm")
@@ -348,6 +338,22 @@ class OBAMainMirror:
         obj.Proxy = self
         self.Object = obj
         # obj.setEditorMode("Placement", 1)
+
+        rename_property(
+            obj,
+            "A",
+            "A_",
+            "App::PropertyLength",
+            "Dimensions",
+        )
+
+        rename_property(
+            obj,
+            "B",
+            "B_",
+            "App::PropertyLength",
+            "Dimensions",
+        )
 
         try:
             # for legacy_property in ("UseIndependentRadius3", "B2"):
@@ -509,8 +515,8 @@ def OBA_CreateMainMirror(
     obj.Width = width  # App.Units.Quantity(f"{width} mm")
     obj.Height = height  # App.Units.Quantity(f"{height} mm")
     obj.SplitOffset = split_offset  # App.Units.Quantity(f"{split_offset} mm")
-    obj.A = a  # App.Units.Quantity(f"{a} mm")
-    obj.B = b  # App.Units.Quantity(f"{b} mm")
+    obj.A_ = a  # App.Units.Quantity(f"{a} mm")
+    obj.B_ = b  # App.Units.Quantity(f"{b} mm")
     obj.Radius3Offset = radius3_offset
     obj.TiltAngle = tiltangle  # App.Units.Quantity(f"{tiltangle} deg")
     obj.TiltAngleOffset = tiltangle_offset  # App.Units.Quantity(f"{tiltangle_offset} deg")

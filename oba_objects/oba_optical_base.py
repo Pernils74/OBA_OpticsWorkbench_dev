@@ -184,11 +184,7 @@ class OBAOpticalObject(OBAElementProxy):
             try:
                 doc.removeObject(binder.Name)
             except Exception as exc:
-                App.Console.PrintError(
-                    "[OBA] Could not remove optical binder {}: {}\n".format(
-                        binder.Name, exc
-                    )
-                )
+                App.Console.PrintError("[OBA] Could not remove optical binder {}: {}\n".format(binder.Name, exc))
 
     def _build_optical_binders(self):
         obj = self.Object
@@ -213,9 +209,7 @@ class OBAOpticalObject(OBAElementProxy):
             try:
                 b = doc.addObject("PartDesign::ShapeBinder", name)
             except Exception as e:
-                App.Console.PrintError(
-                    "[OBA] Could not create optical binder {}: {}\n".format(name, e)
-                )
+                App.Console.PrintError("[OBA] Could not create optical binder {}: {}\n".format(name, e))
                 continue
 
             b.Support = [(shape_obj, (f"Face{i+1}",))]
@@ -376,7 +370,9 @@ class OpticalShape:
         self._updating = False
         self._geometry_dirty = True
         self._placement_sync_pending = False
+
         obj.Proxy = self
+
         self._initializing = True
 
         add_prop(obj, "App::PropertyLinkHidden", "OpticalObject", "Internal")
@@ -437,9 +433,7 @@ class OpticalShape:
             return
 
         group_proxy = getattr(group, "Proxy", None)
-        if not group_proxy or not hasattr(
-            group_proxy, "_set_shape_placement_from_properties"
-        ):
+        if not group_proxy or not hasattr(group_proxy, "_set_shape_placement_from_properties"):
             self._set_placement_from_properties(obj)
             return
 
@@ -449,9 +443,7 @@ class OpticalShape:
         self._placement_sync_pending = True
         QtCore.QTimer.singleShot(
             0,
-            lambda source=obj, target=group: self._apply_deferred_group_placement(
-                source, target
-            ),
+            lambda source=obj, target=group: self._apply_deferred_group_placement(source, target),
         )
 
     def _apply_deferred_group_placement(self, obj, group):
@@ -461,9 +453,7 @@ class OpticalShape:
             return
 
         group_proxy = getattr(group, "Proxy", None)
-        if not group_proxy or not hasattr(
-            group_proxy, "_set_shape_placement_from_properties"
-        ):
+        if not group_proxy or not hasattr(group_proxy, "_set_shape_placement_from_properties"):
             return
 
         placement_props = ("WorldX", "WorldY", "WorldZ", "RotX", "RotY", "RotZ")
@@ -536,11 +526,7 @@ class OpticalShape:
             self.mark_geometry_dirty()
             return
 
-        shape_properties = {
-            p["name"]
-            for properties in oba_optical_shapes.SHAPE_PROPERTIES.values()
-            for p in properties
-        }
+        shape_properties = {p["name"] for properties in oba_optical_shapes.SHAPE_PROPERTIES.values() for p in properties}
         if prop in shape_properties:
             self.mark_geometry_dirty()
 
@@ -578,9 +564,7 @@ class OpticalShape:
                 group_proxy = getattr(group, "Proxy", None)
                 if group_proxy:
                     geometry_hash = self._geometry_hash(shape)
-                    geometry_changed = geometry_hash != str(
-                        getattr(group, "GeomHash", "")
-                    )
+                    geometry_changed = geometry_hash != str(getattr(group, "GeomHash", ""))
                     if geometry_changed:
                         group.GeomHash = geometry_hash
 
