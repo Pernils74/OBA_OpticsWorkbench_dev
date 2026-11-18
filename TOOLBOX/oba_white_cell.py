@@ -110,7 +110,7 @@ WHITE_CELL_PROPERTIES = [
     {"name": "EmitterAPlaneYoffset", "label": "A-Plane offset in y", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
     {"name": "EmitterNormalOffset", "label": "Normal Offset", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.7, "unit": "mm", "min": 0, "max": 20, "optuna_locked": False},
     # Filter
-    {"name": "EmitterFilterPlaneSize", "label": "Filter Size", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 2.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "EmitterFilterPlaneSize", "label": "Filter Size", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "EmitterFilterPlaneOffset", "label": "Filter Offset", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.5, "unit": "mm", "min": -20, "max": 20, "step": 0.1, "optuna_locked": False},
     # ---
     {"name": "EmitterA", "label": "A_", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
@@ -132,7 +132,7 @@ WHITE_CELL_PROPERTIES = [
     {"name": "DetectorAPlaneYoffset", "label": "A-Plane offset in y", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
     {"name": "DetectorNormalOffset", "label": "Normal Offset", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.7, "unit": "mm", "min": 0, "max": 20, "optuna_locked": False},
     # Filter
-    {"name": "DetectorFilterPlaneSize", "label": "Filter Size", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "DetectorFilterPlaneSize", "label": "Filter Size", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 2.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "DetectorFilterPlaneOffset", "label": "Filter Offset", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.5, "unit": "mm", "min": -20, "max": 20, "step": 0.1, "optuna_locked": False},
     # ....
     {"name": "DetectorA", "label": "A_", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},

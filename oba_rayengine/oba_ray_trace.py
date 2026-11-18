@@ -86,6 +86,8 @@ def trace_emitter(emitter, engine, max_bounce, max_length, trace_mode="OCC", ray
     total_traced = 0
     emitter_binders = getattr(emitter, "Binders", [])
 
+    lambert_factor = float(getattr(emitter, "LambertFactor", 1.0))
+
     for binder in emitter_binders:
         if not binder.Shape or binder.Shape.isNull():
             continue
@@ -93,7 +95,7 @@ def trace_emitter(emitter, engine, max_bounce, max_length, trace_mode="OCC", ray
         # ✅ FIX: Loopa igenom varje face i listan binder.Shape.Faces
         for f in binder.Shape.Faces:
             # Nu skickar vi en enskild face 'f' istället för hela listan
-            ray_gen = populate_emitter_rays(f, max_rays, use_lambert, spread_angle, flip_normal, emission_mode, focus_distance)
+            ray_gen = populate_emitter_rays(f, max_rays, use_lambert, spread_angle, flip_normal, emission_mode, focus_distance, lambert_factor)
             total_traced += run_normalized_ray_trace(emitter, ray_gen, engine, max_bounce, max_length, trace_mode, mode)
 
     return total_traced
@@ -114,7 +116,7 @@ def trace_beam(beam, engine, max_bounce, max_length, trace_mode="OCC", ray_multi
 # -------------------------------------------------------------
 
 
-def populate_emitter_rays(face, max_rays, use_lambert, spread_angle, flip_normal, emission_mode="Cone", focus_distance=25.0):
+def populate_emitter_rays(face, max_rays, use_lambert, spread_angle, flip_normal, emission_mode="Cone", focus_distance=25.0, lambert_factor=1):
     import math
 
     u1, u2, v1, v2 = face.ParameterRange
@@ -149,6 +151,7 @@ def populate_emitter_rays(face, max_rays, use_lambert, spread_angle, flip_normal
 
             if emission_mode == "Focus":
                 direction = (focus_point - p).normalize()
+
             elif emission_mode == "Cone (lambert)":
                 direction = get_lambert_cone_dir(
                     center_normal=center_normal,
@@ -164,7 +167,27 @@ def populate_emitter_rays(face, max_rays, use_lambert, spread_angle, flip_normal
                     max_angle_deg=spread_angle,
                     max_dist=max_dist,
                 )
-            else:  # emmission_mode == "Cone"
+
+            elif emission_mode == "Cone (position lambert)":
+                print("Labert fact ", lambert_factor)
+                direction, density = get_emitter_cone_surface_lambert_dir(
+                    center=center,
+                    center_normal=center_normal,
+                    p=p,
+                    max_angle_deg=spread_angle,
+                    max_dist=max_dist,
+                    rectangle_frame=rectangle_frame,
+                    # concentration=2.0,  # 1.0 = linjär vinkel, 1.5–2.0 = tätare kring normalen utan glapp vid kanten
+                    # lambert_factor=1.50,  # Sätt till t.ex. 0.75–1.0 för önskad cosinus-täthet
+                    lambert_factor=lambert_factor,  # Sätt till t.ex. 0.75–1.0 för önskad cosinus-täthet
+                )
+
+                weight = 1.0
+                yield (p, direction, weight)
+                count += 1
+                continue
+
+            else:  # emmission_mode == "Cone (direction)"
                 direction = get_emitter_cone_surface_dir(
                     center=center,
                     center_normal=center_normal,
@@ -192,6 +215,193 @@ def _radical_inverse(index, base):
         index //= base
         fraction /= base
     return value
+
+
+import math
+
+
+def get_emitter_cone_surface_lambert_dir(
+    center,
+    center_normal,
+    p,
+    max_angle_deg,
+    max_dist,
+    rectangle_frame=None,
+    lambert_factor=1.0,
+):
+    """
+    LambertFactor:
+
+        0.0 = Linear angle distribution
+        1.0 = Lambert distribution
+        >1.0 = Increasingly concentrated Lambert distribution
+
+    Examples:
+
+        0.0 -> Linear
+        0.5 -> Half Linear / Half Lambert
+        1.0 -> Lambert
+        2.0 -> Concentrated Lambert
+        3.0 -> Strong hotspot
+    """
+
+    offset = p - center
+    dist = offset.Length
+
+    if dist < 1e-9:
+        return center_normal, 1.0
+
+    offset_tangent = offset - center_normal * offset.dot(center_normal)
+
+    if offset_tangent.Length < 1e-9:
+        return center_normal, 1.0
+
+    offset_tangent.normalize()
+
+    if rectangle_frame is not None:
+        axis_x, half_width, axis_y, half_height = rectangle_frame
+
+        nx = abs(offset.dot(axis_x)) / half_width
+        ny = abs(offset.dot(axis_y)) / half_height
+
+        relative = min(1.0, max(nx, ny))
+    else:
+        relative = min(1.0, dist / max_dist)
+
+    theta_max = math.radians(max_angle_deg)
+
+    # ---------------------------------------------------------
+    # Linear distribution
+    # ---------------------------------------------------------
+    linear_angle = relative * theta_max
+
+    # ---------------------------------------------------------
+    # 0..1 : Blend Linear -> Lambert
+    # ---------------------------------------------------------
+    if lambert_factor <= 1.0:
+        sin_lambert = min(1.0, max(0.0, relative * math.sin(theta_max)))
+        lambert_angle = math.asin(sin_lambert)
+        factor = max(0.0, lambert_factor)
+
+        local_angle = linear_angle * (1.0 - factor) + lambert_angle * factor
+    # ---------------------------------------------------------
+    # >1 : Concentrated Lambert
+    # ---------------------------------------------------------
+    else:
+        concentration = lambert_factor
+        lambert_relative = relative**concentration
+        local_angle = math.asin(min(1.0, lambert_relative * math.sin(theta_max)))
+
+    cos_theta = math.cos(local_angle)
+    sin_theta = math.sin(local_angle)
+
+    direction = (center_normal * cos_theta + offset_tangent * sin_theta).normalize()
+
+    return direction, 1.0
+
+
+def get_emitter_cone_surface_lambert_dir_gamla_lambert(
+    center,
+    center_normal,
+    p,
+    max_angle_deg,
+    max_dist,
+    rectangle_frame=None,
+    lambert_factor=1.0,  # 0.0 = helt linjär vinkel, 1.0 = full dynamisk Lambert-cosinus
+):
+    offset = p - center
+    dist = offset.Length
+
+    if dist < 1e-9:
+        return center_normal, 1.0
+
+    offset_tangent = offset - center_normal * offset.dot(center_normal)
+
+    if offset_tangent.Length < 1e-9:
+        return center_normal, 1.0
+
+    offset_tangent.normalize()
+
+    if rectangle_frame is not None:
+        axis_x, half_width, axis_y, half_height = rectangle_frame
+        nx = abs(offset.dot(axis_x)) / half_width
+        ny = abs(offset.dot(axis_y)) / half_height
+        relative = min(1.0, max(nx, ny))
+    else:
+        relative = min(1.0, dist / max_dist)
+
+    theta_max = math.radians(max_angle_deg)
+
+    # 1. Linjär vinkel (jämn spridning)
+    linear_angle = relative * theta_max
+
+    # 2. Dynamisk Lambert-vinkel (tätheten följer cos(theta))
+    sin_lambert = min(1.0, max(0.0, relative * math.sin(theta_max)))
+    lambert_angle = math.asin(sin_lambert)
+
+    # Blanda mjukt mellan linjär och cosinus-styrd vinkelfördelning
+    factor = min(1.0, max(0.0, lambert_factor))
+    local_angle = linear_angle * (1.0 - factor) + lambert_angle * factor
+
+    cos_theta = math.cos(local_angle)
+    sin_theta = math.sin(local_angle)
+
+    direction = (center_normal * cos_theta + offset_tangent * sin_theta).normalize()
+
+    # Ingen gallring behövs eftersom tätheten styrs direkt av cosinus-kurvan
+    density = 1.0
+
+    return direction, density
+
+
+def get_emitter_cone_surface_lambert_dir_gamla_med_bra_concetration(
+    center,
+    center_normal,
+    p,
+    max_angle_deg,
+    max_dist,
+    rectangle_frame=None,
+    concentration=1.5,  # 1.0 = linjär vinkel, 1.5–2.0 = tätare kring normalen utan glapp vid kanten
+):
+    offset = p - center
+    dist = offset.Length
+
+    if dist < 1e-9:
+        return center_normal, 1.0
+
+    offset_tangent = offset - center_normal * offset.dot(center_normal)
+
+    if offset_tangent.Length < 1e-9:
+        return center_normal, 1.0
+
+    offset_tangent.normalize()
+
+    if rectangle_frame is not None:
+        axis_x, half_width, axis_y, half_height = rectangle_frame
+
+        nx = abs(offset.dot(axis_x)) / half_width
+        ny = abs(offset.dot(axis_y)) / half_height
+
+        relative = min(1.0, max(nx, ny))
+    else:
+        relative = min(1.0, dist / max_dist)
+
+    theta_max = math.radians(max_angle_deg)
+
+    # Mjuk Lambert-liknande vinkelfördelning:
+    # Ger hög stråltäthet nära normalen (relative -> 0) och en mjuk
+    # utglesning hela vägen ut till theta_max utan tomma glapp vid 90 grader.
+    local_angle = (relative**concentration) * theta_max
+
+    cos_theta = math.cos(local_angle)
+    sin_theta = math.sin(local_angle)
+
+    direction = (center_normal * cos_theta + offset_tangent * sin_theta).normalize()
+
+    # Ingen gallring behövs eftersom tätheten styrs av vinkelkurvan
+    density = 1.0
+
+    return direction, density
 
 
 def get_lambert_cone_dir(center_normal, max_angle_deg, sample_index, sample_count):

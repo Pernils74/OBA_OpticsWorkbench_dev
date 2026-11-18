@@ -157,6 +157,13 @@ if IS_ACTIVE:
                 tooltip="White cell builder",
                 pixmap=get_icon("oba_mirrorbuilder2.svg"),
             )
+            hot_reload.register_command(
+                command="OBA_CreateVCell",
+                impl_module="TOOLBOX.oba_v_cell",
+                menu="V cell builder",
+                tooltip="V cell builder",
+                pixmap=get_icon("oba_mirrorbuilder2.svg"),
+            )
 
             # hot_reload.register_command(
             #     command="OBA_CreateLensBuilder",
@@ -357,6 +364,7 @@ if IS_ACTIVE:
                 "OBA_CreateMainMirror",
                 "OBA_CreateCompMirror",
                 "OBA_CreateWhiteCell",
+                "OBA_CreateVCell",
                 SEP(),
                 "OBA_CreateXGBoostTrainingDialog",
                 SEP(),

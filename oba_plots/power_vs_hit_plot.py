@@ -345,10 +345,20 @@ class PowerVsHitPlotDialog(QtWidgets.QDialog):
             self.lblStatus.setText("No data")
             return
 
-        bounces = sorted(data1.keys())
+        all_bounces = set(data1.keys())
 
-        y1 = [data1[b] for b in bounces]
-        y2 = [data2[b] for b in bounces] if data2 is not None else None
+        if data2 is not None:
+            all_bounces.update(data2.keys())
+
+        bounces = sorted(all_bounces)
+
+        y1 = [data1.get(b, 0.0) for b in bounces]
+        y2 = [data2.get(b, 0.0) for b in bounces] if data2 is not None else None
+
+        # bounces = sorted(data1.keys())
+
+        # y1 = [data1[b] for b in bounces]
+        # y2 = [data2[b] for b in bounces] if data2 is not None else None
 
         # -------------------------------------------------
         # NORMALIZATION

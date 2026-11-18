@@ -31,10 +31,16 @@ OPTICAL_PROPERTIES = [
         "default": 80.0,
     },
     {
+        "name": "LambertFactor",
+        "type": "App::PropertyFloat",
+        "group": "Emitter",
+        "default": 1.0,
+    },
+    {
         "name": "EmissionMode",
         "type": "App::PropertyEnumeration",
         "group": "Emitter",
-        "default": ["Cone (position)", "Cone (radial)", "Cone (lambert)", "Focus"],
+        "default": ["Cone (position)", "Cone (radial)", "Cone (position lambert)", "Cone (lambert)", "Focus"],
     },
     {
         "name": "FocusDistance",
@@ -98,66 +104,57 @@ def ensure_initialized(obj):
 
 class OBAEmitter(OBAElementProxy):
     def __init__(self, obj, source_obj=None, sub_elements=None):
-        super().__init__(obj)  # Viktigt: kör basens init för self.Object
+        super().__init__(obj)
 
-        # Grund-properties (binders)
-        if not hasattr(obj, "Binders"):
+        # --------------------------------------------------
+        # Generic properties from schema
+        # --------------------------------------------------
+        for prop in OPTICAL_PROPERTIES:
+            name = prop["name"]
+            if name not in obj.PropertiesList:
+                obj.addProperty(
+                    prop["type"],
+                    name,
+                    prop["group"],
+                    prop.get("doc", ""),
+                )
+                default = prop.get("default")
+                if default is not None:
+                    setattr(obj, name, default)
+
+        # --------------------------------------------------
+        # Special handling
+        # --------------------------------------------------
+        if "Binders" not in obj.PropertiesList:
             obj.addProperty("App::PropertyLinkList", "Binders", "Optics")
 
-        if not hasattr(obj, "StartMedium"):
-            obj.addProperty("App::PropertyEnumeration", "StartMedium", "Optics")
-            obj.StartMedium = get_material_list()
-            if "Air" in obj.StartMedium:
-                obj.StartMedium = "Air"
+        # Enumeration values
+        obj.StartMedium = get_material_list()
 
-        # Emitter-specifika properties
-        if not hasattr(obj, "Lambertian"):
-            obj.addProperty("App::PropertyBool", "Lambertian", "Emitter").Lambertian = True
-        if not hasattr(obj, "SpreadAngle"):
-            obj.addProperty("App::PropertyFloat", "SpreadAngle", "Emitter").SpreadAngle = 5.0
-        if not hasattr(obj, "EmissionMode"):
-            obj.addProperty("App::PropertyEnumeration", "EmissionMode", "Emitter")
-        current_emission_mode = getattr(obj, "EmissionMode", "Cone")
-        emission_modes = ["Cone (position)", "Cone (radial)", "Cone (lambert)", "Focus"]
+        emission_modes = ["Cone (position)", "Cone (radial)", "Cone (position lambert)", "Cone (lambert)", "Focus"]
+
+        current_mode = getattr(obj, "EmissionMode", "Cone")
+
         obj.EmissionMode = emission_modes
-        current_emission_mode = {
+
+        current_mode = {
             "Cone": "Cone (position)",
             "Position Cone": "Cone (position)",
             "Radial Cone": "Cone (radial)",
+            "Position Lambert Cone": "Cone (position lambert)",
             "Lambert Cone": "Cone (lambert)",
-        }.get(current_emission_mode, current_emission_mode)
-        if current_emission_mode in emission_modes:
-            obj.EmissionMode = current_emission_mode
+        }.get(current_mode, current_mode)
 
-        if not hasattr(obj, "FocusDistance"):
-            obj.addProperty("App::PropertyFloat", "FocusDistance", "Emitter", "Distance to focus point along surface normal").FocusDistance = 100.0
+        if current_mode in emission_modes:
+            obj.EmissionMode = current_mode
 
-        if not hasattr(obj, "Power"):
-            obj.addProperty("App::PropertyFloat", "Power", "Emitter", "Total emitted power (W)").Power = 100.0
-        if not hasattr(obj, "Wavelength"):
-            obj.addProperty("App::PropertyFloat", "Wavelength", "Emitter").Wavelength = 585.0
+        if "Air" in get_material_list() and obj.StartMedium not in get_material_list():
+            obj.StartMedium = "Air"
 
-        if not hasattr(obj, "MaxRays"):
-            obj.addProperty("App::PropertyInteger", "MaxRays", "Emitter").MaxRays = 50
-        if not hasattr(obj, "MaxBounce"):
-            obj.addProperty("App::PropertyInteger", "MaxBounce", "Emitter").MaxBounce = 100
-        if not hasattr(obj, "MaxRayLength"):
-            obj.addProperty("App::PropertyFloat", "MaxRayLength", "Emitter").MaxRayLength = 5000.0
-        if not hasattr(obj, "FlipNormal"):
-            obj.addProperty("App::PropertyBool", "FlipNormal", "NormalSettings", "Invert surface normal for optical computation").FlipNormal = False
+        if "OpticalType" not in obj.PropertiesList:
+            obj.addProperty("App::PropertyString", "OpticalType", "Base")
 
-        # if not hasattr(obj, "ShowSurfaceNormal"):
-        #     obj.addProperty(
-        #         "App::PropertyBool",
-        #         "ShowSurfaceNormal",
-        #         "NormalSettings",
-        #         "Show surface normal preview",
-        #     ).ShowSurfaceNormal = False
-
-        if not hasattr(obj, "PreviewRayLength"):
-            obj.addProperty("App::PropertyFloat", "PreviewRayLength", "Emitter").PreviewRayLength = 2.0
-        if not hasattr(obj, "OpticalType"):
-            obj.addProperty("App::PropertyString", "OpticalType", "Base").OpticalType = "Emitter"
+        obj.OpticalType = "Emitter"
 
         if source_obj:
             self.add_binders(obj, source_obj, sub_elements)
@@ -194,25 +191,19 @@ class EmitterDialog(OBABaseDialog):
     ALLOW_SURFACE_SELECTION = True  # ℹ️ För att visa face select listan
     ALLOW_NORMAL_FLIPPING = True
     EMISSION_MODE_TOOLTIPS = {
-        "Cone (position)": (
-            "Rays start at sampled positions on the face and tilt away from the face-center "
-            "normal toward each position. The tilt grows from 0 at the center to the Spread "
-            "angle at the edge."
-        ),
-        "Cone (radial)": (
-            "Rays start at sampled positions on the face and tilt radially away from the "
-            "face-center normal. The tilt grows with distance from the center, reaching the "
-            "Spread angle at the farthest face vertex."
+        "Cone (position)": ("Rays start at sampled positions on the face and tilt away from the face-center " "normal toward each position. The tilt grows from 0 at the center to the Spread " "angle at the edge."),
+        "Cone (radial)": ("Rays start at sampled positions on the face and tilt radially away from the " "face-center normal. The tilt grows with distance from the center, reaching the " "Spread angle at the farthest face vertex."),
+        "Cone (position lambert)": (
+            "Like Cone (position), but emission angles are redistributed toward the surface "
+            "normal. This increases ray density near the normal direction and gradually "
+            "reduces it toward the maximum spread angle, while keeping the total number of "
+            "rays unchanged."
+            "Current consentration is set to 2.0, Maybe this should be exposed in the dialog"
         ),
         "Cone (lambert)": (
-            "Ray directions are sampled from a Lambert cosine distribution around the "
-            "face-center normal, within the Spread angle (up to 90 degrees). Lambert (power) "
-            "is turned off for this mode to avoid applying cosine weighting twice."
+            "Ray directions are sampled from a Lambert cosine distribution around the " "face-center normal, within the Spread angle (up to 90 degrees). Lambert (power) " "is turned off for this mode to avoid applying cosine weighting twice."
         ),
-        "Focus": (
-            "Each ray points from its sampled face position toward a focus point located "
-            "along the face-center normal at the Focus distance. Spread angle is not used."
-        ),
+        "Focus": ("Each ray points from its sampled face position toward a focus point located " "along the face-center normal at the Focus distance. Spread angle is not used."),
     }
 
     # def __init____old(self, obj):
@@ -263,18 +254,6 @@ class EmitterDialog(OBABaseDialog):
         self._add_spin("Power (W)", "Power", 0.0, 1e9, layout)
         self._add_material("Start medium", "StartMedium", layout)
 
-    # def _build_emission_geometry_old(self, layout):
-    #     """Strålgeometri, spridning och riktning."""
-    #     self._add_enum("Emission mode", "EmissionMode", layout)
-    #     self._add_check("Lambertian", "Lambertian", layout)
-    #     self._add_spin("Spread angle (deg)", "SpreadAngle", 0.0, 180.0, layout)
-    #     self._add_spin("Focus distance", "FocusDistance", -1e9, 1e9, layout)
-    #     self._add_check("Flip normal", "FlipNormal", layout)
-
-    #     self.emission_mode_combo.currentTextChanged.connect(self._update_emission_mode_ui)
-    #     self._update_emission_mode_ui(self.obj.EmissionMode)
-    #     # self._add_check("Show normal", "ShowSurfaceNormal", layout)
-
     def _build_emission_geometry(self, layout):
         """Strålgeometri, spridning och riktning."""
         self.emission_mode_combo = self._add_enum("Emission mode", "EmissionMode", layout)
@@ -293,6 +272,9 @@ class EmitterDialog(OBABaseDialog):
         )
         self.spread_angle_widget = self._add_spin("Spread angle (deg)", "SpreadAngle", 0.0, 180.0, layout)
         self.focus_distance_widget = self._add_spin("Focus distance", "FocusDistance", -1e9, 1e9, layout)
+
+        self._add_spin("Lambert Factor", "LambertFactor", 0.0, 10.0, layout, 0.1)
+
         self._add_check("Flip normal", "FlipNormal", layout)
         self.emission_mode_combo.currentTextChanged.connect(self._update_emission_mode_ui)
         self._update_emission_mode_ui(self.obj.EmissionMode)
@@ -310,14 +292,22 @@ class EmitterDialog(OBABaseDialog):
     # ----------------------------------------------------------
 
     def _update_emission_mode_ui(self, mode):
-        is_cone = mode in ("Cone", "Cone (position)", "Cone (radial)", "Cone (lambert)")
+        is_cone = mode in ("Cone", "Cone (position)", "Cone (radial)", "Cone (position lambert)", "Cone (lambert)")
         is_focus = mode == "Focus"
 
         self.spread_angle_widget.setEnabled(is_cone)
         self.focus_distance_widget.setEnabled(is_focus)
         self.emission_mode_combo.setToolTip(self.EMISSION_MODE_TOOLTIPS.get(mode, ""))
-        if mode == "Cone (lambert)":
+        if mode in ("Cone (lambert)", "Cone (position lambert)"):
             self.lambert_power_checkbox.setChecked(False)
+
+        if mode == "Cone (position lambert)":
+            self.obj.SpreadAngle = 90.0
+            self.spread_angle_widget.setProperty("rawValue", 90.0)
+            # self.spread_angle_widget.setEnabled(False)
+        else:
+            pass
+            # self.spread_angle_widget.setEnabled(is_cone)
 
     def _add_material(self, label, prop, layout):
         from .oba_lens_materials import get_material_list
@@ -334,7 +324,7 @@ class EmitterDialog(OBABaseDialog):
         layout.addLayout(row)
         # self.custom_layout.addLayout(row)
 
-    def _add_spin(self, label, prop, mn, mx, layout):
+    def _add_spin(self, label, prop, mn, mx, layout, step=1.0):
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel(label))
 
@@ -344,6 +334,7 @@ class EmitterDialog(OBABaseDialog):
         # Konfigurera gränser och enhet (FreeCAD hanterar internt rena tal eller t.ex. 'deg')
         w.setProperty("minimum", mn)
         w.setProperty("maximum", mx)
+        w.setProperty("singleStep", step)
 
         # Om egenskapen är en vinkel (t.ex. Spread angle), ge den rätt enhet
         if "angle" in label.lower():

@@ -30,6 +30,7 @@ COMP_MIRROR_PROPERTIES = [
     # {"name": "PosX", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "X coordinate"},
     # {"name": "PosY", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "Y coordinate"},
     # {"name": "PosZ", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "Z coordinate"},
+    {"name": "RotZ", "type": "App::PropertyAngle", "group": "Placement", "default": 0.0, "unit": "deg"},
 ]
 
 
@@ -116,6 +117,7 @@ class OBACompMirror:
     # ------------------------------------------------------------------
 
     def _update_cube(self, obj):
+
         base = obj.Placement
         width = float(obj.Width)
         height = float(obj.Height)
@@ -129,6 +131,8 @@ class OBACompMirror:
         changed |= set_quantity_if_changed(self._cube, "Height", height, "mm")
 
         # self._cube.Placement.Base = App.Vector(-width / 2.0, -depth / 1.9, -height / 2.0)
+
+        base = App.Placement(obj.Placement.Base, App.Rotation(App.Vector(0, 0, 1), float(obj.RotZ)))
 
         cube_local = App.Placement(App.Vector(-width / 2, -depth / 1.9, -height / 2), App.Rotation())
         changed |= set_property_if_changed(self._cube, "Placement", base.multiply(cube_local))
@@ -149,7 +153,10 @@ class OBACompMirror:
         ell_local.Base = App.Vector(0, float(obj.B_), 0)
         ell_local.Rotation = rot_z.multiply(rot_x)
 
-        new_placement = obj.Placement.multiply(ell_local)
+        base = App.Placement(obj.Placement.Base, App.Rotation(App.Vector(0, 0, 1), float(obj.RotZ)))
+
+        new_placement = base.multiply(ell_local)
+        # new_placement = obj.Placement.multiply(ell_local)
 
         changed |= set_property_if_changed(self._ellipsoid, "Placement", new_placement)
 
@@ -219,50 +226,39 @@ class OBACompMirror:
 
     def onChanged(self, obj, prop):
 
-        # if not hasattr(self, "_initializing"):
-        #     self._init_runtime_state()
-
-        # if prop in ("Shape", "Label"):  # Early exits on special props
-        #     return
-
-        # print("CompMirror onChanged:", prop)
-
-        if prop == "Shape":
-            return
-
-        if prop == "Group":
+        IGNORE = {"Group", "Shape"}
+        if prop in IGNORE:
+            # print("//// Ellipsoid IGNORE:", prop)
             return
 
         if self._initializing:
             return
-
         if self._rebuilding:
+            return
+        if self._suppress_onchange:
             return
 
         if prop in {"ShowDebugEllipsoids"}:
             self._update_debug_visibility(obj)
 
-        if self._suppress_onchange:
-            return
-
         # App.Console.PrintMessage(f"onChanged: {prop}\n")
 
-        if prop in {"Width", "Height", "A", "B", "Radius3Offset", "ShowDebugEllipsoids"}:
+        if prop in {"Width", "Height", "A_", "B_", "Radius3Offset", "ShowDebugEllipsoids"}:
             try:
                 self._rebuild(obj)
             except Exception as exc:
                 App.Console.PrintError("[OBA] Comp Mirror rebuild failed: " f"{exc}\n")
 
-        if prop in ("Placement"):
+        if prop in ("Placement", "RotZ"):
             try:
                 self._rebuild(obj)
             except Exception as exc:
                 App.Console.PrintError("[OBA] Comp Mirror placement update failed: " f"{exc}\n")
 
         # update dialog if its open
-        dialog = getattr(self, "_dialog", None)
-        if dialog:
-            dialog.refresh_from_object()
+        # dialog = getattr(self, "_dialog", None)
+        # if dialog:
+        #     dialog.refresh_from_object()
 
     # ------------------------------------------------------------------
     # Document restore
@@ -280,21 +276,21 @@ class OBACompMirror:
 
         # obj.setEditorMode("Placement", 1)
 
-        rename_property(
-            obj,
-            "A",
-            "A_",
-            "App::PropertyLength",
-            "Dimensions",
-        )
+        # rename_property(
+        #     obj,
+        #     "A",
+        #     "A_",
+        #     "App::PropertyLength",
+        #     "Dimensions",
+        # )
 
-        rename_property(
-            obj,
-            "B",
-            "B_",
-            "App::PropertyLength",
-            "Dimensions",
-        )
+        # rename_property(
+        #     obj,
+        #     "B",
+        #     "B_",
+        #     "App::PropertyLength",
+        #     "Dimensions",
+        # )
 
         try:
             # for legacy_property in ("UseIndependentRadius3", "B2"):
@@ -413,6 +409,7 @@ def OBA_CreateCompMirror(
     x=0.0,
     y=0.0,
     z=0.0,
+    rot_z=0.0,
     suppress_onchange=False,
     show_dialog=True,
     radius3_offset=0.0,
@@ -453,12 +450,21 @@ def OBA_CreateCompMirror(
     obj.B_ = b  # App.Units.Quantity(f"{b} mm")
     obj.Radius3Offset = radius3_offset
     # obj.TiltAngle = App.Units.Quantity(f"{tiltangle} deg")
+    obj.RotZ = rot_z
 
     proxy._ensure_features(obj)
     proxy._initializing = False
     proxy._rebuild(obj)
 
-    obj.Placement = App.Placement(App.Vector(x, y, z), App.Rotation())
+    obj.Placement = App.Placement(
+        App.Vector(x, y, z),
+        App.Rotation(),
+    )
+
+    # obj.Placement = App.Placement(
+    #     App.Vector(x, y, z),
+    #     App.Rotation(App.Vector(0, 0, 1), rot_z),
+    # )
 
     if App.GuiUp:
         CompMirrorViewProvider(obj.ViewObject)

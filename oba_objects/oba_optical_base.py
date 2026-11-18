@@ -592,14 +592,6 @@ class OpticalShape:
         except Exception:
             return ""
 
-    def onDocumentRestored_old(self, obj):
-        self.Object = obj
-        obj.Proxy = self
-        self._updating = False
-        self._ensure_shape_properties(obj)
-        # self.Group = getattr(obj, "OpticalObject", None)
-        self.Group = None
-
     def onDocumentRestored(self, obj):
         self.Object = obj
         obj.Proxy = self

@@ -455,7 +455,8 @@ class OBAEllipsoid:
 
         size = float(obj.FilterPlaneSize)
 
-        if size <= 0:
+        # Filter avstängd
+        if size <= 1e-9:
             self._filter_surface.Shape = Part.Shape()
             self._filter_surface_signature = None
             return True

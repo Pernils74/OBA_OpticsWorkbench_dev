@@ -217,7 +217,7 @@ class OBAMainMirror:
 
         right_local.Base = App.Vector(split / 2.0, b * 0, 0.0)
         rot1 = App.Rotation(App.Vector(1, 0, 0), 90)
-        rot2 = App.Rotation(App.Vector(0, 0, 1), 270 - tilt)
+        rot2 = App.Rotation(App.Vector(0, 0, 1), 270 + tilt)
 
         right_local.Rotation = rot2.multiply(rot1)
         changed |= set_property_if_changed(right, "Placement", obj.Placement.multiply(right_local))
@@ -307,7 +307,7 @@ class OBAMainMirror:
 
         # App.Console.PrintMessage(f"onChanged: {prop}\n")
 
-        if prop in {"Width", "Height", "SplitOffset", "A", "B", "Radius3Offset", "TiltAngle", "TiltAngleOffset", "ShowDebugEllipsoids"}:
+        if prop in {"Width", "Height", "SplitOffset", "A_", "B_", "Radius3Offset", "TiltAngle", "TiltAngleOffset", "ShowDebugEllipsoids"}:
             try:
                 self._rebuild(obj)
             except Exception as exc:
@@ -320,9 +320,9 @@ class OBAMainMirror:
                 App.Console.PrintError("[OBA] Main Mirror placement update failed: " f"{exc}\n")
 
         # update dialog if its open
-        dialog = getattr(self, "_dialog", None)
-        if dialog:
-            dialog.refresh_from_object()
+        # dialog = getattr(self, "_dialog", None)
+        # if dialog:
+        #     dialog.refresh_from_object()
 
     # ------------------------------------------------------------------
     # Document restore
@@ -339,21 +339,21 @@ class OBAMainMirror:
         self.Object = obj
         # obj.setEditorMode("Placement", 1)
 
-        rename_property(
-            obj,
-            "A",
-            "A_",
-            "App::PropertyLength",
-            "Dimensions",
-        )
+        # rename_property(
+        #     obj,
+        #     "A",
+        #     "A_",
+        #     "App::PropertyLength",
+        #     "Dimensions",
+        # )
 
-        rename_property(
-            obj,
-            "B",
-            "B_",
-            "App::PropertyLength",
-            "Dimensions",
-        )
+        # rename_property(
+        #     obj,
+        #     "B",
+        #     "B_",
+        #     "App::PropertyLength",
+        #     "Dimensions",
+        # )
 
         try:
             # for legacy_property in ("UseIndependentRadius3", "B2"):
