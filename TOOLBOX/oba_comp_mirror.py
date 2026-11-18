@@ -182,7 +182,8 @@ class OBACompMirror:
                 changed |= set_property_if_changed(self._ellipsoid.ViewObject, "Visibility", False)
             return changed
 
-        except Exception:
+        except Exception as e:
+            FreeCAD.Console.PrintError(f"Error in _update_debug_visibility: {e}\n")
             return False
 
     # ------------------------------------------------------------------
@@ -235,15 +236,15 @@ class OBACompMirror:
             return
         if self._rebuilding:
             return
-        if self._suppress_onchange:
-            return
 
         if prop in {"ShowDebugEllipsoids"}:
             self._update_debug_visibility(obj)
 
+        if self._suppress_onchange:
+            return
         # App.Console.PrintMessage(f"onChanged: {prop}\n")
 
-        if prop in {"Width", "Height", "A_", "B_", "Radius3Offset", "ShowDebugEllipsoids"}:
+        if prop in {"Width", "Height", "A_", "B_", "Radius3Offset"}:
             try:
                 self._rebuild(obj)
             except Exception as exc:
