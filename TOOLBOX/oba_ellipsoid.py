@@ -612,7 +612,7 @@ class OBAEllipsoid:
             self._rebuilding = False
 
         if self._is_dialog_open():
-            print("============================ recomputar ===========================")
+            print("======================= Elipsoid  recomputar ===========================")
             obj.Document.recompute()
 
     # ========================================================
@@ -635,16 +635,16 @@ class OBAEllipsoid:
         if self._initializing:
             return
 
-        print("Ellipsoid onChanged:", prop)
+        if self._suppress_onchange:
+            return
         # ----------------------------------------------------
         # Debug visibility.
         # ----------------------------------------------------
         if prop in {"ShowDebugEllipsoid", "ShowDebugFoci"}:
             self._update_debug(obj)
 
-        if self._suppress_onchange:
-            return
-
+        print("[Ellipsoid] onChanged:", prop, self._rebuilding, self._syncing_orientation, self._initializing, self._suppress_onchange)
+        print("kommit förbi suppress_onchange")
         # print("----------------")
         # print(f"onChanged: {prop}, rebuilding={self._rebuilding}, syncing_ori={self._syncing_orientation} , init={self._initializing}", obj.UseAimPoint)
         # print("value =", getattr(obj, prop))
@@ -664,19 +664,6 @@ class OBAEllipsoid:
             "FilterPlaneSize",
             "FilterPlaneOffset",
         }
-        # rotation_properties = {"RotX", "RotY", "RotZ"}
-        # aim_properties = {"AimX", "AimY", "AimZ"}
-        # rebuild_properties = main_properties | rotation_properties | aim_properties | {"Placement"}
-
-        # if prop in rebuild_properties and is_optimization_running():
-        #     if prop in rotation_properties and not obj.UseAimPoint:
-        #         self._sync_aim_after_rebuild = True
-        #     elif prop in aim_properties and obj.UseAimPoint:
-        #         self._sync_rotation_before_rebuild = True
-
-        #     self._dirty = True
-        #     obj.touch()
-        #     return
 
         if prop in main_properties:
             try:
@@ -700,6 +687,7 @@ class OBAEllipsoid:
                 self._syncing_orientation = False
 
         if prop in ("AimX", "AimY", "AimZ") and obj.UseAimPoint:
+            print("[Ellipsoi]d onChanged:", prop)
             self._syncing_orientation = True
             try:
                 self.synchronize_rotation_from_aim(obj)
@@ -717,100 +705,6 @@ class OBAEllipsoid:
         # Main placement changed. This event is for the use of Transform Gizmo
         # ----------------------------------------------------
         if prop == "Placement" and not is_optimization_running():
-            try:
-                self._rebuild(obj)
-            except Exception as exc:
-                App.Console.PrintError("[OBA] Ellipsoid placement update failed: " f"{exc}\n")
-
-        # dialog = getattr(self, "_dialog", None)
-        # if dialog:
-        #     dialog.refresh_from_object()
-
-    def onChanged_old(self, obj, prop):
-
-        # print("MainMirror onChanged:", prop)
-
-        if prop == "Shape":
-            return
-
-        if prop == "Group":
-            return
-
-        if self._rebuilding:
-            return
-
-        if self._syncing_orientation:
-            return
-
-        if self._initializing:
-            return
-
-        # ----------------------------------------------------
-        # Debug visibility.
-        # ----------------------------------------------------
-        if prop in {"ShowDebugEllipsoid", "ShowDebugFoci"}:
-            self._update_debug(obj)
-
-        if self._suppress_onchange:
-            return
-
-        # print("----------------")
-        # print(f"onChanged: {prop}, rebuilding={self._rebuilding}, syncing_ori={self._syncing_orientation} , init={self._initializing}", obj.UseAimPoint)
-        # print("value =", getattr(obj, prop))
-
-        # ----------------------------------------------------
-        # Geometry
-        # ----------------------------------------------------
-        if prop in (
-            "A",
-            "B",
-            "Radius3Offset",
-            "APlaneWidth",
-            "APlaneHeight",
-            "WidthFactor",
-            "APlaneZoffset",
-            "APlaneYoffset",
-            "FilterPlaneSize",
-            "FilterPlaneOffset",
-        ):
-            try:
-                self._rebuild(obj)
-            except Exception as exc:
-                App.Console.PrintError("[OBA] Ellipsoid rebuild failed: " f"{exc}\n")
-        # ----------------------------------------------------
-        # Orientation.
-        # ----------------------------------------------------
-
-        if prop in ("RotX", "RotY", "RotZ") and not obj.UseAimPoint:
-            self._syncing_orientation = True
-            try:
-                self._rebuild(obj)
-                self.synchronize_aim_from_rotation(obj)
-                # print("Aim coords", obj.AimX, obj.AimY, obj.AimZ)
-            finally:
-                dialog = getattr(self, "_dialog", None)
-                if dialog:
-                    dialog.refresh_from_object()
-                self._syncing_orientation = False
-
-        if prop in ("AimX", "AimY", "AimZ") and obj.UseAimPoint:
-            self._syncing_orientation = True
-            try:
-                self.synchronize_rotation_from_aim(obj)
-                dialog = getattr(self, "_dialog", None)
-                if dialog:
-                    dialog.refresh_from_object()
-                self._rebuild(obj)
-            finally:
-                # dialog = getattr(self, "_dialog", None)
-                # dialog.refresh_from_object()
-
-                self._syncing_orientation = False
-
-        # ----------------------------------------------------
-        # Main placement changed.
-        # ----------------------------------------------------
-        if prop == "Placement":
             try:
                 self._rebuild(obj)
             except Exception as exc:
@@ -847,42 +741,8 @@ class OBAEllipsoid:
         #     "App::PropertyLength",
         #     "Dimensions",
         # )
-        # print("=== RESTORE ===")
-        # print("_A =", obj._A)
-        # print("_B =", obj._B)
-        # print("Expression A =", repr(obj.getExpression("_A")))
-        # print("Expression B =", repr(obj.getExpression("_B")))
-        # print("ExpressionEngine =", obj.ExpressionEngine)
 
         install_properties(obj, ELLIPSOID_PROPERTIES)
-
-        # print("dddddddd ", obj.A, obj.B)
-
-        # print("Expression A:", obj.getExpression("A"))
-        # print("Expression B:", obj.getExpression("B"))
-
-        # sheet = obj.Document.getObject("Spreadsheet")
-
-        # print("Alias B2:", sheet.getAlias("B2"))
-        # print("Alias B3:", sheet.getAlias("B3"))
-
-        # print("B2:", sheet.get("B2"))
-        # print("B3:", sheet.get("B3"))
-
-        # sheet = obj.Document.getObject("Spreadsheet")
-
-        # print("ExpressionEngine:", obj.ExpressionEngine)
-
-        # if sheet:
-        #     try:
-        #         print("B2 =", sheet.get("B2"))
-        #     except Exception as e:
-        #         print("B2 failed", e)
-
-        #     try:
-        #         print("Alias B2 =", sheet.getAlias("B2"))
-        #     except Exception as e:
-        #         print("Alias failed", e)
 
         ensure_debug_property(obj)
         make_calculated_length(obj, "FocusDistance", "Distance from ellipsoid centre to focus")
@@ -1034,6 +894,9 @@ def OBA_CreateEllipsoid(
 
     proxy._initializing = False
     proxy._rebuild(obj)
+
+    print("************ initizing ", proxy._initializing)
+
     # proxy._update_cubes(obj)
     # proxy._update_ellipsoid(obj)
 

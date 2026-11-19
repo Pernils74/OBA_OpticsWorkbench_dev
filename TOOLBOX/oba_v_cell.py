@@ -159,9 +159,6 @@ class OBAVCell:
         self._emitter = None
         self._detector = None
 
-        # self._cutEmitter = None
-        # self._cutDetector = None
-
         self._dialog = None
         # self._dialog_is_open = False
 
@@ -204,12 +201,12 @@ class OBAVCell:
             obj.Label = label
         return obj
 
-    def _restore_runtime_flags(self):
+    def _set_suppress_onchange_flags(self, flag=True):
         for child in (self._compMirror, self._emitter, self._detector):
             proxy = getattr(child, "Proxy", None)
             if proxy is None:
                 continue
-            proxy._suppress_onchange = True
+            proxy._suppress_onchange = flag
 
     def _ensure_children(self, obj):
         doc = obj.Document
@@ -261,6 +258,10 @@ class OBAVCell:
                 # rot_x=float(obj.EmitterRotX),
                 # rot_y=0,  # float(obj.EmitterRotY),
                 # rot_z=float(obj.EmitterRotZ),
+                use_aim_point=True,
+                aim_x=float(obj.EmitterAimX),
+                aim_y=float(obj.CompMirrorB),
+                aim_z=float(obj.EmitterAimZ),
                 x=float(obj.EmitterX),
                 y=-float(obj.CompMirrorB),
                 z=-float(obj.CompMirrorHeight) / 2.0,
@@ -286,6 +287,10 @@ class OBAVCell:
                 # rot_x=float(obj.DetectorRotX),
                 # rot_y=0,  # float(obj.DetectorRotY),
                 # rot_z=float(obj.DetectorRotZ),
+                use_aim_point=True,
+                aim_x=float(obj.DetectorAimX),
+                aim_y=float(obj.CompMirrorB),
+                aim_z=float(obj.DetectorAimZ),
                 x=float(obj.DetectorX),
                 y=-float(obj.CompMirrorB),
                 z=-float(obj.CompMirrorHeight) / 2.0,
@@ -346,6 +351,12 @@ class OBAVCell:
         # ----------------------------------------------------------
         # Persistent links
         # ----------------------------------------------------------
+
+        # self._compMirror._suppress_onchange = False
+        # self._emitter._suppress_onchange = False
+        # self._detector._suppress_onchange = False
+
+        self._set_suppress_onchange_flags(False)
 
         obj.CompMirror = self._compMirror
         obj.Emitter = self._emitter
@@ -437,39 +448,40 @@ class OBAVCell:
         changed = False
         try:
             if proxy is not None:
-                proxy._initializing = True
+                proxy._suppress_onchange = True
 
-            # ----------------------------------------------------------
-            # Geometry
-            # ----------------------------------------------------------
-
-            if hasattr(ellipsoid, "APlaneWidth"):
+                # ----------------------------------------------------------
+                # Geometry
+                # ----------------------------------------------------------
+                # if hasattr(ellipsoid, "APlaneWidth"):
                 changed |= set_quantity_if_changed(ellipsoid, "APlaneWidth", getattr(obj, f"{prefix}APlaneWidth"), "mm")
-            if hasattr(ellipsoid, "APlaneHeight"):
+                # if hasattr(ellipsoid, "APlaneHeight"):
                 changed |= set_quantity_if_changed(ellipsoid, "APlaneHeight", getattr(obj, f"{prefix}APlaneHeight"), "mm")
-            if hasattr(ellipsoid, "FilterPlaneSize"):
+                # if hasattr(ellipsoid, "FilterPlaneSize"):
                 changed |= set_quantity_if_changed(ellipsoid, "FilterPlaneSize", getattr(obj, f"{prefix}FilterPlaneSize"), "mm")
-            if hasattr(ellipsoid, "FilterPlaneOffset"):
+                # if hasattr(ellipsoid, "FilterPlaneOffset"):
                 changed |= _set_float_if_changed(ellipsoid, "FilterPlaneOffset", getattr(obj, f"{prefix}FilterPlaneOffset"))
-            if hasattr(ellipsoid, "APlaneZoffset"):
+                # if hasattr(ellipsoid, "APlaneZoffset"):
                 changed |= _set_float_if_changed(ellipsoid, "APlaneZoffset", getattr(obj, f"{prefix}APlaneZoffset"))
-            if hasattr(ellipsoid, "APlaneYoffset"):
+                # if hasattr(ellipsoid, "APlaneYoffset"):
                 changed |= _set_float_if_changed(ellipsoid, "APlaneYoffset", getattr(obj, f"{prefix}APlaneYoffset"))
-            if hasattr(ellipsoid, "WidthFactor"):
+                # if hasattr(ellipsoid, "WidthFactor"):
                 changed |= _set_float_if_changed(ellipsoid, "WidthFactor", getattr(obj, f"{prefix}WidthFactor"))
-            if hasattr(ellipsoid, "A_"):
+                # if hasattr(ellipsoid, "A_"):
                 changed |= set_quantity_if_changed(ellipsoid, "A_", getattr(obj, f"{prefix}A"), "mm")
-            if hasattr(ellipsoid, "B_"):
+                # if hasattr(ellipsoid, "B_"):
                 changed |= set_quantity_if_changed(ellipsoid, "B_", getattr(obj, f"{prefix}B"), "mm")
-            if hasattr(ellipsoid, "Radius3Offset"):
+                # if hasattr(ellipsoid, "Radius3Offset"):
                 changed |= set_quantity_if_changed(ellipsoid, "Radius3Offset", getattr(obj, f"{prefix}Radius3Offset"), "mm")
-            # ----------------------------------------------------------
-            # Aiming
-            # ----------------------------------------------------------
-            if hasattr(ellipsoid, "AimX"):
-                changed |= set_quantity_if_changed(ellipsoid, "AimX", getattr(obj, f"{prefix}AimX"), "mm")
-            if hasattr(ellipsoid, "AimZ"):
-                changed |= set_quantity_if_changed(ellipsoid, "AimZ", getattr(obj, f"{prefix}AimZ"), "mm")
+                # ----------------------------------------------------------
+                # Aiming
+                # ----------------------------------------------------------
+
+                # if hasattr(ellipsoid, "AimX"):
+                changed |= _set_float_if_changed(ellipsoid, "AimX", getattr(obj, f"{prefix}AimX"))
+                # if hasattr(ellipsoid, "AimZ"):
+                changed |= _set_float_if_changed(ellipsoid, "AimZ", getattr(obj, f"{prefix}AimZ"))
+
             # ----------------------------------------------------------
             # Placement
             # ----------------------------------------------------------
@@ -502,7 +514,7 @@ class OBAVCell:
 
         finally:
             if proxy is not None:
-                proxy._initializing = False
+                proxy._suppress_onchange = False
 
         # --------------------------------------------------------------
         # Rebuild
@@ -562,6 +574,7 @@ class OBAVCell:
         # print("REBUILD")
         # self._rebuild_count += 1
         # print(f"{obj.Label} rebuild #{self._rebuild_count}")
+        import traceback
 
         if self._rebuilding:
             return
@@ -571,7 +584,9 @@ class OBAVCell:
             # self._update_main_mirror(obj)
             self._update_comp_mirror(obj)
             # nedan finns det depedent_optics
-            self._update_dependent_optics(obj)
+            # self._update_dependent_optics(obj)
+            self._update_ellipsoid(self._emitter, "Emitter", obj)
+            self._update_ellipsoid(self._detector, "Detector", obj)
 
             # for child in obj.Group:
             #     print("*** från white cell rebuild ", child.Name, child.State)
@@ -579,8 +594,11 @@ class OBAVCell:
             # self._update_ellipsoid(self._emitter, "Emitter", obj)
             # self._update_ellipsoid(self._detector, "Detector", obj)
             # obj.Document.recompute()
-        except Exception as exc:
-            App.Console.PrintError("[OBA] V Cell rebuild failed: " f"{exc}\n")
+        # except Exception as exc:
+
+        except Exception:
+            App.Console.PrintError(traceback.format_exc() + "\n")
+            # App.Console.PrintError("[OBA] V Cell rebuild failed: " f"{exc}\n")
         finally:
             self._rebuilding = False
 
@@ -704,7 +722,7 @@ class OBAVCell:
             install_properties(obj, V_CELL_PROPERTIES)
             make_optical_type(obj, "VCell")
             self._ensure_children(obj)
-            self._restore_runtime_flags()
+            self._set_suppress_onchange_flags(True)
         finally:
             self._initializing = False
         try:

@@ -506,12 +506,111 @@ class OBAToolboxDialogBase(OBABaseDialog):
                 enabled = not bool(getattr(self.obj, dependency, False))
             control.spinbox.setEnabled(enabled)
 
+    # def refresh_from_object(self):
+    #     self._refreshing_ui = True
+
+    #     try:
+    #         for name, control in self._widgets.items():
+
+    #             # -------------------------------------------------
+    #             # Ren bool-property
+    #             # -------------------------------------------------
+    #             if control.checkbox is not None and control.spinbox is None:
+    #                 with QSignalBlocker(control.checkbox):
+    #                     control.checkbox.setChecked(
+    #                         bool(getattr(self.obj, name))
+    #                     )
+
+    #             # -------------------------------------------------
+    #             # Optuna checked-spin
+    #             # -------------------------------------------------
+    #             elif control.checkbox is not None and control.spinbox is not None:
+    #                 with QSignalBlocker(control.checkbox):
+    #                     control.checkbox.setChecked(
+    #                         bool(getattr(self.obj, f"{name}_OptunaLocked", False))
+    #                     )
+
+    #                 control.spinbox.setProperty(
+    #                     "rawValue",
+    #                     float(getattr(self.obj, name))
+    #                 )
+
+    #             # -------------------------------------------------
+    #             # Normal spinbox
+    #             # -------------------------------------------------
+    #             elif control.spinbox is not None:
+    #                 control.spinbox.setProperty(
+    #                     "rawValue",
+    #                     float(getattr(self.obj, name))
+    #                 )
+
+    #         ...
+
     def refresh_from_object(self):
+        self._refreshing_ui = True
+
+        try:
+            for name, control in self._widgets.items():
+
+                is_bool = control.checkbox is not None and control.spinbox is None
+
+                is_optuna = control.checkbox is not None and control.spinbox is not None
+
+                is_spinbox = control.checkbox is None and control.spinbox is not None
+
+                # -------------------------------------------------
+                # Bool property
+                # Ex: ShowDebugEllipsoid, ShowDebugFoci, UseAimPoint
+                # -------------------------------------------------
+                if is_bool:
+                    with QSignalBlocker(control.checkbox):
+                        control.checkbox.setChecked(bool(getattr(self.obj, name)))
+
+                # -------------------------------------------------
+                # Optuna checked spinbox
+                # Ex: [ ] WidthFactor [spinbox]
+                # -------------------------------------------------
+                elif is_optuna:
+                    with QSignalBlocker(control.checkbox):
+                        control.checkbox.setChecked(
+                            bool(
+                                getattr(
+                                    self.obj,
+                                    f"{name}_OptunaLocked",
+                                    False,
+                                )
+                            )
+                        )
+
+                    with QSignalBlocker(control.spinbox):
+                        control.spinbox.setProperty("rawValue", float(getattr(self.obj, name)))
+
+                # -------------------------------------------------
+                # Normal spinbox
+                # -------------------------------------------------
+                elif is_spinbox:
+                    with QSignalBlocker(control.spinbox):
+                        control.spinbox.setProperty("rawValue", float(getattr(self.obj, name)))
+
+            # -----------------------------------------------------
+            # Display-only properties
+            # -----------------------------------------------------
+            for name, (widget, unit) in self._display_widgets.items():
+                value = float(getattr(self.obj, name))
+                widget.setText(f"{value:.4f} {unit}".rstrip())
+
+            self._refresh_property_enablement()
+
+        finally:
+            self._refreshing_ui = False
+
+    def refresh_from_object_old1(self):
         self._refreshing_ui = True
         try:
             for name, control in self._widgets.items():
                 widget = control.checkbox if control.checkbox is not None else control.spinbox
                 with QSignalBlocker(widget):
+
                     # -----------------------------------------
                     # Checkbox = Optuna lock state
                     # -----------------------------------------
@@ -535,7 +634,7 @@ class OBAToolboxDialogBase(OBABaseDialog):
         finally:
             self._refreshing_ui = False
 
-    def refresh_from_object_old(self):
+    def refresh_from_object_old2(self):
         self._refreshing_ui = True
         try:
             for name, control in self._widgets.items():

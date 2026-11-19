@@ -489,6 +489,8 @@ def run_steps_for_batch(batch, prog_bar, status_lbl, pump_events_func, stop_flag
 
     move_objects = _prepare_move_objects(doc, parsed_steps, label_to_name)
 
+    print("[Scanner move_objects] ", move_objects, "\n", label_to_name)
+
     doc.recompute()
     done_iters = 0
     trace_count = 0
