@@ -422,6 +422,12 @@ class OBAToolboxDialogBase(OBABaseDialog):
             prop_type = prop_def.get("type", "")
             label = prop_def.get("label", prop)
 
+            if label.startswith("-"):
+                label = label[1:]
+                # divider = QtWidgets.QLabel(f"<hr><b>{label}</b>")
+                divider = QtWidgets.QLabel(f"<hr>")
+                form.addRow(divider)
+
             if prop_def.get("display_only", False):
                 value_label = QtWidgets.QLabel()
                 form.addRow(label, value_label)

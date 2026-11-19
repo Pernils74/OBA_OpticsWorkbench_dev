@@ -832,21 +832,21 @@ class OBAEllipsoid:
         #     if legacy_property in obj.PropertiesList:
         #         obj.removeProperty(legacy_property)
 
-        rename_property(
-            obj,
-            "_A",
-            "A_",
-            "App::PropertyLength",
-            "Dimensions",
-        )
+        # rename_property(
+        #     obj,
+        #     "_A",
+        #     "A_",
+        #     "App::PropertyLength",
+        #     "Dimensions",
+        # )
 
-        rename_property(
-            obj,
-            "_B",
-            "B_",
-            "App::PropertyLength",
-            "Dimensions",
-        )
+        # rename_property(
+        #     obj,
+        #     "_B",
+        #     "B_",
+        #     "App::PropertyLength",
+        #     "Dimensions",
+        # )
         # print("=== RESTORE ===")
         # print("_A =", obj._A)
         # print("_B =", obj._B)
@@ -970,6 +970,10 @@ def OBA_CreateEllipsoid(
     rot_x=30.0,
     rot_y=0.0,
     rot_z=0.0,
+    use_aim_point=False,
+    aim_x=0,
+    aim_y=0,
+    aim_z=0,
     x=0.0,
     y=0.0,
     z=0.0,
@@ -977,6 +981,9 @@ def OBA_CreateEllipsoid(
     show_dialog=True,
     radius3_offset=0.0,
 ):
+
+    #   target = App.Vector(float(obj.AimX), float(obj.AimY), float(obj.AimZ))
+
     doc = doc or App.ActiveDocument or App.newDocument()
     obj = doc.addObject("Part::FeaturePython", "OBAEllipsoid")
 
@@ -1004,11 +1011,11 @@ def OBA_CreateEllipsoid(
     obj.RotY = rot_y  # App.Units.Quantity(f"{rot_y} deg")
     obj.RotZ = rot_z  # App.Units.Quantity(f"{rot_z} deg")
 
-    obj.UseAimPoint = False
+    obj.UseAimPoint = use_aim_point
 
-    obj.AimX = 0  # App.Units.Quantity("100 mm")
-    obj.AimY = 0  # App.Units.Quantity("0 mm")
-    obj.AimZ = 0  # App.Units.Quantity("0 mm")
+    obj.AimX = aim_x  # App.Units.Quantity("100 mm")
+    obj.AimY = aim_y  # App.Units.Quantity("0 mm")
+    obj.AimZ = aim_z  # App.Units.Quantity("0 mm")
 
     proxy._ensure_features(obj)
     proxy._update_ellipsoid(obj)
