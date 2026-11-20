@@ -258,8 +258,7 @@ class OBAVCell:
                 # rot_z=float(obj.EmitterRotZ),
                 use_aim_point=True,
                 aim_x=float(obj.EmitterAimX),
-                # aim_y=float(obj.CompMirrorB),
-                aim_y=0.0,
+                aim_y=-float(obj.CompMirrorB),
                 aim_z=float(obj.EmitterAimZ),
                 x=float(obj.EmitterPosX),
                 y=-float(obj.CompMirrorB),
@@ -288,8 +287,8 @@ class OBAVCell:
                 # rot_z=float(obj.DetectorRotZ),
                 use_aim_point=True,
                 aim_x=float(obj.DetectorAimX),
-                # aim_y=float(obj.CompMirrorB),
-                aim_y=0.0,
+                aim_y=-float(obj.CompMirrorB),
+                # aim_y=0.0,
                 aim_z=float(obj.DetectorAimZ),
                 x=float(obj.DetectorPosX),
                 y=-float(obj.CompMirrorB),
@@ -466,7 +465,7 @@ class OBAVCell:
             # if hasattr(ellipsoid, "AimZ"):
             changed |= _set_float_if_changed(ellipsoid, "AimZ", getattr(obj, f"{prefix}AimZ"))
             # changed |= _set_float_if_changed(ellipsoid, "AimY", float(obj.CompMirrorB) - ellipsoid.Placement.Base.y)
-            changed |= _set_float_if_changed(ellipsoid, "AimY", float(obj.CompMirrorB))
+            changed |= _set_float_if_changed(ellipsoid, "AimY", -float(obj.CompMirrorB))
 
             # ----------------------------------------------------------
             # Placement

@@ -538,48 +538,48 @@ class OBAWhiteCell:
             if proxy is not None:
                 proxy._initializing = True
 
-            # ----------------------------------------------------------
-            # Geometry
-            # ----------------------------------------------------------
+                # ----------------------------------------------------------
+                # Geometry
+                # ----------------------------------------------------------
 
-            if hasattr(ellipsoid, "APlaneWidth"):
+                # if hasattr(ellipsoid, "APlaneWidth"):
                 changed |= set_quantity_if_changed(ellipsoid, "APlaneWidth", getattr(obj, f"{prefix}APlaneWidth"), "mm")
 
-            if hasattr(ellipsoid, "APlaneHeight"):
+                # if hasattr(ellipsoid, "APlaneHeight"):
                 changed |= set_quantity_if_changed(ellipsoid, "APlaneHeight", getattr(obj, f"{prefix}APlaneHeight"), "mm")
 
-            if hasattr(ellipsoid, "FilterPlaneSize"):
+                # if hasattr(ellipsoid, "FilterPlaneSize"):
                 changed |= set_quantity_if_changed(ellipsoid, "FilterPlaneSize", getattr(obj, f"{prefix}FilterPlaneSize"), "mm")
 
-            if hasattr(ellipsoid, "FilterPlaneOffset"):
+                # if hasattr(ellipsoid, "FilterPlaneOffset"):
                 changed |= _set_float_if_changed(ellipsoid, "FilterPlaneOffset", getattr(obj, f"{prefix}FilterPlaneOffset"))
 
-            if hasattr(ellipsoid, "APlaneZoffset"):
+                # if hasattr(ellipsoid, "APlaneZoffset"):
                 changed |= _set_float_if_changed(ellipsoid, "APlaneZoffset", getattr(obj, f"{prefix}APlaneZoffset"))
 
-            if hasattr(ellipsoid, "APlaneYoffset"):
+                # if hasattr(ellipsoid, "APlaneYoffset"):
                 changed |= _set_float_if_changed(ellipsoid, "APlaneYoffset", getattr(obj, f"{prefix}APlaneYoffset"))
 
-            if hasattr(ellipsoid, "WidthFactor"):
+                # if hasattr(ellipsoid, "WidthFactor"):
                 changed |= _set_float_if_changed(ellipsoid, "WidthFactor", getattr(obj, f"{prefix}WidthFactor"))
 
-            if hasattr(ellipsoid, "A_"):
+                # if hasattr(ellipsoid, "A_"):
                 changed |= set_quantity_if_changed(ellipsoid, "A_", getattr(obj, f"{prefix}A"), "mm")
 
-            if hasattr(ellipsoid, "B_"):
+                # if hasattr(ellipsoid, "B_"):
                 changed |= set_quantity_if_changed(ellipsoid, "B_", getattr(obj, f"{prefix}B"), "mm")
 
-            if hasattr(ellipsoid, "Radius3Offset"):
+                # if hasattr(ellipsoid, "Radius3Offset"):
                 changed |= set_quantity_if_changed(ellipsoid, "Radius3Offset", getattr(obj, f"{prefix}Radius3Offset"), "mm")
 
-            # ----------------------------------------------------------
-            # Rotation
-            # ----------------------------------------------------------
+                # ----------------------------------------------------------
+                # Rotation
+                # ----------------------------------------------------------
 
-            if hasattr(ellipsoid, "RotX"):
+                # if hasattr(ellipsoid, "RotX"):
                 changed |= set_quantity_if_changed(ellipsoid, "RotX", getattr(obj, f"{prefix}RotX"), "deg")
 
-            if hasattr(ellipsoid, "RotZ"):
+                # if hasattr(ellipsoid, "RotZ"):
                 changed |= set_quantity_if_changed(ellipsoid, "RotZ", getattr(obj, f"{prefix}RotZ"), "deg")
 
             # ----------------------------------------------------------
