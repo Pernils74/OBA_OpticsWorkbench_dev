@@ -65,9 +65,11 @@ V_CELL_PROPERTIES = [
     # {"name": "EmitterRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Emitter","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     # {"name": "EmitterRotZ", "label": "Rot Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": -3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     {"name": "EmitterAimX", "label": "-AimX", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
+    # {"name": "EmitterAimY", "label": "AimY", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     {"name": "EmitterAimZ", "label": "AimZ", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     #
-    {"name": "EmitterX", "label": "X", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    {"name": "EmitterPosX", "label": "-PosX", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    {"name": "EmitterOffsetY", "label": "OffsetY", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     #
     # ==============================================================
     # DETECTOR
@@ -89,9 +91,11 @@ V_CELL_PROPERTIES = [
     # {"name": "DetectorRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Detector","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     # {"name": "DetectorRotZ", "label": "Rot Z", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
     {"name": "DetectorAimX", "label": "-AimX", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
+    # {"name": "DetectorAimY", "label": "AimY", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     {"name": "DetectorAimZ", "label": "AimZ", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     #
-    {"name": "DetectorX", "label": "X", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": -6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    {"name": "DetectorPosX", "label": "-PosX", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": -6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    {"name": "DetectorOffsetY", "label": "OffsetY", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": -6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # ** OBS "App::PropertyDistance"  kan hantera negativa tal , "App::PropertyLength" kan inte göra det. Använder istället App::PropertyFloat
 ]
 
@@ -102,10 +106,8 @@ V_CELL_PROPERTIES = [
 
 def _set_property_if_changed(obj, name, value):
     current = getattr(obj, name)
-
     if current == value:
         return False
-
     setattr(obj, name, value)
     return True
 
@@ -113,10 +115,8 @@ def _set_property_if_changed(obj, name, value):
 def _set_float_if_changed(obj, name, value, tol=1e-9):
     current = float(getattr(obj, name))
     new = float(value)
-
     if abs(current - new) < tol:
         return False
-
     setattr(obj, name, new)
     return True
 
@@ -149,7 +149,6 @@ def _set_link_if_changed(obj, prop, target):
 class OBAVCell:
 
     def _init_runtime_state(self):
-
         self._dirty = False  # används för att rebuilda via optuna
 
         self._initializing = True
@@ -165,7 +164,6 @@ class OBAVCell:
         self._rebuild_count = 0
 
     def __init__(self, obj):
-
         self._init_runtime_state()
 
         obj.Proxy = self
@@ -176,8 +174,8 @@ class OBAVCell:
 
         install_properties(obj, V_CELL_PROPERTIES)
 
-        print("EmitterX type :", obj.getTypeIdOfProperty("EmitterX"))
-        print("DetectorX type:", obj.getTypeIdOfProperty("DetectorX"))
+        # print("EmitterX type :", obj.getTypeIdOfProperty("EmitterX"))
+        # print("DetectorX type:", obj.getTypeIdOfProperty("DetectorX"))
 
         # print("EmitterX expr :", obj.getExpression("EmitterX"))
         # print("DetectorX expr:", obj.getExpression("DetectorX"))
@@ -260,9 +258,10 @@ class OBAVCell:
                 # rot_z=float(obj.EmitterRotZ),
                 use_aim_point=True,
                 aim_x=float(obj.EmitterAimX),
-                aim_y=float(obj.CompMirrorB),
+                # aim_y=float(obj.CompMirrorB),
+                aim_y=0.0,
                 aim_z=float(obj.EmitterAimZ),
-                x=float(obj.EmitterX),
+                x=float(obj.EmitterPosX),
                 y=-float(obj.CompMirrorB),
                 z=-float(obj.CompMirrorHeight) / 2.0,
                 suppress_onchange=True,
@@ -289,9 +288,10 @@ class OBAVCell:
                 # rot_z=float(obj.DetectorRotZ),
                 use_aim_point=True,
                 aim_x=float(obj.DetectorAimX),
-                aim_y=float(obj.CompMirrorB),
+                # aim_y=float(obj.CompMirrorB),
+                aim_y=0.0,
                 aim_z=float(obj.DetectorAimZ),
-                x=float(obj.DetectorX),
+                x=float(obj.DetectorPosX),
                 y=-float(obj.CompMirrorB),
                 z=-float(obj.CompMirrorHeight) / 2.0,
                 suppress_onchange=True,
@@ -370,13 +370,6 @@ class OBAVCell:
 
         mirror = self._compMirror
 
-        # mirror.Placement = App.Placement(
-        #     App.Vector(0, 0, 0),
-        #     App.Rotation(App.Vector(0, 0, 1), 180),
-        # )
-
-        # if not self._obj_exists(mirror):
-        #     return
         proxy = getattr(mirror, "Proxy", None)
         changed = False
         try:
@@ -388,6 +381,10 @@ class OBAVCell:
 
             changed |= set_quantity_if_changed(mirror, "A_", obj.CompMirrorA, "mm")
             changed |= set_quantity_if_changed(mirror, "B_", obj.CompMirrorB, "mm")
+            # if set_quantity_if_changed(mirror, "B_", obj.CompMirrorB, "mm"):
+            #     obj.EmitterAimY = obj.CompMirrorB
+            #     obj.DetectorAimY = obj.CompMirrorB
+
             changed |= set_quantity_if_changed(mirror, "Radius3Offset", obj.CompMirrorRadius3Offset, "mm")
 
             # mirror.Placement = App.Placement(
@@ -416,101 +413,64 @@ class OBAVCell:
     # U P D A T E   E L L I P S O I D
     # ==================================================================
 
-    def ellipse_y_point_offset_from_x(self, ellipsoid, x, offset=2.0):
-        import math
-
-        # a = float(ellipsoid.Radius1 * 1.2)
-        # b = float(ellipsoid.Radius2 * 1.2)
-
-        a = float(ellipsoid.Radius1)
-        b = float(ellipsoid.Radius2)
-
-        if abs(x) > a:
-            return None
-        y = b * math.sqrt(1.0 - (x * x) / (a * a))
-        nx = x / (a * a)
-        ny = y / (b * b)
-        nlen = math.sqrt(nx * nx + ny * ny)
-        nx /= nlen
-        ny /= nlen
-
-        # print("a =", a)
-        # print("b =", b)
-        # print("x =", x)
-        # print("abs(x)>a =", abs(x) > a)
-
-        return (x + nx * offset, y + ny * offset)
-
     def _update_ellipsoid(self, ellipsoid, prefix, obj):
         # if not self._obj_exists(ellipsoid):
         #     return
         proxy = getattr(ellipsoid, "Proxy", None)
         changed = False
         try:
-            if proxy is not None:
-                proxy._suppress_onchange = True
-
-                # ----------------------------------------------------------
-                # Geometry
-                # ----------------------------------------------------------
-                # if hasattr(ellipsoid, "APlaneWidth"):
-                changed |= set_quantity_if_changed(ellipsoid, "APlaneWidth", getattr(obj, f"{prefix}APlaneWidth"), "mm")
-                # if hasattr(ellipsoid, "APlaneHeight"):
-                changed |= set_quantity_if_changed(ellipsoid, "APlaneHeight", getattr(obj, f"{prefix}APlaneHeight"), "mm")
-                # if hasattr(ellipsoid, "FilterPlaneSize"):
-                changed |= set_quantity_if_changed(ellipsoid, "FilterPlaneSize", getattr(obj, f"{prefix}FilterPlaneSize"), "mm")
-                # if hasattr(ellipsoid, "FilterPlaneOffset"):
-                changed |= _set_float_if_changed(ellipsoid, "FilterPlaneOffset", getattr(obj, f"{prefix}FilterPlaneOffset"))
-                # if hasattr(ellipsoid, "APlaneZoffset"):
-                changed |= _set_float_if_changed(ellipsoid, "APlaneZoffset", getattr(obj, f"{prefix}APlaneZoffset"))
-                # if hasattr(ellipsoid, "APlaneYoffset"):
-                changed |= _set_float_if_changed(ellipsoid, "APlaneYoffset", getattr(obj, f"{prefix}APlaneYoffset"))
-                # if hasattr(ellipsoid, "WidthFactor"):
-                changed |= _set_float_if_changed(ellipsoid, "WidthFactor", getattr(obj, f"{prefix}WidthFactor"))
-                # if hasattr(ellipsoid, "A_"):
-                changed |= set_quantity_if_changed(ellipsoid, "A_", getattr(obj, f"{prefix}A"), "mm")
-                # if hasattr(ellipsoid, "B_"):
-                changed |= set_quantity_if_changed(ellipsoid, "B_", getattr(obj, f"{prefix}B"), "mm")
-                # if hasattr(ellipsoid, "Radius3Offset"):
-                changed |= set_quantity_if_changed(ellipsoid, "Radius3Offset", getattr(obj, f"{prefix}Radius3Offset"), "mm")
-                # ----------------------------------------------------------
-                # Aiming
-                # ----------------------------------------------------------
-
-                # if hasattr(ellipsoid, "AimX"):
-                changed |= _set_float_if_changed(ellipsoid, "AimX", getattr(obj, f"{prefix}AimX"))
-                # if hasattr(ellipsoid, "AimZ"):
-                changed |= _set_float_if_changed(ellipsoid, "AimZ", getattr(obj, f"{prefix}AimZ"))
+            proxy._suppress_onchange = True
+            # ----------------------------------------------------------
+            # Geometry
+            # ----------------------------------------------------------
+            changed |= set_quantity_if_changed(ellipsoid, "APlaneWidth", getattr(obj, f"{prefix}APlaneWidth"), "mm")
+            changed |= set_quantity_if_changed(ellipsoid, "APlaneHeight", getattr(obj, f"{prefix}APlaneHeight"), "mm")
+            changed |= set_quantity_if_changed(ellipsoid, "FilterPlaneSize", getattr(obj, f"{prefix}FilterPlaneSize"), "mm")
+            changed |= _set_float_if_changed(ellipsoid, "FilterPlaneOffset", getattr(obj, f"{prefix}FilterPlaneOffset"))
+            changed |= _set_float_if_changed(ellipsoid, "APlaneZoffset", getattr(obj, f"{prefix}APlaneZoffset"))
+            changed |= _set_float_if_changed(ellipsoid, "APlaneYoffset", getattr(obj, f"{prefix}APlaneYoffset"))
+            changed |= _set_float_if_changed(ellipsoid, "WidthFactor", getattr(obj, f"{prefix}WidthFactor"))
+            changed |= set_quantity_if_changed(ellipsoid, "A_", getattr(obj, f"{prefix}A"), "mm")
+            changed |= set_quantity_if_changed(ellipsoid, "B_", getattr(obj, f"{prefix}B"), "mm")
+            changed |= set_quantity_if_changed(ellipsoid, "Radius3Offset", getattr(obj, f"{prefix}Radius3Offset"), "mm")
 
             # ----------------------------------------------------------
-            # Placement
+            # Aiming
             # ----------------------------------------------------------
+            # changed |= _set_float_if_changed(ellipsoid, "PosX", getattr(obj, f"{prefix}X"))
+            # changed |= _set_float_if_changed(ellipsoid, "OffsetY", getattr(obj, f"{prefix}OffsetY"))
 
-            x = float(getattr(obj, f"{prefix}X"))
-            comp_ellipsoid = self._compMirror.Proxy._ellipsoid
-            center = comp_ellipsoid.Placement.Base
-            offset = float(getattr(obj, f"{prefix}NormalOffset"))
+            focus1, focus2 = self._compMirror.Proxy.get_focus_points()
 
-            # print("CompMirror")
-            # print("A =", comp_ellipsoid.Radius1)
-            # print("B =", comp_ellipsoid.Radius2)
-            # print("X =", x)
+            focus = focus1 if prefix == "Emitter" else focus2
 
-            x2, y2 = self.ellipse_y_point_offset_from_x(comp_ellipsoid, x, offset=offset)
-            # ellipsoid.Placement = App.Placement(
+            print(f"([ focus {prefix}])", focus1, focus2, focus)
+
+            pos_x = float(getattr(obj, f"{prefix}PosX"))
+            offset_y = float(getattr(obj, f"{prefix}OffsetY"))
+
             new_placement = App.Placement(
                 App.Vector(
-                    # center.x + x2,
-                    x,
-                    center.y - y2,
-                    # float(getattr(obj, f"{prefix}Z")) - float(obj.CompMirrorHeight) / 2,
+                    pos_x,
+                    focus.y + offset_y,
                     -float(obj.CompMirrorHeight) / 2,
                 ),
                 App.Rotation(),
             )
+
             if ellipsoid.Placement != new_placement:
                 ellipsoid.Placement = new_placement
                 changed = True
+
+            changed |= _set_float_if_changed(ellipsoid, "AimX", getattr(obj, f"{prefix}AimX"))
+            # if hasattr(ellipsoid, "AimZ"):
+            changed |= _set_float_if_changed(ellipsoid, "AimZ", getattr(obj, f"{prefix}AimZ"))
+            # changed |= _set_float_if_changed(ellipsoid, "AimY", float(obj.CompMirrorB) - ellipsoid.Placement.Base.y)
+            changed |= _set_float_if_changed(ellipsoid, "AimY", float(obj.CompMirrorB))
+
+            # ----------------------------------------------------------
+            # Placement
+            # ----------------------------------------------------------
 
         finally:
             if proxy is not None:
@@ -580,8 +540,6 @@ class OBAVCell:
             return
         self._rebuilding = True
         try:
-            # self._ensure_children(obj)
-            # self._update_main_mirror(obj)
             self._update_comp_mirror(obj)
             # nedan finns det depedent_optics
             # self._update_dependent_optics(obj)
@@ -603,7 +561,7 @@ class OBAVCell:
             self._rebuilding = False
 
         if self._is_dialog_open() and not OptunaPlotWindow.is_open() and not XGBoostParameterOptimizerDialog.is_open():
-            print("============================ recomputar ===========================")
+            print("=========  [V_cell] recomputar i rebuild  ==============")
             obj.Document.recompute()
 
         # if not is_optimization_running():

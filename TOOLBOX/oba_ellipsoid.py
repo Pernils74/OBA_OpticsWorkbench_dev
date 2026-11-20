@@ -594,17 +594,26 @@ class OBAEllipsoid:
         self._rebuilding = True
 
         try:
+
+            def printChangedIfTrue(changed, fromUpdate):
+                if changed:
+                    print(fromUpdate, " är changed", changed)
+
             changed = False
             changed |= self._update_ellipsoid(obj)
+            # printChangedIfTrue(changed, " --- update elipsoid")
             changed |= self._update_cubes(obj)
+            # printChangedIfTrue(changed, "update_cubes")
             changed |= self._update_focal_surface(obj)
+            # printChangedIfTrue(changed, "update _ focal")
             changed |= self._update_filter_surface(obj)
+            # printChangedIfTrue(changed, " filter_surface")
 
             changed |= self._update_debug(obj)
 
             if changed and not self._suppress_onchange and not is_optimization_running():
                 # Optuna's evaluation performs the document recompute after applying parameters.
-                print("=== ellipsoid recompute ===")
+                print("=== [ellipsoid]  recompute i rebuild  ===", changed)
                 obj.Document.recompute()
                 pass
 
@@ -634,6 +643,22 @@ class OBAEllipsoid:
             return
         if self._initializing:
             return
+
+        if prop in ("AimX", "AimY", "AimZ") and obj.UseAimPoint:
+            print("[Ellipsoi]d onChanged:", prop)
+            self._syncing_orientation = True
+            try:
+                self.synchronize_rotation_from_aim(obj)
+                dialog = getattr(self, "_dialog", None)
+                if dialog:
+                    dialog.refresh_from_object()
+                if not self._suppress_onchange:
+                    self._rebuild(obj)
+            finally:
+                # dialog = getattr(self, "_dialog", None)
+                # dialog.refresh_from_object()
+
+                self._syncing_orientation = False
 
         if self._suppress_onchange:
             return
@@ -684,21 +709,6 @@ class OBAEllipsoid:
                 dialog = getattr(self, "_dialog", None)
                 if dialog:
                     dialog.refresh_from_object()
-                self._syncing_orientation = False
-
-        if prop in ("AimX", "AimY", "AimZ") and obj.UseAimPoint:
-            print("[Ellipsoi]d onChanged:", prop)
-            self._syncing_orientation = True
-            try:
-                self.synchronize_rotation_from_aim(obj)
-                dialog = getattr(self, "_dialog", None)
-                if dialog:
-                    dialog.refresh_from_object()
-                self._rebuild(obj)
-            finally:
-                # dialog = getattr(self, "_dialog", None)
-                # dialog.refresh_from_object()
-
                 self._syncing_orientation = False
 
         # ----------------------------------------------------
@@ -895,7 +905,7 @@ def OBA_CreateEllipsoid(
     proxy._initializing = False
     proxy._rebuild(obj)
 
-    print("************ initizing ", proxy._initializing)
+    # print("************ initizing ", proxy._initializing)
 
     # proxy._update_cubes(obj)
     # proxy._update_ellipsoid(obj)

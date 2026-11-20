@@ -27,6 +27,7 @@ COMP_MIRROR_PROPERTIES = [
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 26.4575131106, "unit": "mm", "display_only": True, "doc": "Distance from ellipsoid centre to focus"},
     # {"name": "TiltAngle", "type": "App::PropertyAngle", "group": "Ellipsoid", "default": 0.0, "doc": "Tilt angle of the ellipsoids around the Z axis"},
     {"name": "ShowDebugEllipsoids", "type": "App::PropertyBool", "group": "Debug", "default": False, "doc": "Show ellipsoids for debugging"},
+    {"name": "ShowDebugFoci", "type": "App::PropertyBool", "group": "Debug", "default": False, "doc": "Show focal points"},
     # {"name": "PosX", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "X coordinate"},
     # {"name": "PosY", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "Y coordinate"},
     # {"name": "PosZ", "type": "App::PropertyFloat", "group": "Placement", "unit": "mm", "min": -1000, "max": 1000, "doc": "Z coordinate"},
@@ -35,7 +36,7 @@ COMP_MIRROR_PROPERTIES = [
 
 
 class OBACompMirror:
-    CHILD_OBJECTS = ("_cut", "_cube", "_ellipsoid")
+    CHILD_OBJECTS = ("_cut", "_cube", "_ellipsoid", "_focus1", "_focus2")
 
     def _init_runtime_state(self):
         """
@@ -44,14 +45,14 @@ class OBACompMirror:
         also be recreated when a document is restored.
         """
         self._initializing = True
-
         self._rebuilding = False
-
         self._suppress_onchange = False
 
         self._cube = None
         self._ellipsoid = None
         self._cut = None
+        self._focus1 = None
+        self._focus2 = None
 
     def __init__(self, obj):
         self._init_runtime_state()
@@ -97,11 +98,21 @@ class OBACompMirror:
         self._cube = self._get_or_create(doc, f"{obj.Name}_Cube", "Part::Box", f"{obj.Label} Cube")
         self._ellipsoid = self._get_or_create(doc, f"{obj.Name}_Ellipsoid", "Part::Ellipsoid", f"{obj.Label} Ellipsoid")
         self._cut = self._get_or_create(doc, f"{obj.Name}_Cut", "Part::Cut", f"{obj.Label} Cut")
+        self._focus1 = self._get_or_create(doc, f"{obj.Name}_Focus1", "Part::Sphere", f"{obj.Label} Focus1")
+        self._focus2 = self._get_or_create(doc, f"{obj.Name}_Focus2", "Part::Sphere", f"{obj.Label} Focus2")
+
+        self._focus1.Radius = 1
+        self._focus2.Radius = 1
+
+        self._focus1.ViewObject.ShapeColor = (0.0, 1.0, 0.0)
+        self._focus2.ViewObject.ShapeColor = (1.0, 0.0, 0.0)
 
         children = [
             self._cube,
             self._ellipsoid,
             self._cut,
+            self._focus1,
+            self._focus2,
         ]
         set_property_if_changed(obj, "Group", children)
 
@@ -111,6 +122,16 @@ class OBACompMirror:
 
         set_property_if_changed(self._cut, "Base", self._cube)
         set_property_if_changed(self._cut, "Tool", self._ellipsoid)
+
+    # ------------------------------------------------------------------
+    # API methods
+    # ------------------------------------------------------------------
+
+    def get_focus_points(self):
+        c = float(self.Object.FocusDistance)
+        p1 = self._ellipsoid.Placement.multVec(App.Vector(0, 0, -c))
+        p2 = self._ellipsoid.Placement.multVec(App.Vector(0, 0, +c))
+        return p1, p2
 
     # ------------------------------------------------------------------
     # Geometry
@@ -132,9 +153,15 @@ class OBACompMirror:
 
         # self._cube.Placement.Base = App.Vector(-width / 2.0, -depth / 1.9, -height / 2.0)
 
-        base = App.Placement(obj.Placement.Base, App.Rotation(App.Vector(0, 0, 1), float(obj.RotZ)))
+        base = obj.Placement
+
+        # base = App.Placement(
+        #     obj.Placement.Base,
+        #     obj.Placement.Rotation.multiply(App.Rotation(App.Vector(0, 0, 1), float(obj.RotZ))),
+        # )
 
         cube_local = App.Placement(App.Vector(-width / 2, -depth / 1.9, -height / 2), App.Rotation())
+
         changed |= set_property_if_changed(self._cube, "Placement", base.multiply(cube_local))
         return changed
 
@@ -149,42 +176,73 @@ class OBACompMirror:
         rot_z = App.Rotation(App.Vector(0, 0, 1), 90)
         rot_x = App.Rotation(App.Vector(1, 0, 0), -90)
 
+        # ell_local = App.Placement()
+        # ell_local.Base = App.Vector(0, float(obj.B_), 0)
+        # ell_local.Rotation = rot_z.multiply(rot_x)
+
+        # base = obj.Placement
+        # base = App.Placement(
+        #     obj.Placement.Base,
+        #     obj.Placement.Rotation.multiply(App.Rotation(App.Vector(0, 0, 1), float(obj.RotZ))),
+        # )
+        # new_placement = base.multiply(ell_local)
+
         ell_local = App.Placement()
         ell_local.Base = App.Vector(0, float(obj.B_), 0)
-        ell_local.Rotation = rot_z.multiply(rot_x)
 
-        base = App.Placement(obj.Placement.Base, App.Rotation(App.Vector(0, 0, 1), float(obj.RotZ)))
+        rot_z = App.Rotation(App.Vector(0, 0, 1), 90)
+        rot_x = App.Rotation(App.Vector(1, 0, 0), -90)
 
-        new_placement = base.multiply(ell_local)
-        # new_placement = obj.Placement.multiply(ell_local)
+        ell_local.Rotation = App.Rotation(App.Vector(0, 0, 1), float(obj.RotZ)).multiply(rot_z).multiply(rot_x)
+        new_placement = obj.Placement.multiply(ell_local)
 
         changed |= set_property_if_changed(self._ellipsoid, "Placement", new_placement)
 
         return changed
 
-    def _update_debug_visibility(self, obj):
-        try:
-            debug = bool(obj.ShowDebugEllipsoids)
-            changed = False
+    def _show_debug_foci(self, obj):
+        debug_foci = bool(obj.ShowDebugFoci)
+        f1, f2 = self.get_focus_points()
+        changed = False
 
-            # The cube is hidden because the Cut represents the
-            # resulting geometry.
-            changed |= set_property_if_changed(self._cube.ViewObject, "Visibility", False)
+        r = max(0.5, min(5.0, float(self._ellipsoid.Radius1) * 0.05))
+        changed |= set_quantity_if_changed(self._focus1, "Radius", r, "mm")
+        changed |= set_quantity_if_changed(self._focus2, "Radius", r, "mm")
 
-            # Resulting geometry.
-            # self._cut.ViewObject.Visibility = True
+        focus1_placement = App.Placement(f1, self._focus1.Placement.Rotation)
+        focus2_placement = App.Placement(f2, self._focus2.Placement.Rotation)
+        changed |= set_property_if_changed(self._focus1, "Placement", focus1_placement)
+        changed |= set_property_if_changed(self._focus2, "Placement", focus2_placement)
 
-            # Construction ellipsoid.
-            if debug:
-                changed |= set_property_if_changed(self._ellipsoid.ViewObject, "Visibility", True)
-                changed |= set_property_if_changed(self._ellipsoid.ViewObject, "Transparency", 80)
-            else:
-                changed |= set_property_if_changed(self._ellipsoid.ViewObject, "Visibility", False)
-            return changed
+        changed |= set_property_if_changed(self._focus1.ViewObject, "Visibility", debug_foci)
+        changed |= set_property_if_changed(self._focus2.ViewObject, "Visibility", debug_foci)
 
-        except Exception as e:
-            FreeCAD.Console.PrintError(f"Error in _update_debug_visibility: {e}\n")
-            return False
+        # changed |= set_property_if_changed(self._focus1.ViewObject, "ShapeColor", (0.0, 1.0, 0.0))
+        # changed |= set_property_if_changed(self._focus2.ViewObject, "ShapeColor", (1.0, 0.0, 0.0))
+        return changed
+
+    def _show_debug_ellipsoid(self, obj):
+        debug_ellipsoid = bool(obj.ShowDebugEllipsoids)
+
+        changed = False
+        # Cube hidden, cut is the final geometry
+        changed |= set_property_if_changed(self._cube.ViewObject, "Visibility", False)
+        changed |= set_property_if_changed(self._ellipsoid.ViewObject, "Visibility", debug_ellipsoid)
+        changed |= set_property_if_changed(self._ellipsoid.ViewObject, "Transparency", 80)
+        return changed
+
+    # def _update_debug(self, obj):
+    #     changed = False
+    #     if self._ellipsoid:
+    #         changed |= set_property_if_changed(self._ellipsoid.ViewObject, "Visibility", bool(obj.ShowDebugEllipsoid))
+
+    #     if self._focus1:
+    #         changed |= set_property_if_changed(self._focus1.ViewObject, "Visibility", bool(obj.ShowDebugFoci))
+
+    #     if self._focus2:
+    #         changed |= set_property_if_changed(self._focus2.ViewObject, "Visibility", bool(obj.ShowDebugFoci))
+
+    #     return changed
 
     # ------------------------------------------------------------------
     # Rebuild
@@ -208,7 +266,8 @@ class OBACompMirror:
             changed |= self._update_cube(obj)
             changed |= self._update_ellipsoid(obj)
 
-            changed |= self._update_debug_visibility(obj)
+            changed |= self._show_debug_foci(obj)
+            changed |= self._show_debug_ellipsoid(obj)
 
             c = focus_distance(float(obj.A_), float(obj.B_))
             changed |= set_quantity_if_changed(obj, "FocusDistance", c, "mm")
@@ -238,7 +297,10 @@ class OBACompMirror:
             return
 
         if prop in {"ShowDebugEllipsoids"}:
-            self._update_debug_visibility(obj)
+            self._show_debug_ellipsoid(obj)
+
+        if prop in {"ShowDebugFoci"}:
+            self._show_debug_foci(obj)
 
         if self._suppress_onchange:
             return
