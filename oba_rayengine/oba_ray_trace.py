@@ -169,7 +169,7 @@ def populate_emitter_rays(face, max_rays, use_lambert, spread_angle, flip_normal
                 )
 
             elif emission_mode == "Cone (position lambert)":
-                print("Labert fact ", lambert_factor)
+                # print("Labert fact ", lambert_factor)
                 direction, density = get_emitter_cone_surface_lambert_dir(
                     center=center,
                     center_normal=center_normal,

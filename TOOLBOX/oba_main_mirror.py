@@ -24,7 +24,19 @@ import FreeCADGui as Gui
 
 # from oba_objects.oba_base import OBAElementProxy
 
-from .oba_toolbox_base import OBAToolboxDialogBase, OBAToolboxViewProviderBase, focus_distance, install_properties, make_calculated_length, make_optical_type, restore_view_provider, set_property_if_changed, set_quantity_if_changed, rename_property
+from .oba_toolbox_base import (
+    OBAToolboxDialogBase,
+    OBAToolboxViewProviderBase,
+    OBAToolboxProxyBase,
+    focus_distance,
+    install_properties,
+    make_calculated_length,
+    make_optical_type,
+    restore_view_provider,
+    set_property_if_changed,
+    set_quantity_if_changed,
+    rename_property,
+)
 
 from OPTIMIZER.optimize_worker import is_optimization_running
 
@@ -48,7 +60,7 @@ MAIN_MIRROR_PROPERTIES = [
 ]
 
 
-class OBAMainMirror:
+class OBAMainMirror(OBAToolboxProxyBase):
     # ------------------------------------------------------------------
     # Construction objects belonging to this FeaturePython object
     #

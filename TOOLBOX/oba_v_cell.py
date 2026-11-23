@@ -40,7 +40,7 @@ V_CELL_PROPERTIES = [
     {"name": "CompMirrorHeight", "label": "Height", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 9.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "CompMirrorA", "label": "A_", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "CompMirrorB", "label": "B_", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 19.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "CompMirrorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "CompMirrorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # ==============================================================
     {"name": "CompMirrorRotZ", "label": "RotZ", "type": "App::PropertyAngle", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 180, "unit": "mm", "min": -360, "max": 360, "optuna_locked": False},
     # {"name": "CompMirrorY", "label": "Y", "type": "App::PropertyDistance", "group": "Comp Mirror", "parent_group": "Mirrors","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
@@ -48,8 +48,8 @@ V_CELL_PROPERTIES = [
     # ==============================================================
     # EMITTER
     # ==============================================================
-    {"name": "EmitterAPlaneWidth", "label": "A-Plane Width", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.2},
-    {"name": "EmitterAPlaneHeight", "label": "A-Plane Height", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.3, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.2},
+    {"name": "EmitterAPlaneWidth", "label": "A-Plane Width", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.1},
+    {"name": "EmitterAPlaneHeight", "label": "A-Plane Height", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.3, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.1},
     {"name": "EmitterAPlaneZoffset", "label": "A-Plane offset in Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
     {"name": "EmitterAPlaneYoffset", "label": "A-Plane offset in y", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
     {"name": "EmitterNormalOffset", "label": "Normal Offset", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.7, "unit": "mm", "min": 0, "max": 20, "optuna_locked": False},
@@ -57,25 +57,25 @@ V_CELL_PROPERTIES = [
     {"name": "EmitterFilterPlaneSize", "label": "-Filter Size", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "EmitterFilterPlaneOffset", "label": "Filter Offset", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.5, "unit": "mm", "min": -20, "max": 20, "step": 0.1, "optuna_locked": False},
     # ---
-    {"name": "EmitterA", "label": "-A_", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "EmitterB", "label": "B_", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 6.4, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "EmitterA", "label": "-A_", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 12.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "EmitterB", "label": "B_", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 7.2, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "EmitterRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "EmitterWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.9, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
+    {"name": "EmitterWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 1.3, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
     # {"name": "EmitterRotX", "label": "-Rot X", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     # {"name": "EmitterRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Emitter","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     # {"name": "EmitterRotZ", "label": "Rot Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": -3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     {"name": "EmitterAimX", "label": "-AimX", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
-    # {"name": "EmitterAimY", "label": "AimY", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
-    {"name": "EmitterAimZ", "label": "AimZ", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
+    {"name": "EmitterAimY", "label": "AimY", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
+    {"name": "EmitterAimZ", "label": "AimZ", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 2.5, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     #
     {"name": "EmitterPosX", "label": "-PosX", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
-    {"name": "EmitterOffsetY", "label": "OffsetY", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    {"name": "EmitterOffsetY", "label": "OffsetY", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 6.8, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     #
     # ==============================================================
     # DETECTOR
     # ==============================================================
-    {"name": "DetectorAPlaneWidth", "label": "A-Plane Width", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.8, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.2},
-    {"name": "DetectorAPlaneHeight", "label": "A-Plane Height", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.8, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.2},
+    {"name": "DetectorAPlaneWidth", "label": "A-Plane Width", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.8, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.1},
+    {"name": "DetectorAPlaneHeight", "label": "A-Plane Height", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.8, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.1},
     {"name": "DetectorAPlaneZoffset", "label": "A-Plane offset in Z", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
     {"name": "DetectorAPlaneYoffset", "label": "A-Plane offset in y", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
     {"name": "DetectorNormalOffset", "label": "Normal Offset", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.7, "unit": "mm", "min": 0, "max": 20, "optuna_locked": False},
@@ -84,18 +84,18 @@ V_CELL_PROPERTIES = [
     {"name": "DetectorFilterPlaneOffset", "label": "Filter Offset", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.5, "unit": "mm", "min": -20, "max": 20, "step": 0.1, "optuna_locked": False},
     # ....
     {"name": "DetectorA", "label": "-A_", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "DetectorB", "label": "B_", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 6.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
+    {"name": "DetectorB", "label": "B_", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 7.3, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "DetectorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "DetectorWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.9, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
+    {"name": "DetectorWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 1.3, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
     # {"name": "DetectorRotX", "label": "-Rot X", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
     # {"name": "DetectorRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Detector","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     # {"name": "DetectorRotZ", "label": "Rot Z", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
     {"name": "DetectorAimX", "label": "-AimX", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
-    # {"name": "DetectorAimY", "label": "AimY", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
-    {"name": "DetectorAimZ", "label": "AimZ", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
+    {"name": "DetectorAimY", "label": "AimY", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
+    {"name": "DetectorAimZ", "label": "AimZ", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 2.3, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     #
     {"name": "DetectorPosX", "label": "-PosX", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": -6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
-    {"name": "DetectorOffsetY", "label": "OffsetY", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": -6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    {"name": "DetectorOffsetY", "label": "OffsetY", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 6.8, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # ** OBS "App::PropertyDistance"  kan hantera negativa tal , "App::PropertyLength" kan inte göra det. Använder istället App::PropertyFloat
 ]
 
@@ -258,10 +258,10 @@ class OBAVCell:
                 # rot_z=float(obj.EmitterRotZ),
                 use_aim_point=True,
                 aim_x=float(obj.EmitterAimX),
-                aim_y=-float(obj.CompMirrorB),
+                aim_y=-float(obj.EmitterAimY),
                 aim_z=float(obj.EmitterAimZ),
                 x=float(obj.EmitterPosX),
-                y=-float(obj.CompMirrorB),
+                y=float(obj.CompMirrorB),
                 z=-float(obj.CompMirrorHeight) / 2.0,
                 suppress_onchange=True,
                 show_dialog=False,
@@ -287,11 +287,11 @@ class OBAVCell:
                 # rot_z=float(obj.DetectorRotZ),
                 use_aim_point=True,
                 aim_x=float(obj.DetectorAimX),
-                aim_y=-float(obj.CompMirrorB),
+                aim_y=-float(obj.DetectorAimY),
                 # aim_y=0.0,
                 aim_z=float(obj.DetectorAimZ),
                 x=float(obj.DetectorPosX),
-                y=-float(obj.CompMirrorB),
+                y=float(obj.CompMirrorB),
                 z=-float(obj.CompMirrorHeight) / 2.0,
                 suppress_onchange=True,
                 show_dialog=False,
@@ -465,7 +465,7 @@ class OBAVCell:
             # if hasattr(ellipsoid, "AimZ"):
             changed |= _set_float_if_changed(ellipsoid, "AimZ", getattr(obj, f"{prefix}AimZ"))
             # changed |= _set_float_if_changed(ellipsoid, "AimY", float(obj.CompMirrorB) - ellipsoid.Placement.Base.y)
-            changed |= _set_float_if_changed(ellipsoid, "AimY", -float(obj.CompMirrorB))
+            changed |= _set_float_if_changed(ellipsoid, "AimY", getattr(obj, f"{prefix}AimZ"))  # -float(obj.CompMirrorB))
 
             # ----------------------------------------------------------
             # Placement
@@ -608,8 +608,8 @@ class OBAVCell:
             # "EmitterRotX",
             # "EmitterRotY",
             # "EmitterRotZ",
-            "EmitterX",
-            # "EmitterY",
+            "EmitterPosX",
+            "EmitterOffsetY",
             # "EmitterZ",
             "EmitterAimX",
             "EmitterAimZ",
@@ -628,8 +628,8 @@ class OBAVCell:
             # "DetectorRotX",
             # "DetectorRotY",
             # "DetectorRotZ",
-            "DetectorX",
-            # "DetectorY",
+            "DetectorPosX",
+            "DetectorOffsetY",
             # "DetectorZ",
             "DetectorAimX",
             "DetectorAimZ",
@@ -786,6 +786,15 @@ class VCellViewProvider(OBAToolboxViewProviderBase):
     # ==================================================================
 
     def onDelete(self, vobj, subelements):
+        obj = getattr(self, "Object", None)
+        if obj is None:
+            return True
+        proxy = getattr(obj, "Proxy", None)
+        if proxy and hasattr(proxy, "delete"):
+            proxy.delete()
+        return True
+
+    def onDelete_old(self, vobj, subelements):
         obj = getattr(self, "Object", None)
         if obj is None:
             return True

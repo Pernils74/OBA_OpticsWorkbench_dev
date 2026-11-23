@@ -16,14 +16,26 @@ import FreeCADGui as Gui
 
 # from oba_objects.oba_base import OBAElementProxy
 
-from .oba_toolbox_base import OBAToolboxDialogBase, OBAToolboxViewProviderBase, focus_distance, install_properties, make_calculated_length, make_optical_type, restore_view_provider, set_quantity_if_changed, set_property_if_changed, rename_property
+from .oba_toolbox_base import (
+    OBAToolboxDialogBase,
+    OBAToolboxViewProviderBase,
+    OBAToolboxProxyBase,
+    focus_distance,
+    install_properties,
+    make_calculated_length,
+    make_optical_type,
+    restore_view_provider,
+    set_quantity_if_changed,
+    set_property_if_changed,
+    rename_property,
+)
 
 COMP_MIRROR_PROPERTIES = [
     {"name": "Width", "type": "App::PropertyLength", "group": "Main Mirror", "default": 100.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Width of the cube/body along X"},
     {"name": "Height", "type": "App::PropertyLength", "group": "Main Mirror", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Height of the cube/body along Z"},
     {"name": "A_", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 40.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Ellipsoid semi-major axis"},
     {"name": "B_", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Ellipsoid semi-minor radius"},
-    {"name": "Radius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Amount subtracted from Radius2 (B) to produce Radius3"},
+    {"name": "Radius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Ellipsoid", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "doc": "Amount subtracted from Radius2 (B) to produce Radius3"},
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 26.4575131106, "unit": "mm", "display_only": True, "doc": "Distance from ellipsoid centre to focus"},
     # {"name": "TiltAngle", "type": "App::PropertyAngle", "group": "Ellipsoid", "default": 0.0, "doc": "Tilt angle of the ellipsoids around the Z axis"},
     {"name": "ShowDebugEllipsoids", "type": "App::PropertyBool", "group": "Debug", "default": False, "doc": "Show ellipsoids for debugging"},
@@ -35,7 +47,7 @@ COMP_MIRROR_PROPERTIES = [
 ]
 
 
-class OBACompMirror:
+class OBACompMirror(OBAToolboxProxyBase):
     CHILD_OBJECTS = ("_cut", "_cube", "_ellipsoid", "_focus1", "_focus2")
 
     def _init_runtime_state(self):

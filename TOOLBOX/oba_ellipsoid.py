@@ -15,6 +15,7 @@ import FreeCADGui as Gui
 from .oba_toolbox_base import (
     OBAToolboxDialogBase,
     OBAToolboxViewProviderBase,
+    OBAToolboxProxyBase,
     focus_distance,
     install_properties,
     make_calculated_length,
@@ -52,7 +53,7 @@ ELLIPSOID_PROPERTIES = [
     # Orientation.
     # --------------------------------------------------------
     {"name": "RotX", "type": "App::PropertyAngle", "group": "Orientation", "unit": "deg", "min": -360, "max": 360, "enabled_when_not": "UseAimPoint", "doc": "Optical axis X rotation"},
-    {"name": "RotY", "type": "App::PropertyAngle", "group": "Orientation", "unit": "deg", "min": -360, "max": 360, "readonly": True, "doc": "Optical axis Y rotation"},
+    # {"name": "RotY", "type": "App::PropertyAngle", "group": "Orientation", "unit": "deg", "min": -360, "max": 360, "readonly": True, "doc": "Optical axis Y rotation"},
     {"name": "RotZ", "type": "App::PropertyAngle", "group": "Orientation", "unit": "deg", "min": -360, "max": 360, "enabled_when_not": "UseAimPoint", "doc": "Optical axis Z rotation"},
     {"name": "UseAimPoint", "type": "App::PropertyBool", "group": "Orientation", "doc": "Aim the optical axis at a point"},
     {"name": "AimX", "type": "App::PropertyFloat", "group": "Orientation", "unit": "mm", "min": -1_000_000, "max": 1_000_000, "enabled_when": "UseAimPoint", "doc": "Target X coordinate"},
@@ -69,7 +70,7 @@ ELLIPSOID_PROPERTIES = [
 # ============================================================
 
 
-class OBAEllipsoid:
+class OBAEllipsoid(OBAToolboxProxyBase):
 
     CHILD_OBJECTS = ("_box", "_box_ext", "_box_bound", "_fuse", "_ellipsoid", "_cut", "_focus1", "_focus2", "_focal_surface", "_filter_surface")
 
@@ -299,12 +300,12 @@ class OBAEllipsoid:
         rot0 = App.Rotation(App.Vector(0, 0, 1), 90).multiply(App.Rotation(App.Vector(0, 1, 0), 90))
 
         rotx = App.Rotation(App.Vector(1, 0, 0), float(obj.RotX))
-        roty = App.Rotation(App.Vector(0, 1, 0), float(obj.RotY))
+        # roty = App.Rotation(App.Vector(0, 1, 0), float(obj.RotY))
         rotz = App.Rotation(App.Vector(0, 0, -1), float(obj.RotZ))
 
         rotation = rot0
         rotation = rotx.multiply(rotation)  # Rotera X *efter* rot0
-        rotation = roty.multiply(rotation)  # Rotera Y *efter* det
+        # rotation = roty.multiply(rotation)  # Rotera Y *efter* det
         rotation = rotz.multiply(rotation)  # Rotera Z *sist*
 
         center_offset = rotation.multVec(App.Vector(0, 0, c))
@@ -510,15 +511,47 @@ class OBAEllipsoid:
             changed |= set_property_if_changed(self._focus2.ViewObject, "Visibility", bool(obj.ShowDebugFoci))
         return changed
 
-    def synchronize_aim_from_rotation(self, obj):
+    def synchronize_aim_from_rotation_old(self, obj):
         f1, f2 = self.focal_points_world(obj)
         set_property_if_changed(obj, "AimX", f2.x)
         set_property_if_changed(obj, "AimY", f2.y)
         set_property_if_changed(obj, "AimZ", f2.z)
 
+    def optical_axis_world(self, obj):
+        f1, f2 = self.focal_points_world(obj)
+
+        direction = f2 - f1
+        direction.normalize()
+
+        return direction
+
+    def synchronize_aim_from_rotation_old(self, obj, init=False):
+        f1, f2 = self.focal_points_world(obj)
+        print("[aim ]", f1, f2)
+        set_property_if_changed(obj, "AimX", f2.x)
+        set_property_if_changed(obj, "AimY", f2.y)
+        set_property_if_changed(obj, "AimZ", f2.z)
+
+    def synchronize_aim_from_rotation(self, obj, init=False):
+        f1, f2 = self.focal_points_world(obj)
+
+        if init:
+            target = f2
+        else:
+            direction = f2 - f1
+            direction.normalize()
+            target = f1 + direction * 1
+
+        set_property_if_changed(obj, "AimX", target.x)
+        set_property_if_changed(obj, "AimY", target.y)
+        set_property_if_changed(obj, "AimZ", target.z)
+
     def synchronize_rotation_from_aim(self, obj):
         target = App.Vector(float(obj.AimX), float(obj.AimY), float(obj.AimZ))
         direction = target - obj.Placement.Base
+
+        # f1, _ = self.focal_points_world(obj)
+        # direction = target - f1
 
         if direction.Length == 0:
             return
@@ -533,7 +566,6 @@ class OBAEllipsoid:
         # Om målet är i Y+ (rakt fram) och går upp i Z+
         rx_rad = math.atan2(direction.z, direction.y)
         rx = math.degrees(rx_rad)
-
         # 2. Ingen inneboende roll (RotY)
         ry = 0.0
 
@@ -543,11 +575,22 @@ class OBAEllipsoid:
         rz_rad = math.atan2(direction.x, yz_distance)
         rz = math.degrees(rz_rad)
 
+        # fix för att tillåta att man transformerar förbi aimx,y ..
+        horizontal = math.hypot(direction.x, direction.y)
+        rx = math.degrees(math.atan2(direction.z, horizontal))
+        rz = math.degrees(math.atan2(direction.x, direction.y))
+
         # print(f"Matchad med ellipsoiden -> RotX: {rx:.2f}°, RotY: {ry:.2f}°, RotZ: {rz:.2f}°")
+
+        # print("direction", direction)
+        # print("rx", rx)
+        # print("rz", rz)
+        # print("RotX", obj.RotX)
+        # print("RotZ", obj.RotZ)
 
         # 4. Tilldela till objektet
         set_quantity_if_changed(obj, "RotX", rx, "deg")
-        set_quantity_if_changed(obj, "RotY", ry, "deg")
+        # set_quantity_if_changed(obj, "RotY", ry, "deg")
         set_quantity_if_changed(obj, "RotZ", rz, "deg")
 
     def _is_dialog_open(self):
@@ -595,9 +638,9 @@ class OBAEllipsoid:
 
         try:
 
-            def printChangedIfTrue(changed, fromUpdate):
-                if changed:
-                    print(fromUpdate, " är changed", changed)
+            # def printChangedIfTrue(changed, fromUpdate):
+            #     if changed:
+            #         print(fromUpdate, " är changed", changed)
 
             changed = False
             changed |= self._update_ellipsoid(obj)
@@ -645,7 +688,8 @@ class OBAEllipsoid:
             return
 
         if prop in ("AimX", "AimY", "AimZ") and obj.UseAimPoint:
-            print("[Ellipsoi]d onChanged:", prop)
+            # print("[Ellipsoi]d onChanged:", prop)
+
             self._syncing_orientation = True
             try:
                 self.synchronize_rotation_from_aim(obj)
@@ -667,12 +711,6 @@ class OBAEllipsoid:
         # ----------------------------------------------------
         if prop in {"ShowDebugEllipsoid", "ShowDebugFoci"}:
             self._update_debug(obj)
-
-        print("[Ellipsoid] onChanged:", prop, self._rebuilding, self._syncing_orientation, self._initializing, self._suppress_onchange)
-        print("kommit förbi suppress_onchange")
-        # print("----------------")
-        # print(f"onChanged: {prop}, rebuilding={self._rebuilding}, syncing_ori={self._syncing_orientation} , init={self._initializing}", obj.UseAimPoint)
-        # print("value =", getattr(obj, prop))
 
         # ----------------------------------------------------
         # Geometry
@@ -714,11 +752,40 @@ class OBAEllipsoid:
         # ----------------------------------------------------
         # Main placement changed. This event is for the use of Transform Gizmo
         # ----------------------------------------------------
+
         if prop == "Placement" and not is_optimization_running():
             try:
+                rotation_applied = math.degrees(obj.Placement.Rotation.Angle) > 0.01
+
+                if rotation_applied:
+                    print("[Ellipsoid] Transform rotation ignored")
+                    obj.Placement = App.Placement(obj.Placement.Base, App.Rotation())
+                    return
+
+                if obj.UseAimPoint:
+                    self.synchronize_rotation_from_aim(obj)
+
                 self._rebuild(obj)
+
             except Exception as exc:
                 App.Console.PrintError("[OBA] Ellipsoid placement update failed: " f"{exc}\n")
+
+        # if prop == "Placement" and not is_optimization_running():
+        #     try:
+
+        #         rotation_applied = math.degrees(obj.Placement.Rotation.Angle) > 0.01
+
+        #         if rotation_applied:
+        #             print("[Ellipsoid] Transform rotation ignored")
+        #             obj.Placement = App.Placement(obj.Placement.Base, App.Rotation())
+
+        #         if obj.UseAimPoint:
+        #             self.synchronize_rotation_from_aim(obj)
+
+        #         self._rebuild(obj)
+
+        #     except Exception as exc:
+        #         App.Console.PrintError("[OBA] Ellipsoid placement update failed: " f"{exc}\n")
 
         # dialog = getattr(self, "_dialog", None)
         # if dialog:
@@ -732,17 +799,6 @@ class OBAEllipsoid:
         self._init_runtime_state()
         obj.Proxy = self
         self.Object = obj
-        # for legacy_property in ("UseIndependentRadius3", "B2"):
-        #     if legacy_property in obj.PropertiesList:
-        #         obj.removeProperty(legacy_property)
-
-        # rename_property(
-        #     obj,
-        #     "_A",
-        #     "A_",
-        #     "App::PropertyLength",
-        #     "Dimensions",
-        # )
 
         # rename_property(
         #     obj,
@@ -878,7 +934,7 @@ def OBA_CreateEllipsoid(
     obj.WidthFactor = float(widthfactor)
 
     obj.RotX = rot_x  # App.Units.Quantity(f"{rot_x} deg")
-    obj.RotY = rot_y  # App.Units.Quantity(f"{rot_y} deg")
+    # obj.RotY = rot_y  # App.Units.Quantity(f"{rot_y} deg")
     obj.RotZ = rot_z  # App.Units.Quantity(f"{rot_z} deg")
 
     obj.UseAimPoint = use_aim_point
@@ -889,7 +945,7 @@ def OBA_CreateEllipsoid(
 
     proxy._ensure_features(obj)
     proxy._update_ellipsoid(obj)
-    proxy.synchronize_aim_from_rotation(obj)  # för att sätta korrekta värden direkt
+    proxy.synchronize_aim_from_rotation(obj, init=True)  # för att sätta korrekta värden direkt
 
     # obj.ShowDebugEllipsoid = False
     obj.FocusDistance = focus_distance(float(a), float(b))
@@ -897,8 +953,6 @@ def OBA_CreateEllipsoid(
     # --------------------------------------------------------
     # Build the real Part::Ellipsoid once everything is ready.
     # --------------------------------------------------------
-
-    obj.Placement = App.Placement(App.Vector(x, y, z), App.Rotation())
 
     proxy._ensure_features(obj)
 

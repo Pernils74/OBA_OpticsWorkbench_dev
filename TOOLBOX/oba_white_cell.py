@@ -933,6 +933,15 @@ class WhiteCellViewProvider(OBAToolboxViewProviderBase):
         obj = getattr(self, "Object", None)
         if obj is None:
             return True
+        proxy = getattr(obj, "Proxy", None)
+        if proxy and hasattr(proxy, "delete"):
+            proxy.delete()
+        return True
+
+    def onDelete_old(self, vobj, subelements):
+        obj = getattr(self, "Object", None)
+        if obj is None:
+            return True
 
         doc = obj.Document
         for child in reversed(list(obj.Group)):
@@ -943,6 +952,7 @@ class WhiteCellViewProvider(OBAToolboxViewProviderBase):
                 child_proxy.delete()
             else:
                 doc.removeObject(child.Name)
+
         return True
 
 

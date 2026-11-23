@@ -199,6 +199,29 @@ def set_spreadsheet_references(obj, properties=None):
     App.Console.PrintMessage("Set {} Spreadsheet reference(s).\n".format(updated))
 
 
+class OBAToolboxProxyBase(OBAElementProxy):
+
+    def delete(self):
+
+        doc = self.Object.Document
+
+        for child in reversed(list(getattr(self.Object, "Group", []))):
+
+            child_proxy = getattr(child, "Proxy", None)
+
+            if child_proxy and hasattr(child_proxy, "delete"):
+                child_proxy.delete()
+
+            elif child and doc.getObject(child.Name):
+                doc.removeObject(child.Name)
+
+        if hasattr(self.Object, "Group"):
+            self.Object.Group = []
+
+        if doc.getObject(self.Object.Name):
+            doc.removeObject(self.Object.Name)
+
+
 class OBAToolboxViewProviderBase(OBAViewProviderBase):
     """Shared view-provider boilerplate for mirror components."""
 
