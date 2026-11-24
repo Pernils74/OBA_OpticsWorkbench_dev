@@ -29,6 +29,15 @@ def set_property_if_changed(obj, name, value):
     return True
 
 
+def set_float_if_changed(obj, name, value, tol=1e-9):
+    current = float(getattr(obj, name))
+    new = float(value)
+    if abs(current - new) < tol:
+        return False
+    setattr(obj, name, new)
+    return True
+
+
 def set_quantity_if_changed(obj, name, value, unit):
     current = float(getattr(obj, name))
     new = float(value)

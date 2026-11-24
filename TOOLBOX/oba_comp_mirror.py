@@ -27,6 +27,7 @@ from .oba_toolbox_base import (
     restore_view_provider,
     set_quantity_if_changed,
     set_property_if_changed,
+    set_float_if_changed,
     rename_property,
 )
 

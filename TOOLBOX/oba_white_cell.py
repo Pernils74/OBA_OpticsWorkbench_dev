@@ -42,6 +42,7 @@ from .oba_toolbox_base import (
     make_optical_type,
     restore_view_provider,
     set_quantity_if_changed,
+    set_float_if_changed,
 )
 
 from .oba_comp_mirror import OBA_CreateCompMirror
@@ -85,7 +86,7 @@ WHITE_CELL_PROPERTIES = [
     # {"name": "CompMirrorHeight", "label": "Height", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors","default": 30.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "CompMirrorA", "label": "A_", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "CompMirrorB", "label": "B_", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 19.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "CompMirrorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "CompMirrorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     # {"name": "CompMirrorX", "label": "X", "type": "App::PropertyDistance", "group": "Comp Mirror", "parent_group": "Mirrors","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # {"name": "CompMirrorY", "label": "Y", "type": "App::PropertyDistance", "group": "Comp Mirror", "parent_group": "Mirrors","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # {"name": "CompMirrorZ", "label": "Z", "type": "App::PropertyDistance", "group": "Comp Mirror", "parent_group": "Mirrors","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
@@ -103,7 +104,7 @@ WHITE_CELL_PROPERTIES = [
     # ---
     {"name": "EmitterA", "label": "-A_", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "EmitterB", "label": "B_", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 6.4, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "EmitterRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
+    {"name": "EmitterRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "EmitterWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.9, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
     {"name": "EmitterRotX", "label": "-Rot X", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     # {"name": "EmitterRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Emitter","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
@@ -125,7 +126,7 @@ WHITE_CELL_PROPERTIES = [
     # ....
     {"name": "DetectorA", "label": "-A_", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "DetectorB", "label": "B_", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 6.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "DetectorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
+    {"name": "DetectorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "DetectorWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.9, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
     {"name": "DetectorRotX", "label": "-Rot X", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
     # {"name": "DetectorRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Detector","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
@@ -151,15 +152,15 @@ def _set_property_if_changed(obj, name, value):
     return True
 
 
-def _set_float_if_changed(obj, name, value, tol=1e-9):
-    current = float(getattr(obj, name))
-    new = float(value)
+# def _set_float_if_changed(obj, name, value, tol=1e-9):
+#     current = float(getattr(obj, name))
+#     new = float(value)
 
-    if abs(current - new) < tol:
-        return False
+#     if abs(current - new) < tol:
+#         return False
 
-    setattr(obj, name, new)
-    return True
+#     setattr(obj, name, new)
+#     return True
 
 
 def _obj_exists(obj):
@@ -552,16 +553,16 @@ class OBAWhiteCell:
                 changed |= set_quantity_if_changed(ellipsoid, "FilterPlaneSize", getattr(obj, f"{prefix}FilterPlaneSize"), "mm")
 
                 # if hasattr(ellipsoid, "FilterPlaneOffset"):
-                changed |= _set_float_if_changed(ellipsoid, "FilterPlaneOffset", getattr(obj, f"{prefix}FilterPlaneOffset"))
+                changed |= set_float_if_changed(ellipsoid, "FilterPlaneOffset", getattr(obj, f"{prefix}FilterPlaneOffset"))
 
                 # if hasattr(ellipsoid, "APlaneZoffset"):
-                changed |= _set_float_if_changed(ellipsoid, "APlaneZoffset", getattr(obj, f"{prefix}APlaneZoffset"))
+                changed |= set_float_if_changed(ellipsoid, "APlaneZoffset", getattr(obj, f"{prefix}APlaneZoffset"))
 
                 # if hasattr(ellipsoid, "APlaneYoffset"):
-                changed |= _set_float_if_changed(ellipsoid, "APlaneYoffset", getattr(obj, f"{prefix}APlaneYoffset"))
+                changed |= set_float_if_changed(ellipsoid, "APlaneYoffset", getattr(obj, f"{prefix}APlaneYoffset"))
 
                 # if hasattr(ellipsoid, "WidthFactor"):
-                changed |= _set_float_if_changed(ellipsoid, "WidthFactor", getattr(obj, f"{prefix}WidthFactor"))
+                changed |= set_float_if_changed(ellipsoid, "WidthFactor", getattr(obj, f"{prefix}WidthFactor"))
 
                 # if hasattr(ellipsoid, "A_"):
                 changed |= set_quantity_if_changed(ellipsoid, "A_", getattr(obj, f"{prefix}A"), "mm")

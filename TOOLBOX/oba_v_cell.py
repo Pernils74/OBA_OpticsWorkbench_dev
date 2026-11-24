@@ -13,6 +13,9 @@ from .oba_toolbox_base import (
     make_optical_type,
     restore_view_provider,
     set_quantity_if_changed,
+    set_property_if_changed,
+    set_float_if_changed,
+    set_float_if_changed,
 )
 
 from .oba_comp_mirror import OBA_CreateCompMirror
@@ -38,8 +41,8 @@ V_CELL_PROPERTIES = [
     # ==============================================================
     {"name": "CompMirrorWidth", "label": "Width", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 1},
     {"name": "CompMirrorHeight", "label": "Height", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 9.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "CompMirrorA", "label": "A_", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "CompMirrorB", "label": "B_", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 19.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "CompMirrorA", "label": "A_", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False, "step": 0.5},
+    {"name": "CompMirrorB", "label": "B_", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 19.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False, "step": 0.5},
     {"name": "CompMirrorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # ==============================================================
     {"name": "CompMirrorRotZ", "label": "RotZ", "type": "App::PropertyAngle", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 180, "unit": "mm", "min": -360, "max": 360, "optuna_locked": False},
@@ -59,7 +62,7 @@ V_CELL_PROPERTIES = [
     # ---
     {"name": "EmitterA", "label": "-A_", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 12.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "EmitterB", "label": "B_", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 7.2, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
-    {"name": "EmitterRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
+    {"name": "EmitterRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "EmitterWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 1.3, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
     # {"name": "EmitterRotX", "label": "-Rot X", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     # {"name": "EmitterRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Emitter","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
@@ -85,7 +88,7 @@ V_CELL_PROPERTIES = [
     # ....
     {"name": "DetectorA", "label": "-A_", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "DetectorB", "label": "B_", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 7.3, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "DetectorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
+    {"name": "DetectorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "DetectorWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 1.3, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
     # {"name": "DetectorRotX", "label": "-Rot X", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
     # {"name": "DetectorRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Detector","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
@@ -104,21 +107,21 @@ V_CELL_PROPERTIES = [
 # ======================================================================
 
 
-def _set_property_if_changed(obj, name, value):
-    current = getattr(obj, name)
-    if current == value:
-        return False
-    setattr(obj, name, value)
-    return True
+# def _set_property_if_changed(obj, name, value):
+#     current = getattr(obj, name)
+#     if current == value:
+#         return False
+#     setattr(obj, name, value)
+#     return True
 
 
-def _set_float_if_changed(obj, name, value, tol=1e-9):
-    current = float(getattr(obj, name))
-    new = float(value)
-    if abs(current - new) < tol:
-        return False
-    setattr(obj, name, new)
-    return True
+# def _set_float_if_changed(obj, name, value, tol=1e-9):
+#     current = float(getattr(obj, name))
+#     new = float(value)
+#     if abs(current - new) < tol:
+#         return False
+#     setattr(obj, name, new)
+#     return True
 
 
 def _obj_exists(obj):
@@ -227,8 +230,8 @@ class OBAVCell:
                 label=f"{obj.Label} Comp Mirror",
                 width=float(obj.CompMirrorWidth),
                 height=float(obj.CompMirrorHeight),
-                a=float(obj.CompMirrorA),
-                b=float(obj.CompMirrorB),
+                a=(obj.CompMirrorA),
+                b=(obj.CompMirrorB),
                 radius3_offset=float(obj.CompMirrorRadius3Offset),
                 x=0,
                 y=0,
@@ -279,8 +282,8 @@ class OBAVCell:
                 aplaneheight=float(obj.DetectorAPlaneHeight),
                 aplaneZoffset=float(obj.DetectorAPlaneZoffset),
                 aplaneYoffset=float(obj.DetectorAPlaneYoffset),
-                a=float(obj.DetectorA),
-                b=float(obj.DetectorB),
+                a=(obj.DetectorA),
+                b=(obj.DetectorB),
                 radius3_offset=float(obj.DetectorRadius3Offset),
                 # rot_x=float(obj.DetectorRotX),
                 # rot_y=0,  # float(obj.DetectorRotY),
@@ -384,7 +387,7 @@ class OBAVCell:
             #     obj.EmitterAimY = obj.CompMirrorB
             #     obj.DetectorAimY = obj.CompMirrorB
 
-            changed |= set_quantity_if_changed(mirror, "Radius3Offset", obj.CompMirrorRadius3Offset, "mm")
+            changed |= set_float_if_changed(mirror, "Radius3Offset", obj.CompMirrorRadius3Offset)
 
             # mirror.Placement = App.Placement(
             #         App.Vector(
@@ -425,10 +428,10 @@ class OBAVCell:
             changed |= set_quantity_if_changed(ellipsoid, "APlaneWidth", getattr(obj, f"{prefix}APlaneWidth"), "mm")
             changed |= set_quantity_if_changed(ellipsoid, "APlaneHeight", getattr(obj, f"{prefix}APlaneHeight"), "mm")
             changed |= set_quantity_if_changed(ellipsoid, "FilterPlaneSize", getattr(obj, f"{prefix}FilterPlaneSize"), "mm")
-            changed |= _set_float_if_changed(ellipsoid, "FilterPlaneOffset", getattr(obj, f"{prefix}FilterPlaneOffset"))
-            changed |= _set_float_if_changed(ellipsoid, "APlaneZoffset", getattr(obj, f"{prefix}APlaneZoffset"))
-            changed |= _set_float_if_changed(ellipsoid, "APlaneYoffset", getattr(obj, f"{prefix}APlaneYoffset"))
-            changed |= _set_float_if_changed(ellipsoid, "WidthFactor", getattr(obj, f"{prefix}WidthFactor"))
+            changed |= set_float_if_changed(ellipsoid, "FilterPlaneOffset", getattr(obj, f"{prefix}FilterPlaneOffset"))
+            changed |= set_float_if_changed(ellipsoid, "APlaneZoffset", getattr(obj, f"{prefix}APlaneZoffset"))
+            changed |= set_float_if_changed(ellipsoid, "APlaneYoffset", getattr(obj, f"{prefix}APlaneYoffset"))
+            changed |= set_float_if_changed(ellipsoid, "WidthFactor", getattr(obj, f"{prefix}WidthFactor"))
             changed |= set_quantity_if_changed(ellipsoid, "A_", getattr(obj, f"{prefix}A"), "mm")
             changed |= set_quantity_if_changed(ellipsoid, "B_", getattr(obj, f"{prefix}B"), "mm")
             changed |= set_quantity_if_changed(ellipsoid, "Radius3Offset", getattr(obj, f"{prefix}Radius3Offset"), "mm")
@@ -461,11 +464,11 @@ class OBAVCell:
                 ellipsoid.Placement = new_placement
                 changed = True
 
-            changed |= _set_float_if_changed(ellipsoid, "AimX", getattr(obj, f"{prefix}AimX"))
+            changed |= set_float_if_changed(ellipsoid, "AimX", getattr(obj, f"{prefix}AimX"))
             # if hasattr(ellipsoid, "AimZ"):
-            changed |= _set_float_if_changed(ellipsoid, "AimZ", getattr(obj, f"{prefix}AimZ"))
+            changed |= set_float_if_changed(ellipsoid, "AimZ", getattr(obj, f"{prefix}AimZ"))
             # changed |= _set_float_if_changed(ellipsoid, "AimY", float(obj.CompMirrorB) - ellipsoid.Placement.Base.y)
-            changed |= _set_float_if_changed(ellipsoid, "AimY", getattr(obj, f"{prefix}AimZ"))  # -float(obj.CompMirrorB))
+            changed |= set_float_if_changed(ellipsoid, "AimY", getattr(obj, f"{prefix}AimZ"))  # -float(obj.CompMirrorB))
 
             # ----------------------------------------------------------
             # Placement
