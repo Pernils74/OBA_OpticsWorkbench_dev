@@ -4,6 +4,8 @@
 import FreeCAD as App
 import FreeCADGui as Gui
 
+import math
+
 from PySide import QtWidgets
 
 from .oba_toolbox_base import (
@@ -29,6 +31,12 @@ from .xgboost_parameter_optimizer_dialog import XGBoostParameterOptimizerDialog
 # P R O P E R T I E S
 # ======================================================================
 
+V_CELL_GROUPS = {
+    "Comp Mirror": {"visible_when_not": "UseSimpleEndMirror"},
+    "Simple Mirror": {"visible_when": "UseSimpleEndMirror"},
+}
+
+
 V_CELL_PROPERTIES = [
     # ==============================================================
     # CHILD OBJECTS
@@ -36,18 +44,32 @@ V_CELL_PROPERTIES = [
     {"name": "CompMirror", "type": "App::PropertyLink", "group": "Child objects", "visible": False, "doc": "Comp Mirror belonging to this V Cell"},
     {"name": "Emitter", "type": "App::PropertyLink", "group": "Child objects", "visible": False, "doc": "Emitter ellipsoid belonging to this V Cell"},
     {"name": "Detector", "type": "App::PropertyLink", "group": "Child objects", "visible": False, "doc": "Detector ellipsoid belonging to this V Cell"},
+    # Flagga för simpel mirror
+    {"name": "UseSimpleEndMirror", "type": "App::PropertyBool", "group": "SimpleEndMirror", "default": True, "doc": "Switch between elipsoid och simple draftet end mirror"},
+    # ==============================================================
+    # SIMPLE MIRROR
+    # ==============================================================
+    {"name": "SimpleMirrorRadius", "label": "Inner R", "type": "App::PropertyLength", "group": "Simple Mirror", "parent_group": "End Mirror", "default": 21.0, "unit": "mm", "optuna_locked": True},
+    {"name": "SimpleMirrorDraftAngle", "label": "Draft Angle", "type": "App::PropertyAngle", "group": "Simple Mirror", "parent_group": "End Mirror", "default": -2.0, "optuna_locked": True},
+    {"name": "SimpleMirrorThickness", "label": "Thickness", "type": "App::PropertyLength", "group": "Simple Mirror", "parent_group": "End Mirror", "default": 0.5, "unit": "mm", "optuna_locked": True},
+    {"name": "SimpleMirrorHeight", "label": "Length", "type": "App::PropertyLength", "group": "Simple Mirror", "parent_group": "End Mirror", "default": 10.0, "unit": "mm", "optuna_locked": True},
+    {"name": "SimpleMirrorAngle", "label": "--Opening Angle", "type": "App::PropertyAngle", "group": "Simple Mirror", "parent_group": "End Mirror", "default": 100.0, "optuna_locked": True},
+    # {"name": "SimpleMirrorX", "label": "X", "type": "App::PropertyFloat", "group": "Simple Mirror", "parent_group": "End Mirror", "default": 0.0, "unit": "mm"},
+    # {"name": "SimpleMirrorY", "label": "Y", "type": "App::PropertyFloat", "group": "Simple Mirror", "parent_group": "End Mirror", "default": 0.0, "unit": "mm"},
+    # {"name": "SimpleMirrorZ", "label": "Z", "type": "App::PropertyFloat", "group": "Simple Mirror", "parent_group": "End Mirror", "default": 0.0, "unit": "mm"},
+    {"name": "SimpleMirrorCenterAngle", "label": "Center Angle", "type": "App::PropertyAngle", "group": "Simple Mirror", "parent_group": "End Mirror", "default": 270.0, "optuna_locked": True},
     # ==============================================================
     # COMP MIRROR
     # ==============================================================
-    {"name": "CompMirrorWidth", "label": "Width", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 1},
-    {"name": "CompMirrorHeight", "label": "Height", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 9.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
-    {"name": "CompMirrorA", "label": "A_", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False, "step": 0.5},
-    {"name": "CompMirrorB", "label": "B_", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 19.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False, "step": 0.5},
-    {"name": "CompMirrorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    {"name": "CompMirrorWidth", "label": "Width", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "End Mirror", "default": 30.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 1, "visible_when_not": "UseSimpleEndMirror"},
+    {"name": "CompMirrorHeight", "label": "Height", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "End Mirror", "default": 9.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "visible_when_not": "UseSimpleEndMirror"},
+    {"name": "CompMirrorA", "label": "A_", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "End Mirror", "default": 20.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False, "step": 0.5, "visible_when_not": "UseSimpleEndMirror"},
+    {"name": "CompMirrorB", "label": "B_", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "End Mirror", "default": 19.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False, "step": 0.5, "visible_when_not": "UseSimpleEndMirror"},
+    {"name": "CompMirrorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Comp Mirror", "parent_group": "End Mirror", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False, "visible_when_not": "UseSimpleEndMirror"},
     # ==============================================================
-    {"name": "CompMirrorRotZ", "label": "RotZ", "type": "App::PropertyAngle", "group": "Comp Mirror", "parent_group": "Mirrors", "default": 180, "unit": "mm", "min": -360, "max": 360, "optuna_locked": False},
-    # {"name": "CompMirrorY", "label": "Y", "type": "App::PropertyDistance", "group": "Comp Mirror", "parent_group": "Mirrors","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
-    # {"name": "CompMirrorZ", "label": "Z", "type": "App::PropertyDistance", "group": "Comp Mirror", "parent_group": "Mirrors","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    {"name": "CompMirrorRotZ", "label": "RotZ", "type": "App::PropertyAngle", "group": "Comp Mirror", "parent_group": "End Mirror", "default": 180, "unit": "mm", "min": -360, "max": 360, "optuna_locked": False},
+    # {"name": "CompMirrorY", "label": "Y", "type": "App::PropertyDistance", "group": "Comp Mirror", "parent_group": "End Mirror","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    # {"name": "CompMirrorZ", "label": "Z", "type": "App::PropertyDistance", "group": "Comp Mirror", "parent_group": "End Mirror","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # ==============================================================
     # EMITTER
     # ==============================================================
@@ -55,23 +77,23 @@ V_CELL_PROPERTIES = [
     {"name": "EmitterAPlaneHeight", "label": "A-Plane Height", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.3, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.1},
     {"name": "EmitterAPlaneZoffset", "label": "A-Plane offset in Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
     {"name": "EmitterAPlaneYoffset", "label": "A-Plane offset in y", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
-    {"name": "EmitterNormalOffset", "label": "Normal Offset", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.7, "unit": "mm", "min": 0, "max": 20, "optuna_locked": False},
+    {"name": "EmitterNormalOffset", "label": "Normal Offset", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 20, "optuna_locked": False, "step": 0.1},
     # Filter
-    {"name": "EmitterFilterPlaneSize", "label": "-Filter Size", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "EmitterFilterPlaneSize", "label": "--Filter Size", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "EmitterFilterPlaneOffset", "label": "Filter Offset", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.5, "unit": "mm", "min": -20, "max": 20, "step": 0.1, "optuna_locked": False},
     # ---
-    {"name": "EmitterA", "label": "-A_", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 12.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "EmitterA", "label": "--A_", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 12.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "EmitterB", "label": "B_", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 7.2, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "EmitterRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "EmitterWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 1.3, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
     # {"name": "EmitterRotX", "label": "-Rot X", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     # {"name": "EmitterRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Emitter","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     # {"name": "EmitterRotZ", "label": "Rot Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": -3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
-    {"name": "EmitterAimX", "label": "-AimX", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
+    {"name": "EmitterAimX", "label": "--AimX", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     {"name": "EmitterAimY", "label": "AimY", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     {"name": "EmitterAimZ", "label": "AimZ", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 2.5, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     #
-    {"name": "EmitterPosX", "label": "-PosX", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    {"name": "EmitterPosX", "label": "--PosX", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     {"name": "EmitterOffsetY", "label": "OffsetY", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 6.8, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     #
     # ==============================================================
@@ -81,23 +103,23 @@ V_CELL_PROPERTIES = [
     {"name": "DetectorAPlaneHeight", "label": "A-Plane Height", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.8, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.1},
     {"name": "DetectorAPlaneZoffset", "label": "A-Plane offset in Z", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
     {"name": "DetectorAPlaneYoffset", "label": "A-Plane offset in y", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
-    {"name": "DetectorNormalOffset", "label": "Normal Offset", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.7, "unit": "mm", "min": 0, "max": 20, "optuna_locked": False},
+    {"name": "DetectorNormalOffset", "label": "Normal Offset", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 0.1, "unit": "mm", "min": 0, "max": 20, "optuna_locked": False, "step": 0.1},
     # Filter
-    {"name": "DetectorFilterPlaneSize", "label": "-Filter Size", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 2.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
+    {"name": "DetectorFilterPlaneSize", "label": "--Filter Size", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 2.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "DetectorFilterPlaneOffset", "label": "Filter Offset", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.5, "unit": "mm", "min": -20, "max": 20, "step": 0.1, "optuna_locked": False},
     # ....
-    {"name": "DetectorA", "label": "-A_", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
+    {"name": "DetectorA", "label": "--A_", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "DetectorB", "label": "B_", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 7.3, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "DetectorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "DetectorWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 1.3, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
     # {"name": "DetectorRotX", "label": "-Rot X", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
     # {"name": "DetectorRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Detector","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     # {"name": "DetectorRotZ", "label": "Rot Z", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
-    {"name": "DetectorAimX", "label": "-AimX", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
+    {"name": "DetectorAimX", "label": "--AimX", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     {"name": "DetectorAimY", "label": "AimY", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     {"name": "DetectorAimZ", "label": "AimZ", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 2.3, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     #
-    {"name": "DetectorPosX", "label": "-PosX", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": -6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
+    {"name": "DetectorPosX", "label": "--PosX", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": -6.1, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     {"name": "DetectorOffsetY", "label": "OffsetY", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 6.8, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # ** OBS "App::PropertyDistance"  kan hantera negativa tal , "App::PropertyLength" kan inte göra det. Använder istället App::PropertyFloat
 ]
@@ -105,23 +127,6 @@ V_CELL_PROPERTIES = [
 # ======================================================================
 # H E L P E R S
 # ======================================================================
-
-
-# def _set_property_if_changed(obj, name, value):
-#     current = getattr(obj, name)
-#     if current == value:
-#         return False
-#     setattr(obj, name, value)
-#     return True
-
-
-# def _set_float_if_changed(obj, name, value, tol=1e-9):
-#     current = float(getattr(obj, name))
-#     new = float(value)
-#     if abs(current - new) < tol:
-#         return False
-#     setattr(obj, name, new)
-#     return True
 
 
 def _obj_exists(obj):
@@ -157,6 +162,10 @@ class OBAVCell:
         self._initializing = True
         self._rebuilding = False
 
+        self._simpleOuterCone = None
+        self._simpleInnerCone = None
+        self._simpleMirror = None
+
         self._compMirror = None
         self._emitter = None
         self._detector = None
@@ -172,16 +181,7 @@ class OBAVCell:
         obj.Proxy = self
         self.Object = obj
 
-        # print("EmitterX before =", obj.EmitterX)
-        # print("DetectorX before =", obj.DetectorX)
-
         install_properties(obj, V_CELL_PROPERTIES)
-
-        # print("EmitterX type :", obj.getTypeIdOfProperty("EmitterX"))
-        # print("DetectorX type:", obj.getTypeIdOfProperty("DetectorX"))
-
-        # print("EmitterX expr :", obj.getExpression("EmitterX"))
-        # print("DetectorX expr:", obj.getExpression("DetectorX"))
 
         obj.addProperty("App::PropertyLinkList", "Group", "Base", "Owned children")
 
@@ -219,6 +219,16 @@ class OBAVCell:
         self._compMirror = obj.CompMirror if _obj_exists(getattr(obj, "CompMirror", None)) else None
         self._emitter = obj.Emitter if _obj_exists(getattr(obj, "Emitter", None)) else None
         self._detector = obj.Detector if _obj_exists(getattr(obj, "Detector", None)) else None
+
+        if self._simpleOuterCone is None:
+            self._simpleOuterCone = self._get_or_create(doc, f"{obj.Name}_SimpleOuterCone", "Part::Cone", f"{obj.Label} Simple Outer Cone")
+        if self._simpleInnerCone is None:
+            self._simpleInnerCone = self._get_or_create(doc, f"{obj.Name}_SimpleInnerCone", "Part::Cone", f"{obj.Label} Simple Inner Cone")
+        if self._simpleMirror is None:
+            self._simpleMirror = self._get_or_create(doc, f"{obj.Name}_SimpleMirror", "Part::Cut", f"{obj.Label} Simple Mirror")
+
+        self._simpleMirror.Base = self._simpleOuterCone
+        self._simpleMirror.Tool = self._simpleInnerCone
 
         # ----------------------------------------------------------
         # Comp Mirror
@@ -265,7 +275,7 @@ class OBAVCell:
                 aim_z=float(obj.EmitterAimZ),
                 x=float(obj.EmitterPosX),
                 y=float(obj.CompMirrorB),
-                z=-float(obj.CompMirrorHeight) / 2.0,
+                z=-float(obj.CompMirrorHeight) / 2.0 + float(obj.EmitterNormalOffset),
                 suppress_onchange=True,
                 show_dialog=False,
             )
@@ -295,55 +305,16 @@ class OBAVCell:
                 aim_z=float(obj.DetectorAimZ),
                 x=float(obj.DetectorPosX),
                 y=float(obj.CompMirrorB),
-                z=-float(obj.CompMirrorHeight) / 2.0,
+                z=-float(obj.CompMirrorHeight) / 2.0 + +float(obj.DetectorNormalOffset),
                 suppress_onchange=True,
                 show_dialog=False,
             )
 
         # ----------------------------------------------------------
-        # Cut emitter
-        # ----------------------------------------------------------
-
-        # self._cutEmitter = self._get_or_create(
-        #     doc,
-        #     f"{obj.Name}_CutEmitter",
-        #     "Part::Cut",
-        #     f"{obj.Label} {self._compMirror.Label} Cut",
-        # )
-        # changed = False
-        # changed |= _set_link_if_changed(self._cutEmitter, "Base", self._compMirror.Proxy._cut)
-        # changed |= _set_link_if_changed(self._cutEmitter, "Tool", self._emitter.Proxy._box_bound)
-
-        # ----------------------------------------------------------
-        # Cut detector
-        # ----------------------------------------------------------
-
-        # self._cutDetector = self._get_or_create(
-        #     doc,
-        #     f"{obj.Name}_CutDetector",
-        #     "Part::Cut",
-        #     f"{obj.Label} Cut CompMirror",
-        # )
-        # changed |= _set_link_if_changed(self._cutDetector, "Base", self._cutEmitter)
-        # changed |= _set_link_if_changed(self._cutDetector, "Tool", self._detector.Proxy._box_bound)
-
-        # ----------------------------------------------------------
-        # Visibility
-        # ----------------------------------------------------------
-
-        # self._compMirror.Proxy._cut.ViewObject.hide()
-
-        # ----------------------------------------------------------
         # Group ownership
         # ----------------------------------------------------------
 
-        group = [
-            self._compMirror,
-            self._emitter,
-            self._detector,
-            # self._cutEmitter,
-            # self._cutDetector,
-        ]
+        group = [self._compMirror, self._emitter, self._detector, self._simpleMirror]
 
         group = [child for child in group if child is not None]
 
@@ -365,6 +336,107 @@ class OBAVCell:
         obj.Detector = self._detector
 
     # ==================================================================
+    # U P D A T E   S I M P L E  M I R R O R
+    # ==================================================================
+
+    def _update_simple_mirror(self, obj):
+        outer = self._simpleOuterCone
+        inner = self._simpleInnerCone
+        changed = False
+
+        thickness = float(obj.SimpleMirrorThickness)
+        inner_r1 = float(obj.SimpleMirrorRadius)
+        h = float(obj.SimpleMirrorHeight)
+
+        draft_angle = math.radians(float(obj.SimpleMirrorDraftAngle))
+        inner_r2 = inner_r1 + math.tan(draft_angle) * h
+
+        changed |= set_quantity_if_changed(outer, "Radius1", inner_r1 + thickness, "mm")
+        changed |= set_quantity_if_changed(outer, "Radius2", inner_r2 + thickness, "mm")
+
+        changed |= set_quantity_if_changed(inner, "Radius1", inner_r1, "mm")
+        changed |= set_quantity_if_changed(inner, "Radius2", inner_r2, "mm")
+
+        changed |= set_quantity_if_changed(outer, "Height", h, "mm")
+
+        changed |= set_quantity_if_changed(outer, "Angle", obj.SimpleMirrorAngle, "deg")
+        changed |= set_quantity_if_changed(inner, "Angle", obj.SimpleMirrorAngle, "deg")
+
+        changed |= set_quantity_if_changed(inner, "Height", h, "mm")
+
+        opening_angle = float(obj.SimpleMirrorAngle)
+        center_angle = float(obj.SimpleMirrorCenterAngle)
+
+        sector_rotation = center_angle - opening_angle * 0.5
+
+        placement = App.Placement(
+            App.Vector(
+                0,
+                inner_r1,
+                0,
+            ),
+            App.Rotation(
+                App.Vector(0, 0, 1),
+                sector_rotation,
+            ),
+        )
+
+        if outer.Placement != placement:
+            outer.Placement = placement
+            changed = True
+
+        if inner.Placement != placement:
+            inner.Placement = placement
+            changed = True
+
+        return changed
+
+    def _update_simple_mirror_old(self, obj):
+
+        outer = self._simpleOuterCone
+        inner = self._simpleInnerCone
+
+        thickness = float(obj.SimpleMirrorThickness)
+        inner_r1 = float(obj.SimpleMirrorRadius)
+        h = float(obj.SimpleMirrorHeight)
+
+        draft_angle = math.radians(float(obj.SimpleMirrorDraftAngle))
+        inner_r2 = inner_r1 + math.tan(draft_angle) * h
+
+        set_quantity_if_changed(outer, "Radius1", inner_r1 + thickness, "mm")
+        set_quantity_if_changed(outer, "Radius2", inner_r2 + thickness, "mm")
+
+        set_quantity_if_changed(inner, "Radius1", inner_r1, "mm")
+        set_quantity_if_changed(inner, "Radius2", inner_r2, "mm")
+
+        set_quantity_if_changed(outer, "Height", h, "mm")
+
+        set_quantity_if_changed(outer, "Angle", obj.SimpleMirrorAngle, "deg")
+        set_quantity_if_changed(inner, "Angle", obj.SimpleMirrorAngle, "deg")
+
+        set_quantity_if_changed(inner, "Height", h, "mm")
+
+        opening_angle = float(obj.SimpleMirrorAngle)
+        center_angle = float(obj.SimpleMirrorCenterAngle)
+
+        sector_rotation = center_angle - opening_angle * 0.5
+
+        placement = App.Placement(
+            App.Vector(
+                0,
+                inner_r1,
+                0,
+            ),
+            App.Rotation(
+                App.Vector(0, 0, 1),
+                sector_rotation,
+            ),
+        )
+
+        outer.Placement = placement
+        inner.Placement = placement
+
+    # ==================================================================
     # U P D A T E   C O M P   M I R R O R
     # ==================================================================
 
@@ -383,20 +455,8 @@ class OBAVCell:
 
             changed |= set_quantity_if_changed(mirror, "A_", obj.CompMirrorA, "mm")
             changed |= set_quantity_if_changed(mirror, "B_", obj.CompMirrorB, "mm")
-            # if set_quantity_if_changed(mirror, "B_", obj.CompMirrorB, "mm"):
-            #     obj.EmitterAimY = obj.CompMirrorB
-            #     obj.DetectorAimY = obj.CompMirrorB
 
             changed |= set_float_if_changed(mirror, "Radius3Offset", obj.CompMirrorRadius3Offset)
-
-            # mirror.Placement = App.Placement(
-            #         App.Vector(
-            #             0,  # float(obj.CompMirrorX),
-            #             0,  #  float(obj.CompMirrorY),
-            #             0,  #  float(obj.CompMirrorZ),
-            #         ),
-            #         App.Rotation(),
-            #     )
 
         finally:
             if proxy is not None:
@@ -408,8 +468,9 @@ class OBAVCell:
                 # print(mirror.Name, mirror.State)
 
         except Exception as exc:
-
             App.Console.PrintError("[OBA] Failed to rebuild Comp Mirror " f"from V Cell: {exc}\n")
+
+        return changed
 
     # ==================================================================
     # U P D A T E   E L L I P S O I D
@@ -439,23 +500,27 @@ class OBAVCell:
             # ----------------------------------------------------------
             # Aiming
             # ----------------------------------------------------------
-            # changed |= _set_float_if_changed(ellipsoid, "PosX", getattr(obj, f"{prefix}X"))
-            # changed |= _set_float_if_changed(ellipsoid, "OffsetY", getattr(obj, f"{prefix}OffsetY"))
-
-            focus1, focus2 = self._compMirror.Proxy.get_focus_points()
-
-            focus = focus1 if prefix == "Emitter" else focus2
-
-            print(f"([ focus {prefix}])", focus1, focus2, focus)
 
             pos_x = float(getattr(obj, f"{prefix}PosX"))
             offset_y = float(getattr(obj, f"{prefix}OffsetY"))
+            inner_r1 = float(obj.SimpleMirrorRadius)
+            normal_offset = float(getattr(obj, f"{prefix}NormalOffset"))
+
+            if obj.UseSimpleEndMirror:
+                y = inner_r1 + offset_y
+                z = normal_offset
+            else:
+                focus1, focus2 = self._compMirror.Proxy.get_focus_points()
+                focus = focus1 if prefix == "Emitter" else focus2
+
+                y = focus.y + offset_y
+                z = -float(obj.CompMirrorHeight) / 2 + normal_offset
 
             new_placement = App.Placement(
                 App.Vector(
                     pos_x,
-                    focus.y + offset_y,
-                    -float(obj.CompMirrorHeight) / 2,
+                    y,
+                    z,
                 ),
                 App.Rotation(),
             )
@@ -465,9 +530,7 @@ class OBAVCell:
                 changed = True
 
             changed |= set_float_if_changed(ellipsoid, "AimX", getattr(obj, f"{prefix}AimX"))
-            # if hasattr(ellipsoid, "AimZ"):
             changed |= set_float_if_changed(ellipsoid, "AimZ", getattr(obj, f"{prefix}AimZ"))
-            # changed |= _set_float_if_changed(ellipsoid, "AimY", float(obj.CompMirrorB) - ellipsoid.Placement.Base.y)
             changed |= set_float_if_changed(ellipsoid, "AimY", getattr(obj, f"{prefix}AimZ"))  # -float(obj.CompMirrorB))
 
             # ----------------------------------------------------------
@@ -484,10 +547,9 @@ class OBAVCell:
         try:
             if proxy is not None and changed:
                 proxy._rebuild(ellipsoid)
-                pass
-
         except Exception as exc:
             App.Console.PrintError(f"[OBA] Failed to rebuild {prefix} " f"from V Cell: {exc}\n")
+        return changed
 
     # ==================================================================
     # R E B U I L D
@@ -504,19 +566,12 @@ class OBAVCell:
             # print("  skip: rebuilding")
             return
 
-        # print("  dirty =", self._dirty)
-
-        # for objekt in ("_emitter", "_detector", "_compMirror"):
-        #     print(f"---- {objekt} suppress onchange:", getattr(getattr(self, objekt).Proxy, "_suppress_onchange", None))
-
         if not self._dirty:
             # print("  skip: not dirty")
             return
 
-        # print("  rebuilding...")
         self._rebuild(obj)
         self._dirty = False
-        # print("  rebuild done")
 
     def _update_dependent_optics(self, obj):
         self._update_ellipsoid(self._emitter, "Emitter", obj)
@@ -541,20 +596,19 @@ class OBAVCell:
         if self._rebuilding:
             return
         self._rebuilding = True
+
+        self._compMirror.Proxy.set_visibility(not obj.UseSimpleEndMirror)
+        self._simpleMirror.ViewObject.Visibility = obj.UseSimpleEndMirror
+
         try:
-            self._update_comp_mirror(obj)
-            # nedan finns det depedent_optics
+            if obj.UseSimpleEndMirror:
+                self._update_simple_mirror(obj)
+            else:
+                self._update_comp_mirror(obj)
+            # self._update_comp_mirror(obj)
             # self._update_dependent_optics(obj)
             self._update_ellipsoid(self._emitter, "Emitter", obj)
             self._update_ellipsoid(self._detector, "Detector", obj)
-
-            # for child in obj.Group:
-            #     print("*** från white cell rebuild ", child.Name, child.State)
-
-            # self._update_ellipsoid(self._emitter, "Emitter", obj)
-            # self._update_ellipsoid(self._detector, "Detector", obj)
-            # obj.Document.recompute()
-        # except Exception as exc:
 
         except Exception:
             App.Console.PrintError(traceback.format_exc() + "\n")
@@ -590,6 +644,18 @@ class OBAVCell:
             return
 
         main_properties = {
+            # SIMPLE MIRROR FLAGGA
+            "UseSimpleEndMirror",
+            # --- simple mirror
+            "SimpleMirrorRadius",
+            "SimpleMirrorDraftAngle",
+            "SimpleMirrorThickness",
+            "SimpleMirrorHeight",
+            "SimpleMirrorAngle",
+            "SimpleMirrorX",
+            "SimpleMirrorY",
+            "SimpleMirrorZ",
+            "SimpleMirrorCenterAngle",
             # --- comp mirror
             "CompMirrorWidth",
             "CompMirrorHeight",
@@ -710,6 +776,7 @@ class OBAVCell:
 class VCellDialog(OBAToolboxDialogBase):
 
     PROPERTY_DEFINITIONS = V_CELL_PROPERTIES
+    GROUP_DEFINITIONS = V_CELL_GROUPS
 
     def __init__(self, obj, title="V Cell Settings", parent=None):
         super().__init__(obj, title=title, parent=parent)

@@ -140,6 +140,16 @@ class OBACompMirror(OBAToolboxProxyBase):
     # API methods
     # ------------------------------------------------------------------
 
+    def set_visibility(self, visible):
+        if self.Object is None:
+            return
+        self.Object.ViewObject.Visibility = visible
+        self._cut.ViewObject.Visibility = visible
+        self._cube.ViewObject.Visibility = False
+        self._ellipsoid.ViewObject.Visibility = visible and self.Object.ShowDebugEllipsoids
+        self._focus1.ViewObject.Visibility = visible and self.Object.ShowDebugFoci
+        self._focus2.ViewObject.Visibility = visible and self.Object.ShowDebugFoci
+
     def get_focus_points(self):
         c = float(self.Object.FocusDistance)
         p1 = self._ellipsoid.Placement.multVec(App.Vector(0, 0, -c))
