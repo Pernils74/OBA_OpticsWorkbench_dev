@@ -67,7 +67,7 @@ V_CELL_PROPERTIES = [
     {"name": "CompMirrorB", "label": "B_", "type": "App::PropertyLength", "group": "Comp Mirror", "parent_group": "End Mirror", "default": 19.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False, "step": 0.5, "visible_when_not": "UseSimpleEndMirror"},
     {"name": "CompMirrorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Comp Mirror", "parent_group": "End Mirror", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False, "visible_when_not": "UseSimpleEndMirror"},
     # ==============================================================
-    {"name": "CompMirrorRotZ", "label": "RotZ", "type": "App::PropertyAngle", "group": "Comp Mirror", "parent_group": "End Mirror", "default": 180, "unit": "mm", "min": -360, "max": 360, "optuna_locked": False},
+    {"name": "CompMirrorRotZ", "label": "RotZ", "type": "App::PropertyAngle", "group": "Comp Mirror", "parent_group": "End Mirror", "default": 180, "unit": "mm", "min": -360, "max": 360, "optuna_locked": False, "visible_when_not": "UseSimpleEndMirror"},
     # {"name": "CompMirrorY", "label": "Y", "type": "App::PropertyDistance", "group": "Comp Mirror", "parent_group": "End Mirror","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # {"name": "CompMirrorZ", "label": "Z", "type": "App::PropertyDistance", "group": "Comp Mirror", "parent_group": "End Mirror","default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": False},
     # ==============================================================
@@ -348,7 +348,7 @@ class OBAVCell:
         inner_r1 = float(obj.SimpleMirrorRadius)
         h = float(obj.SimpleMirrorHeight)
 
-        draft_angle = math.radians(float(obj.SimpleMirrorDraftAngle))
+        draft_angle = math.radians(-float(obj.SimpleMirrorDraftAngle))
         inner_r2 = inner_r1 + math.tan(draft_angle) * h
 
         changed |= set_quantity_if_changed(outer, "Radius1", inner_r1 + thickness, "mm")

@@ -520,6 +520,15 @@ class OptunaPlotWindow(QtWidgets.QDialog):
 
         self.redraw()
 
+        # Uppdatera bounds editor om den visas
+        try:
+            from .optuna_bounds_editor import _optuna_bounds_editor_ref
+
+            if _optuna_bounds_editor_ref and _optuna_bounds_editor_ref.isVisible():
+                _optuna_bounds_editor_ref.refresh_from_model()
+        except Exception:
+            pass
+
     def on_pick(self, event):
 
         if event.artist is not self.scatter:

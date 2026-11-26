@@ -346,17 +346,6 @@ class OBAToolboxDialogBase(OBABaseDialog):
     def _property_definitions(self, properties=None):
         return self.PROPERTY_DEFINITIONS if properties is None else properties
 
-    def _iter_editable_properties(self, properties=None, numeric_only=False):
-        for prop_def in self._property_definitions(properties):
-            if not prop_def.get("visible", True) or prop_def.get("display_only", False) or prop_def.get("readonly", False):
-                continue
-            prop_type = prop_def.get("type", "")
-            if prop_type == "App::PropertyLink":
-                continue
-            if numeric_only and prop_type not in self.NUMERIC_PROPERTY_TYPES:
-                continue
-            yield prop_def
-
     def _build_action_buttons(self):
         layout = QtWidgets.QHBoxLayout()
         self.export_button = QtWidgets.QPushButton("Export to Spreadsheet")
@@ -658,6 +647,36 @@ class OBAToolboxDialogBase(OBABaseDialog):
         delta = abs(value) * 0.1
         return value - delta, value + delta
 
+    def _iter_editable_properties(self, properties=None, numeric_only=False):
+        for prop_def in self._property_definitions(properties):
+            if not prop_def.get("visible", True) or prop_def.get("display_only", False) or prop_def.get("readonly", False):
+                continue
+            prop_type = prop_def.get("type", "")
+            if prop_type == "App::PropertyLink":
+                continue
+            if numeric_only and prop_type not in self.NUMERIC_PROPERTY_TYPES:
+                continue
+            yield prop_def
+
+    def _is_property_active(self, prop_def):
+        dependency = prop_def.get("visible_when")
+        if dependency:
+            if not bool(getattr(self.obj, dependency, False)):
+                return False
+
+        dependency = prop_def.get("visible_when_not")
+        if dependency:
+            if bool(getattr(self.obj, dependency, False)):
+                return False
+
+        return True
+
+    def _iter_active_editable_properties(self, properties=None, numeric_only=False):
+        for prop_def in self._iter_editable_properties(properties, numeric_only):
+            if not self._is_property_active(prop_def):
+                continue
+            yield prop_def
+
     def export_to_spreadsheet(self, properties=None):
         doc = self.obj.Document
         obj = self.obj
@@ -674,6 +693,8 @@ class OBAToolboxDialogBase(OBABaseDialog):
         row = 2
 
         for prop_def in self._iter_editable_properties(properties, numeric_only=True):
+            # for prop_def in self._iter_active_editable_properties(properties, numeric_only=True):
+
             prop = prop_def["name"]
             unit = prop_def.get("unit", "")
 
@@ -713,14 +734,22 @@ class OBAToolboxDialogBase(OBABaseDialog):
             row += 1
         sheet.set(f"A{row}", "END")
 
+        # self.set_spreadsheet_references()
         obj.touch()
         doc.recompute()
         self.reopen()
 
     def clear_spreadsheet_references(self, properties=None):
         for prop_def in self._iter_editable_properties(properties, numeric_only=True):
+            # for prop_def in self._iter_active_editable_properties(properties, numeric_only=True):
             self.obj.setExpression(prop_def["name"], None)
         self.obj.Document.recompute()
+        self.reopen()
+
+    def set_spreadsheet_references_new(self, properties=None):
+        if properties is None:
+            properties = list(self._iter_active_editable_properties())
+        set_spreadsheet_references(self.obj, properties)
         self.reopen()
 
     def set_spreadsheet_references(self, properties=None):
@@ -759,6 +788,8 @@ class OBAToolboxDialogBase(OBABaseDialog):
             return
         selected_params = []
         for prop_def in self._iter_editable_properties(properties, numeric_only=True):
+            # for prop_def in self._iter_active_editable_properties(properties, numeric_only=True):
+
             prop = prop_def["name"]
             if getattr(self.obj, f"{prop}_OptunaLocked", False):
                 continue

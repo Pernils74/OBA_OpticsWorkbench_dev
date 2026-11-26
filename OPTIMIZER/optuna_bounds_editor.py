@@ -431,6 +431,12 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
         self.tbl.setAlternatingRowColors(True)
         layout.addWidget(self.tbl)
 
+        self.tbl.setColumnWidth(COL_PROPERTY, 250)  # A
+        self.tbl.setColumnWidth(COL_VALUE, 90)  # B
+        self.tbl.setColumnWidth(COL_MIN, 90)  # C
+        self.tbl.setColumnWidth(COL_MAX, 90)  # D
+        self.tbl.setColumnWidth(COL_LOCKED, 50)  # E
+
         # -------------------------------------------------
         # Percentage controls
         # -------------------------------------------------
@@ -600,6 +606,9 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
     # Reload entire spreadsheet
     # =====================================================
 
+    def refresh_from_model(self):
+        self._reload_sheet()
+
     def _reload_sheet(self):
         sheet = self._current_sheet()
         if not sheet:
@@ -638,7 +647,9 @@ class OptunaBoundsEditor(QtWidgets.QDialog):
                 self.tbl.setVerticalHeaderItem(r, QtWidgets.QTableWidgetItem(str(r + 1)))
 
         finally:
+            # self.tbl.resizeColumnToContents(COL_PROPERTY)
             self.tbl.blockSignals(False)
+
             self._loading = False
 
         self._update_range_highlighting()
