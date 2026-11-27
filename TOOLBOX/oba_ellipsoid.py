@@ -5,7 +5,7 @@
 #
 
 import math
-
+import time
 
 import FreeCAD as App
 import FreeCADGui as Gui
@@ -38,23 +38,30 @@ from OPTIMIZER.optimize_worker import is_optimization_running
 ELLIPSOID_PROPERTIES = [
     {"name": "A_", "type": "App::PropertyLength", "group": "Ellipsoid", "unit": "mm", "min": 0, "max": 1_000_000, "doc": "Semi-major axis"},
     {"name": "B_", "type": "App::PropertyLength", "group": "Ellipsoid", "unit": "mm", "min": 0, "max": 1_000_000, "doc": "Semi-minor axis"},
-    {"name": "Radius3Offset", "label": "Radius3 Offset", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Amount subtracted from Radius2 (B) to produce Radius3"},
-    {"name": "WidthFactor", "type": "App::PropertyFloat", "group": "Ellipsoid", "default": 1.8, "min": 0.5, "max": 2, "step": 0.1},
+    {"name": "Radius3Offset", "label": "--Radius3 Offset", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "doc": "Amount subtracted from Radius2 (B) to produce Radius3"},
+    {"name": "WallThickness", "type": "App::PropertyLength", "group": "Ellipsoid", "default": 1.0, "unit": "mm", "min": 0, "max": 100},
+    # WidthFactor
+    {"name": "WidthFactor", "type": "App::PropertyFloat", "group": "Ellipsoid", "default": 1.7, "min": 0, "max": 2, "step": 0.1},
     {"name": "FocusDistance", "type": "App::PropertyLength", "group": "Ellipsoid", "unit": "mm", "display_only": True, "doc": "Distance from ellipsoid centre to focus"},
+    {"name": "OffsetX", "type": "App::PropertyFloat", "group": "Ellipsoid", "unit": "", "min": -10, "max": 10, "doc": "Offset in X", "step": 0.1},
+    {"name": "OffsetY", "type": "App::PropertyFloat", "group": "Ellipsoid", "unit": "", "min": -10, "max": 10, "doc": "Offset in Y", "step": 0.1},
+    {"name": "OffsetZ", "type": "App::PropertyFloat", "group": "Ellipsoid", "unit": "", "min": -10, "max": 10, "doc": "Offset in Y", "step": 0.1},
+    #
     {"name": "ShowDebugEllipsoid", "type": "App::PropertyBool", "group": "Debug", "doc": "Show ellipsoid for debugging"},
     {"name": "ShowDebugFoci", "type": "App::PropertyBool", "group": "Debug", "doc": "Show focal points"},
-    {"name": "APlaneWidth", "type": "App::PropertyLength", "group": "Box", "unit": "mm", "min": 0, "max": 100, "doc": "Aperture plane width"},
-    {"name": "APlaneHeight", "type": "App::PropertyLength", "group": "Box", "unit": "mm", "min": 0, "max": 10, "doc": "Aperture plane height"},
-    {"name": "APlaneZoffset", "type": "App::PropertyFloat", "group": "Box", "unit": "", "min": -2, "max": 5, "step": 0.1, "doc": "Additional Z offset from focus point"},
-    {"name": "APlaneYoffset", "type": "App::PropertyFloat", "group": "Box", "unit": "", "min": -2, "max": 5, "step": 0.1, "doc": "Additional Y offset from focus point"},
+    #
+    {"name": "APlaneWidth", "type": "App::PropertyLength", "group": "Aperture Plane", "unit": "mm", "min": 0, "max": 100, "doc": "Aperture plane width"},
+    {"name": "APlaneHeight", "type": "App::PropertyLength", "group": "Aperture Plane", "unit": "mm", "min": 0, "max": 10, "doc": "Aperture plane height"},
+    # {"name": "APlaneZoffset", "type": "App::PropertyFloat", "group": "Aperture Plane", "unit": "", "min": -2, "max": 5, "step": 0.1, "doc": "Additional Z offset from focus point"},
+    # {"name": "APlaneYoffset", "type": "App::PropertyFloat", "group": "Aperture Plane", "unit": "", "min": -2, "max": 5, "step": 0.1, "doc": "Additional Y offset from focus point"},
     {"name": "FilterPlaneSize", "type": "App::PropertyLength", "group": "Filter", "default": 2.0, "unit": "mm", "min": 0, "max": 100, "doc": "Square filter side length"},
     {"name": "FilterPlaneOffset", "type": "App::PropertyFloat", "group": "Filter", "default": 0.5, "unit": "", "min": -50, "max": 50, "step": 0.1, "doc": "Offset from aperture plane along optical axis"},
     # --------------------------------------------------------
     # Orientation.
     # --------------------------------------------------------
-    {"name": "RotX", "type": "App::PropertyAngle", "group": "Orientation", "unit": "deg", "min": -360, "max": 360, "enabled_when_not": "UseAimPoint", "doc": "Optical axis X rotation"},
+    {"name": "RotX", "type": "App::PropertyAngle", "group": "Orientation", "unit": "deg", "default": 0.0, "min": -360, "max": 360, "enabled_when_not": "UseAimPoint", "doc": "Optical axis X rotation"},
     # {"name": "RotY", "type": "App::PropertyAngle", "group": "Orientation", "unit": "deg", "min": -360, "max": 360, "readonly": True, "doc": "Optical axis Y rotation"},
-    {"name": "RotZ", "type": "App::PropertyAngle", "group": "Orientation", "unit": "deg", "min": -360, "max": 360, "enabled_when_not": "UseAimPoint", "doc": "Optical axis Z rotation"},
+    {"name": "RotZ", "type": "App::PropertyAngle", "group": "Orientation", "unit": "deg", "default": 0.0, "min": -360, "max": 360, "enabled_when_not": "UseAimPoint", "doc": "Optical axis Z rotation"},
     {"name": "UseAimPoint", "type": "App::PropertyBool", "group": "Orientation", "doc": "Aim the optical axis at a point"},
     {"name": "AimX", "type": "App::PropertyFloat", "group": "Orientation", "unit": "mm", "min": -1_000_000, "max": 1_000_000, "enabled_when": "UseAimPoint", "doc": "Target X coordinate"},
     {"name": "AimY", "type": "App::PropertyFloat", "group": "Orientation", "unit": "mm", "min": -1_000_000, "max": 1_000_000, "enabled_when": "UseAimPoint", "doc": "Target Y coordinate"},
@@ -72,7 +79,23 @@ ELLIPSOID_PROPERTIES = [
 
 class OBAEllipsoid(OBAToolboxProxyBase):
 
-    CHILD_OBJECTS = ("_box", "_box_ext", "_box_bound", "_fuse", "_ellipsoid", "_cut", "_focus1", "_focus2", "_focal_surface", "_filter_surface")
+    # CHILD_OBJECTS = ("_box", "_box_ext", "_box_bound", "_fuse", "_ellipsoid_inner", "_cut", "_focus1", "_focus2", "_focal_surface", "_filter_surface")
+    CHILD_OBJECTS = (
+        "_ellipsoid_bound",
+        "_ellipsoid_outer",
+        "_ellipsoid_inner",
+        "_cut",
+        "_opening_box_pos",
+        "_opening_cut1",
+        "_opening_box_neg",
+        "_opening_cut2",
+        "_split_box",
+        "_split_cut",
+        "_focus1",
+        "_focus2",
+        "_focal_surface",
+        "_filter_surface",
+    )
 
     def _init_runtime_state(self):
         """
@@ -89,7 +112,9 @@ class OBAEllipsoid(OBAToolboxProxyBase):
         self._syncing_orientation = False
         self._suppress_onchange = False
 
-        self._ellipsoid = None
+        self._ellipsoid_bound = None
+        self._ellipsoid_outer = None
+        self._ellipsoid_inner = None
         self._focus1 = None
         self._focus2 = None
         self._focal_surface = None
@@ -97,11 +122,14 @@ class OBAEllipsoid(OBAToolboxProxyBase):
         self._focal_surface_signature = None
         self._filter_surface_signature = None
 
-        self._box = None
-        self._box_ext = None
-        self._fuse = None
-        self._box_bound = None
         self._cut = None
+        self._opening_box_pos = None
+        self._opening_box_neg = None
+        self._opening_cut1 = None
+        self._opening_cut2 = None
+
+        self._split_box = None
+        self._split_cut = None
 
     def __init__(self, obj):
         self._init_runtime_state()
@@ -167,12 +195,14 @@ class OBAEllipsoid(OBAToolboxProxyBase):
         # Construction geometry
         # --------------------------------------------------------------
 
-        self._box = self._get_or_create(doc, f"{obj.Name}_Box", "Part::Box", f"{obj.Label} Box")
-        self._box_ext = self._get_or_create(doc, f"{obj.Name}_BoxExt", "Part::Box", f"{obj.Label} BoxExt")
-        self._box_bound = self._get_or_create(doc, f"{obj.Name}_BoxBound", "Part::Box", f"{obj.Label} BoxBound")
-        self._fuse = self._get_or_create(doc, f"{obj.Name}_Fuse", "Part::Fuse", f"{obj.Label} Fuse")
-        self._ellipsoid = self._get_or_create(doc, f"{obj.Name}_Ellipsoid", "Part::Ellipsoid", f"{obj.Label} Ellipsoid")
+        self._ellipsoid_bound = self._get_or_create(doc, f"{obj.Name}_EllipsoidBound", "Part::Ellipsoid", f"{obj.Label} Ellipsoid_bound")
+        self._ellipsoid_outer = self._get_or_create(doc, f"{obj.Name}_EllipsoidOuter", "Part::Ellipsoid", f"{obj.Label} Ellipsoid_outer")
+
+        changed = set_property_if_changed(self._ellipsoid_outer, "Angle2", 15)
+
+        self._ellipsoid_inner = self._get_or_create(doc, f"{obj.Name}_EllipsoidInner", "Part::Ellipsoid", f"{obj.Label} Ellipsoid")
         self._cut = self._get_or_create(doc, f"{obj.Name}_Cut", "Part::Cut", f"{obj.Label} Cut")
+
         self._focal_surface = self._get_or_create(doc, f"{obj.Name}_FocalSurface", "Part::Feature", f"{obj.Label} FOCAL--SURFACE")
         self._filter_surface = self._get_or_create(doc, f"{obj.Name}_FilterSurface", "Part::Feature", f"{obj.Label} FILTER-SURFACE")
         # self._focal_surface.ViewObject.Visibility = True
@@ -181,17 +211,43 @@ class OBAEllipsoid(OBAToolboxProxyBase):
         self._focus1 = self._get_or_create(doc, f"{obj.Name}_Focus1", "Part::Sphere", f"{obj.Label} Focus1")
         self._focus2 = self._get_or_create(doc, f"{obj.Name}_Focus2", "Part::Sphere", f"{obj.Label} Focus2")
 
+        self._cut.Base = self._ellipsoid_outer
+        self._cut.Tool = self._ellipsoid_inner
+
+        self._split_box = self._get_or_create(doc, f"{obj.Name}_SplitBox", "Part::Box", f"{obj.Label} Split Box")
+        self._split_cut = self._get_or_create(doc, f"{obj.Name}_SplitCut", "Part::Cut", f"{obj.Label} Split Cut")
+
+        self._split_cut.Base = self._cut
+        self._split_cut.Tool = self._split_box
+
+        # för att skala bort sidorna
+        self._opening_box_pos = self._get_or_create(doc, f"{obj.Name}_OpeningBoxPos", "Part::Box", f"{obj.Label} Opening Box Pos")
+        self._opening_cut1 = self._get_or_create(doc, f"{obj.Name}_OpeningCut1", "Part::Cut", f"{obj.Label} Opening Cut1")
+
+        self._opening_cut1.Base = self._split_cut
+        self._opening_cut1.Tool = self._opening_box_pos
+
+        self._opening_box_neg = self._get_or_create(doc, f"{obj.Name}_OpeningBoxNeg", "Part::Box", f"{obj.Label} Opening Box Neg")
+        self._opening_cut2 = self._get_or_create(doc, f"{obj.Name}_OpeningCut2", "Part::Cut", f"{obj.Label} Opening Cut2")
+
+        self._opening_cut2.Base = self._opening_cut1
+        self._opening_cut2.Tool = self._opening_box_neg
+
         children = [
-            self._box,
-            self._box_ext,
-            self._box_bound,
-            self._fuse,
-            self._ellipsoid,
+            self._ellipsoid_bound,
+            self._ellipsoid_outer,
+            self._ellipsoid_inner,
             self._cut,
+            self._split_box,
+            self._split_cut,
             self._focal_surface,
             self._filter_surface,
             self._focus1,
             self._focus2,
+            self._opening_box_pos,
+            self._opening_cut1,
+            self._opening_box_neg,
+            self._opening_cut2,
         ]
         changed = set_property_if_changed(obj, "Group", children)
 
@@ -199,10 +255,12 @@ class OBAEllipsoid(OBAToolboxProxyBase):
         # One-time visual settings
         # --------------------------------------------------------------
 
-        changed |= set_property_if_changed(self._box_bound.ViewObject, "DisplayMode", "Wireframe")
+        changed |= set_property_if_changed(self._ellipsoid_bound.ViewObject, "ShapeColor", (0.7, 0.3, 0.7))
+        changed |= set_property_if_changed(self._ellipsoid_bound.ViewObject, "Transparency", 85)
+        # changed |= set_property_if_changed(self._ellipsoid_bound.ViewObject, "Visibility", False)
 
-        changed |= set_property_if_changed(self._ellipsoid.ViewObject, "ShapeColor", (0.7, 0.8, 1.0))
-        changed |= set_property_if_changed(self._ellipsoid.ViewObject, "Transparency", 80)
+        changed |= set_property_if_changed(self._ellipsoid_inner.ViewObject, "ShapeColor", (0.7, 0.8, 1.0))
+        changed |= set_property_if_changed(self._ellipsoid_inner.ViewObject, "Transparency", 80)
 
         vo = self._focal_surface.ViewObject
         changed |= set_property_if_changed(vo, "ShapeColor", (1.0, 1.0, 0.0))
@@ -217,12 +275,9 @@ class OBAEllipsoid(OBAToolboxProxyBase):
         # --------------------------------------------------------------
         # Boolean relationship
         # --------------------------------------------------------------
+        # changed |= set_property_if_changed(self._cut, "Base", self._ellipsoid_outer)
+        # changed |= set_property_if_changed(self._cut, "Tool", self._ellipsoid_inner)
 
-        changed |= set_property_if_changed(self._fuse, "Base", self._box)
-        changed |= set_property_if_changed(self._fuse, "Tool", self._box_ext)
-
-        changed |= set_property_if_changed(self._cut, "Base", self._fuse)
-        changed |= set_property_if_changed(self._cut, "Tool", self._ellipsoid)
         return changed
 
     # ========================================================
@@ -235,11 +290,11 @@ class OBAEllipsoid(OBAToolboxProxyBase):
 
         c = focus_distance(a, b)
 
-        rotation = self._ellipsoid.Placement.Rotation
-        center = self._ellipsoid.Placement.Base
+        rotation = self._ellipsoid_inner.Placement.Rotation
+        center = self._ellipsoid_inner.Placement.Base
 
-        f1 = center + rotation.multVec(App.Vector(0, 0, -c))
-        f2 = center + rotation.multVec(App.Vector(0, 0, +c))
+        f1 = center + rotation.multVec(App.Vector(0, 0, +c))
+        f2 = center + rotation.multVec(App.Vector(0, 0, -c))
 
         return f1, f2
 
@@ -261,16 +316,37 @@ class OBAEllipsoid(OBAToolboxProxyBase):
         return changed
 
     def _update_ellipsoid(self, obj):
-        changed = self._ensure_features(obj)
-        ellipsoid = self._ellipsoid
-
-        if ellipsoid is None:
+        changed = False
+        # changed = self._ensure_features(obj)
+        if self._ellipsoid_inner is None:
             return changed
+
         a = float(obj.A_)
         b = float(obj.B_)
 
+        t = float(obj.WallThickness)
+
         radius3 = max(0.0, b - float(obj.Radius3Offset))
-        changed |= set_quantity_if_changed(ellipsoid, "Radius3", radius3, "mm")
+
+        inner_a = a
+        inner_b = b
+        inner_r3 = radius3
+
+        outer_a = inner_a + t
+        outer_b = inner_b + t
+        outer_r3 = inner_r3 + t
+
+        changed |= set_quantity_if_changed(self._ellipsoid_bound, "Radius1", outer_a, "mm")
+        changed |= set_quantity_if_changed(self._ellipsoid_bound, "Radius2", outer_b, "mm")
+        changed |= set_quantity_if_changed(self._ellipsoid_bound, "Radius3", outer_r3, "mm")
+
+        changed |= set_quantity_if_changed(self._ellipsoid_outer, "Radius1", outer_a, "mm")
+        changed |= set_quantity_if_changed(self._ellipsoid_outer, "Radius2", outer_b, "mm")
+        changed |= set_quantity_if_changed(self._ellipsoid_outer, "Radius3", outer_r3, "mm")
+
+        changed |= set_quantity_if_changed(self._ellipsoid_inner, "Radius1", inner_a, "mm")
+        changed |= set_quantity_if_changed(self._ellipsoid_inner, "Radius2", inner_b, "mm")
+        changed |= set_quantity_if_changed(self._ellipsoid_inner, "Radius3", inner_r3, "mm")
 
         # guard emot felaktiva a och b värden
         if a <= 0 or b <= 0:
@@ -279,131 +355,81 @@ class OBAEllipsoid(OBAToolboxProxyBase):
         validate_ellipsoid(a, b, radius3)
         c = focus_distance(a, b)
 
-        # ----------------------------------------------------
-        # FreeCAD Part::Ellipsoid parameters.
-        #
-        # Radius1 = major axis
-        # Radius2 = first minor axis
-        # Radius3 = second minor axis
-        # ----------------------------------------------------
+        # rot0 = App.Rotation(App.Vector(1, 0, 0), 90)
 
-        changed |= set_quantity_if_changed(ellipsoid, "Radius1", a, "mm")
-        changed |= set_quantity_if_changed(ellipsoid, "Radius2", b, "mm")
-
-        # ----------------------------------------------------
-        # Part::Ellipsoid is centred on its local origin.
-        # We want the OBA local origin to be one focal point.
-        # Therefore move the ellipsoid centre to:
-        #     (0, C, 0)
-        # relative to the OBA focal-point origin.
-        # ----------------------------------------------------
-        rot0 = App.Rotation(App.Vector(0, 0, 1), 90).multiply(App.Rotation(App.Vector(0, 1, 0), 90))
-
-        rotx = App.Rotation(App.Vector(1, 0, 0), float(obj.RotX))
-        # roty = App.Rotation(App.Vector(0, 1, 0), float(obj.RotY))
-        rotz = App.Rotation(App.Vector(0, 0, -1), float(obj.RotZ))
-
+        rot0 = App.Rotation(App.Vector(1, 0, 0), 90).multiply(App.Rotation(App.Vector(0, 1, 0), 180))
         rotation = rot0
-        rotation = rotx.multiply(rotation)  # Rotera X *efter* rot0
-        # rotation = roty.multiply(rotation)  # Rotera Y *efter* det
-        rotation = rotz.multiply(rotation)  # Rotera Z *sist*
 
-        center_offset = rotation.multVec(App.Vector(0, 0, c))
+        rotation = App.Rotation(App.Vector(1, 0, 0), float(obj.RotX)).multiply(rotation)
+        rotation = App.Rotation(App.Vector(0, 0, 1), float(obj.RotZ)).multiply(rotation)
+        # ----------------------------------------------------
+        # 2. Beräkna positionen (brännpunkt lokalt + offset globalt)
+        # ----------------------------------------------------
+        # Brännpunktens förskjutning (c) ligger längs ellipsoidens lokala axel och ska roteras
+        focal_offset = rotation.multVec(App.Vector(0, 0, c))
 
-        local = App.Placement(center_offset, rotation)
-        changed |= set_property_if_changed(ellipsoid, "Placement", obj.Placement.multiply(local))
+        # OffsetX/Y/Z appliceras direkt i globala (world) koordinater utan rotation
+        world_offset = App.Vector(float(obj.OffsetX), float(obj.OffsetY), float(obj.OffsetZ))
 
-        # ellipsoid.Placement = App.Placement(obj.Placement.Base + center_offset, rotation)
+        placement = App.Placement(obj.Placement.Base + focal_offset + world_offset, rotation)
+
+        # center_offset = rot0.multVec(App.Vector(-float(obj.OffsetX), c - float(obj.OffsetZ), float(obj.OffsetY)))
+        # center_offset = rotation.multVec(center_offset)
+        # placement = App.Placement(obj.Placement.Base + center_offset, rotation)
+
+        changed |= set_property_if_changed(self._ellipsoid_bound, "Placement", placement)
+        changed |= set_property_if_changed(self._ellipsoid_outer, "Placement", placement)
+        changed |= set_property_if_changed(self._ellipsoid_inner, "Placement", placement)
+
+        # ========================
+        #  Avskärning av undersidan
+        # ========================
+
+        changed |= set_quantity_if_changed(self._split_box, "Length", 4 * outer_b, "mm")
+        changed |= set_quantity_if_changed(self._split_box, "Width", 4 * outer_a, "mm")
+        changed |= set_quantity_if_changed(self._split_box, "Height", 4 * outer_a, "mm")
+        # split_local = App.Vector(-2 * outer_b, 0.0, -2 * outer_a)
+        split_local = App.Vector(-2 * outer_b, -4 * outer_a, -2 * outer_a)
+
+        split_placement = App.Placement(placement.multVec(split_local), rotation)
+        changed |= set_property_if_changed(self._split_box, "Placement", split_placement)
+
+        # ========================
+        #  Avskärning av sidorna
+        # ========================
+
+        widthFactor = float(obj.WidthFactor)
+
+        # Generös marginal så boxarna säkert täcker hela yttre ellipsoiden
+        margin = 10.0
+        box_lenght = 2 * outer_b + margin  # Längs lokal X (Radius1)
+        box_width = 2 * outer_a + margin  # Längs lokal Y (Radius2)
+        box_height = 2 * outer_a + margin  # Längs lokal Z (Radius3)
+
+        # Halva tjockleken som ska bli kvar i mitten
+        keep_half = outer_r3 * (widthFactor * 0.5)
+
+        # Sätt samma dimensioner på båda boxarna
+        for box in (self._opening_box_pos, self._opening_box_neg):
+            changed |= set_quantity_if_changed(box, "Length", box_lenght, "mm")
+            changed |= set_quantity_if_changed(box, "Width", box_width, "mm")
+            changed |= set_quantity_if_changed(box, "Height", box_height, "mm")
+
+        # Centrera i X och Y (-box_lenght/2, -box_width/2)
+        # Positiv box: startar vid +keep_half och sträcker sig uppåt (+Z)
+        pos_local = App.Vector(-box_lenght - keep_half, -box_width * 0.5, -box_height * 0.5)
+        pos_placement = App.Placement(placement.multVec(pos_local), rotation)
+        changed |= set_property_if_changed(self._opening_box_pos, "Placement", pos_placement)
+
+        #
+
+        neg_local = App.Vector(+keep_half, -box_width * 0.5, -box_height * 0.5)
+
+        neg_placement = App.Placement(placement.multVec(neg_local), rotation)
+        changed |= set_property_if_changed(self._opening_box_neg, "Placement", neg_placement)
 
         changed |= self.show_foci(obj)
-
         changed |= set_quantity_if_changed(obj, "FocusDistance", c, "mm")
-        return changed
-
-    def _update_cubes(self, obj):
-
-        # nedan ger skopans längd
-        length = float(obj.A_ * 0.8) + float(obj.A_ * 0.5) * math.sin(math.radians(obj.RotX))  # är omkastad enligt mitt orienteringssätt
-
-        height = float(obj.B_ * 1.2)  # är omkastad enligt mitt orienteringssätt
-        width = float(obj.B_ * obj.WidthFactor)  # 1.8)
-
-        changed = False
-        changed |= set_quantity_if_changed(self._box, "Length", width, "mm")
-        changed |= set_quantity_if_changed(self._box, "Width", length, "mm")
-        changed |= set_quantity_if_changed(self._box, "Height", height, "mm")
-
-        # rot0 = App.Rotation(App.Vector(0, 0, 1), 90)  # rot i z för att Length skall bli i yaxeln
-        # obj.RotX = 0
-
-        rotx = App.Rotation(App.Vector(1, 0, 0), obj.RotX)  # roterar upp efter den optiska axeln i elipsoiden
-        rotz = App.Rotation(App.Vector(0, 0, -1), obj.RotZ)
-        rot = rotz.multiply(rotx)
-
-        base = obj.Placement.Base
-
-        posX = float(base.x) - (width / 2) * math.cos(math.radians(obj.RotZ))
-        posY = float(base.y) + (width / 2) * math.sin(math.radians(obj.RotZ))
-        posZ = float(base.z)
-
-        # posX = float(obj.PosX) - (width / 2) * math.cos(math.radians(obj.RotZ))
-        # posY = float(obj.PosY) + (width / 2) * math.sin(math.radians(obj.RotZ))
-        # posZ = float(obj.PosZ)
-
-        # local = App.Placement(App.Vector(posX, posY, posZ), rot)  # centrerar den kring elipsoidens optiska centrum
-
-        local = App.Placement(
-            App.Vector(
-                -(width / 2) * math.cos(math.radians(obj.RotZ)),
-                +(width / 2) * math.sin(math.radians(obj.RotZ)),
-                0,
-            ),
-            rot,
-        )
-
-        # local = App.Placement(App.Vector(-(width / 2), 0, 0), rot)  # centrerar den kring elipsoidens optiska centrum
-        changed |= set_property_if_changed(self._box, "Placement", obj.Placement.multiply(local))
-
-        # -----------------------------------
-        # Extension box = den förlängning som skall kunna skära i comp mirror
-        # -----------------------------------
-        changed |= set_quantity_if_changed(self._box_ext, "Height", float(height * math.cos(math.radians(obj.RotX))), "mm")
-        changed |= set_quantity_if_changed(self._box_ext, "Width", width, "mm")
-
-        # c = focus_distance(obj.A, obj.B)
-        # self._box_ext.Length = float(height * math.sin(math.radians(obj.RotX))) + (float(obj.A) - c) * 2  # lägger till det som fattas ifrån c + lite till
-        changed |= set_quantity_if_changed(self._box_ext, "Length", float(obj.B_) * 2.5, "mm")
-        rot_ext_0 = App.Rotation(App.Vector(0, 0, 1), (-90))  # för att Length skall peka i -y
-        rot_ext_z = App.Rotation(App.Vector(0, 0, -1), obj.RotZ)
-        rot_ext = rot_ext_0.multiply(rot_ext_z)
-
-        # local_ext = App.Placement(App.Vector(posX, posY, posZ), rot_ext)  # justeras emot elipsoidens fokal centrum
-
-        local_ext = App.Placement(
-            App.Vector(
-                -(width / 2) * math.cos(math.radians(obj.RotZ)),
-                +(width / 2) * math.sin(math.radians(obj.RotZ)),
-                0,
-            ),
-            rot_ext,
-        )
-
-        self._box_ext.Placement = obj.Placement.multiply(local_ext)
-
-        changed |= set_property_if_changed(self._box_ext, "Placement", obj.Placement.multiply(local_ext))
-
-        # -----------------------------------
-        # Bounding box = Bounding box som kan användas som cut.
-        # -----------------------------------
-
-        changed |= set_quantity_if_changed(self._box_bound, "Width", width, "mm")
-        changed |= set_quantity_if_changed(self._box_bound, "Height", float(self._box_ext.Height) + float(length * math.sin(math.radians(obj.RotX))), "mm")
-        changed |= set_quantity_if_changed(self._box_bound, "Length", float(self._box_ext.Length) + float(length * math.cos(math.radians(obj.RotX))), "mm")
-
-        bound_offset_local = App.Vector(-float(length * math.cos(math.radians(obj.RotX))), 0, 0)
-        local_bound = App.Placement(local_ext.Base + rot_ext.multVec(bound_offset_local), rot_ext)
-        changed |= set_property_if_changed(self._box_bound, "Placement", obj.Placement.multiply(local_bound))
-
         return changed
 
     def _update_focal_surface(self, obj):
@@ -415,12 +441,13 @@ class OBAEllipsoid(OBAToolboxProxyBase):
         f1, f2 = self.focal_points_world(obj)
 
         # emitterytan ligger i första fokus
-        focus = f1
+        # focus = f1
+        focus = obj.Placement.Base
 
-        p1 = App.Vector(-width / 2, -height / 2 + obj.APlaneYoffset, obj.APlaneZoffset)
-        p2 = App.Vector(+width / 2, -height / 2 + obj.APlaneYoffset, obj.APlaneZoffset)
-        p3 = App.Vector(+width / 2, +height / 2 + obj.APlaneYoffset, obj.APlaneZoffset)
-        p4 = App.Vector(-width / 2, +height / 2 + obj.APlaneYoffset, obj.APlaneZoffset)
+        p1 = App.Vector(-width / 2, -height / 2, 0)
+        p2 = App.Vector(+width / 2, -height / 2, 0)
+        p3 = App.Vector(+width / 2, +height / 2, 0)
+        p4 = App.Vector(-width / 2, +height / 2, 0)
 
         signature = tuple(
             round(float(value), 9)
@@ -438,7 +465,7 @@ class OBAEllipsoid(OBAToolboxProxyBase):
         face = Part.Face(wire)
 
         face.Placement = App.Placement(focus, App.Rotation())
-        # face.Placement = App.Placement(focus, self._ellipsoid.Placement.Rotation) # vinkel rätt emot den optiska axeln
+        # face.Placement = App.Placement(focus, self._ellipsoid_inner.Placement.Rotation) # vinkel rätt emot den optiska axeln
 
         # self._focal_surface.Shape = face
 
@@ -447,6 +474,10 @@ class OBAEllipsoid(OBAToolboxProxyBase):
             focus,
             App.Rotation(),
         )
+        # self._focal_surface.Placement = App.Placement(
+        #     obj.Placement.Base,
+        #     App.Rotation(),
+        # )
 
         self._focal_surface_signature = signature
         return True
@@ -461,25 +492,22 @@ class OBAEllipsoid(OBAToolboxProxyBase):
             self._filter_surface.Shape = Part.Shape()
             self._filter_surface_signature = None
             return True
-        # if size <= 0:
-        #     return False
 
         f1, _ = self.focal_points_world(obj)
 
-        y = float(obj.APlaneYoffset)
-        z = float(obj.APlaneZoffset) + float(obj.FilterPlaneOffset)
+        z = -float(obj.FilterPlaneOffset)
 
-        p1 = App.Vector(-size / 2, -size / 2 + y, z)
-        p2 = App.Vector(+size / 2, -size / 2 + y, z)
-        p3 = App.Vector(+size / 2, +size / 2 + y, z)
-        p4 = App.Vector(-size / 2, +size / 2 + y, z)
+        p1 = App.Vector(-size / 2, -size / 2, z)
+        p2 = App.Vector(+size / 2, -size / 2, z)
+        p3 = App.Vector(+size / 2, +size / 2, z)
+        p4 = App.Vector(-size / 2, +size / 2, z)
 
         signature = (
             round(size, 9),
-            round(y, 9),
+            # round(y, 9),
             round(z, 9),
             round(f1.x, 9),
-            round(f1.y, 9),
+            # round(f1.y, 9),
             round(f1.z, 9),
         )
 
@@ -490,7 +518,7 @@ class OBAEllipsoid(OBAToolboxProxyBase):
         face = Part.Face(wire)
 
         face.Placement = App.Placement(
-            f1,
+            obj.Placement.Base,  # f1,
             App.Rotation(),
         )
 
@@ -501,14 +529,18 @@ class OBAEllipsoid(OBAToolboxProxyBase):
 
     def _update_debug(self, obj):
         changed = False
-        if self._ellipsoid:
-            changed |= set_property_if_changed(self._ellipsoid.ViewObject, "Visibility", bool(obj.ShowDebugEllipsoid))
+        if self._ellipsoid_inner:
+            changed |= set_property_if_changed(self._ellipsoid_inner.ViewObject, "Visibility", bool(obj.ShowDebugEllipsoid))
 
         if self._focus1:
             changed |= set_property_if_changed(self._focus1.ViewObject, "Visibility", bool(obj.ShowDebugFoci))
 
         if self._focus2:
             changed |= set_property_if_changed(self._focus2.ViewObject, "Visibility", bool(obj.ShowDebugFoci))
+
+        if self._ellipsoid_bound:
+            changed |= set_property_if_changed(self._ellipsoid_bound.ViewObject, "Visibility", bool(obj.ShowDebugEllipsoid))
+
         return changed
 
     def synchronize_aim_from_rotation_old(self, obj):
@@ -536,9 +568,9 @@ class OBAEllipsoid(OBAToolboxProxyBase):
         f1, f2 = self.focal_points_world(obj)
 
         if init:
-            target = f2
+            target = f1
         else:
-            direction = f2 - f1
+            direction = f1 - f2
             direction.normalize()
             target = f1 + direction * 1
 
@@ -637,35 +669,46 @@ class OBAEllipsoid(OBAToolboxProxyBase):
         self._rebuilding = True
 
         try:
-
+            # t0 = time.perf_counter()
             # def printChangedIfTrue(changed, fromUpdate):
             #     if changed:
             #         print(fromUpdate, " är changed", changed)
 
             changed = False
+            # t0 = time.perf_counter()
             changed |= self._update_ellipsoid(obj)
+            # print("ellipsoid", time.perf_counter() - t0)
             # printChangedIfTrue(changed, " --- update elipsoid")
-            changed |= self._update_cubes(obj)
+            # changed |= self._update_cubes(obj)
             # printChangedIfTrue(changed, "update_cubes")
+            # t0 = time.perf_counter()
             changed |= self._update_focal_surface(obj)
-            # printChangedIfTrue(changed, "update _ focal")
+            # print("focal", time.perf_counter() - t0)
+
+            # t0 = time.perf_counter()
+
             changed |= self._update_filter_surface(obj)
-            # printChangedIfTrue(changed, " filter_surface")
+            # print("filter", time.perf_counter() - t0)
+
+            # t0 = time.perf_counter()
 
             changed |= self._update_debug(obj)
+            # print("filter", time.perf_counter() - t0)
 
             if changed and not self._suppress_onchange and not is_optimization_running():
                 # Optuna's evaluation performs the document recompute after applying parameters.
                 print("=== [ellipsoid]  recompute i rebuild  ===", changed)
+                # t0 = time.perf_counter()
+
                 obj.Document.recompute()
-                pass
+                # print("RECOMPUTE", time.perf_counter() - t0)
 
         finally:
             self._rebuilding = False
 
         if self._is_dialog_open():
             print("======================= Elipsoid  recomputar ===========================")
-            obj.Document.recompute()
+            # obj.Document.recompute()
 
     # ========================================================
 
@@ -719,11 +762,13 @@ class OBAEllipsoid(OBAToolboxProxyBase):
             "A_",
             "B_",
             "Radius3Offset",
+            "WallThickness",
+            "WidthFactor",
+            "OffsetX",
+            "OffsetY",
+            "OffsetZ",
             "APlaneWidth",
             "APlaneHeight",
-            "WidthFactor",
-            "APlaneZoffset",
-            "APlaneYoffset",
             "FilterPlaneSize",
             "FilterPlaneOffset",
         }
@@ -769,23 +814,6 @@ class OBAEllipsoid(OBAToolboxProxyBase):
 
             except Exception as exc:
                 App.Console.PrintError("[OBA] Ellipsoid placement update failed: " f"{exc}\n")
-
-        # if prop == "Placement" and not is_optimization_running():
-        #     try:
-
-        #         rotation_applied = math.degrees(obj.Placement.Rotation.Angle) > 0.01
-
-        #         if rotation_applied:
-        #             print("[Ellipsoid] Transform rotation ignored")
-        #             obj.Placement = App.Placement(obj.Placement.Base, App.Rotation())
-
-        #         if obj.UseAimPoint:
-        #             self.synchronize_rotation_from_aim(obj)
-
-        #         self._rebuild(obj)
-
-        #     except Exception as exc:
-        #         App.Console.PrintError("[OBA] Ellipsoid placement update failed: " f"{exc}\n")
 
         # dialog = getattr(self, "_dialog", None)
         # if dialog:
@@ -888,21 +916,23 @@ def OBA_CreateEllipsoid(
     label="Ellipsoid",
     aplanewidth=3.0,
     aplaneheight=3.0,
-    aplaneZoffset=0.0,
-    aplaneYoffset=0.0,
+    offsetX=0.0,
+    offsetY=0.0,
+    offsetZ=0.0,
     a=15.0,
     b=6.0,
     widthfactor=1.8,
-    rot_x=30.0,
-    rot_y=0.0,
+    walltickness=1,
+    rot_x=20.0,
+    # rot_y=0.0,
     rot_z=0.0,
     use_aim_point=False,
     aim_x=0,
     aim_y=0,
     aim_z=0,
-    x=0.0,
-    y=0.0,
-    z=0.0,
+    # x=0.0,
+    # y=0.0,
+    # z=0.0,
     suppress_onchange=False,
     show_dialog=True,
     radius3_offset=0.0,
@@ -923,8 +953,9 @@ def OBA_CreateEllipsoid(
     obj.APlaneWidth = aplanewidth  # App.Units.Quantity(f"{aplanewidth} mm")
     obj.APlaneHeight = aplaneheight  # App.Units.Quantity(f"{aplaneheight} mm")
 
-    obj.APlaneZoffset = aplaneZoffset
-    obj.APlaneYoffset = aplaneYoffset
+    obj.OffsetX = offsetX
+    obj.OffsetY = offsetY
+    obj.OffsetZ = offsetZ
 
     obj.A_ = a  # App.Units.Quantity(f"{a} mm")
     obj.B_ = b  # App.Units.Quantity(f"{b} mm")
@@ -932,6 +963,7 @@ def OBA_CreateEllipsoid(
     obj.Radius3Offset = radius3_offset
 
     obj.WidthFactor = float(widthfactor)
+    obj.WallThickness = float(walltickness)
 
     obj.RotX = rot_x  # App.Units.Quantity(f"{rot_x} deg")
     # obj.RotY = rot_y  # App.Units.Quantity(f"{rot_y} deg")
@@ -945,6 +977,7 @@ def OBA_CreateEllipsoid(
 
     proxy._ensure_features(obj)
     proxy._update_ellipsoid(obj)
+
     proxy.synchronize_aim_from_rotation(obj, init=True)  # för att sätta korrekta värden direkt
 
     # obj.ShowDebugEllipsoid = False
@@ -954,15 +987,10 @@ def OBA_CreateEllipsoid(
     # Build the real Part::Ellipsoid once everything is ready.
     # --------------------------------------------------------
 
-    proxy._ensure_features(obj)
-
     proxy._initializing = False
     proxy._rebuild(obj)
 
     # print("************ initizing ", proxy._initializing)
-
-    # proxy._update_cubes(obj)
-    # proxy._update_ellipsoid(obj)
 
     if App.GuiUp:
         EllipsoidViewProvider(obj.ViewObject)
@@ -974,40 +1002,40 @@ def OBA_CreateEllipsoid(
     return obj
 
 
-def create(
-    doc=None,
-    label="Ellipsoid",
-    aplanewidth=5.0,
-    aplaneheight=5.0,
-    aplaneZoffset=0.0,
-    aplaneYoffset=0.0,
-    a=40.0,
-    b=20.0,
-    widthfactor=1.8,
-    rot_x=0.0,
-    rot_y=0.0,
-    rot_z=0.0,
-    x=0.0,
-    y=0.0,
-    z=0.0,
-    radius3_offset=0.0,
-):
-    return OBA_CreateEllipsoid(
-        doc=doc,
-        label=label,
-        aplanewidth=aplanewidth,
-        aplaneheight=aplaneheight,
-        aplaneZoffset=aplaneZoffset,
-        aplaneYoffset=aplaneYoffset,
-        a=a,
-        b=b,
-        radius3_offset=radius3_offset,
-        widthfactor=widthfactor,
-        rot_x=rot_x,
-        rot_y=rot_y,
-        rot_z=rot_z,
-        x=x,
-        y=y,
-        z=z,
-        show_dialog=False,
-    )
+# def create(
+#     doc=None,
+#     label="Ellipsoid",
+#     aplanewidth=5.0,
+#     aplaneheight=5.0,
+#     aplaneZoffset=0.0,
+#     aplaneYoffset=0.0,
+#     a=40.0,
+#     b=20.0,
+#     widthfactor=1.8,
+#     rot_x=0.0,
+#     rot_y=0.0,
+#     rot_z=0.0,
+#     x=0.0,
+#     y=0.0,
+#     z=0.0,
+#     radius3_offset=0.0,
+# ):
+#     return OBA_CreateEllipsoid(
+#         doc=doc,
+#         label=label,
+#         aplanewidth=aplanewidth,
+#         aplaneheight=aplaneheight,
+#         aplaneZoffset=aplaneZoffset,
+#         aplaneYoffset=aplaneYoffset,
+#         a=a,
+#         b=b,
+#         radius3_offset=radius3_offset,
+#         widthfactor=widthfactor,
+#         rot_x=rot_x,
+#         rot_y=rot_y,
+#         rot_z=rot_z,
+#         x=x,
+#         y=y,
+#         z=z,
+#         show_dialog=False,
+#     )

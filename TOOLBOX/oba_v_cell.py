@@ -75,8 +75,8 @@ V_CELL_PROPERTIES = [
     # ==============================================================
     {"name": "EmitterAPlaneWidth", "label": "A-Plane Width", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.5, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.1},
     {"name": "EmitterAPlaneHeight", "label": "A-Plane Height", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.3, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True, "step": 0.1},
-    {"name": "EmitterAPlaneZoffset", "label": "A-Plane offset in Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
-    {"name": "EmitterAPlaneYoffset", "label": "A-Plane offset in y", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
+    # {"name": "EmitterAPlaneZoffset", "label": "A-Plane offset in Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
+    # {"name": "EmitterAPlaneYoffset", "label": "A-Plane offset in y", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -5, "max": 10, "optuna_locked": False, "step": 0.1},
     {"name": "EmitterNormalOffset", "label": "Normal Offset", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 20, "optuna_locked": False, "step": 0.1},
     # Filter
     {"name": "EmitterFilterPlaneSize", "label": "--Filter Size", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
@@ -86,9 +86,9 @@ V_CELL_PROPERTIES = [
     {"name": "EmitterB", "label": "B_", "type": "App::PropertyLength", "group": "Emitter", "parent_group": "Input_Output", "default": 7.2, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": False},
     {"name": "EmitterRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "EmitterWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 1.3, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
-    # {"name": "EmitterRotX", "label": "-Rot X", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
-    # {"name": "EmitterRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Emitter","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
-    # {"name": "EmitterRotZ", "label": "Rot Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": -3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
+    {"name": "EmitterOffsetX", "label": "--Offset X", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
+    {"name": "EmitterOffsetY", "label": "Offset Y", "type": "App::PropertyAngle", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
+    {"name": "EmitterOffsetZ", "label": "Offset Z", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": -3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
     {"name": "EmitterAimX", "label": "--AimX", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     {"name": "EmitterAimY", "label": "AimY", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     {"name": "EmitterAimZ", "label": "AimZ", "type": "App::PropertyFloat", "group": "Emitter", "parent_group": "Input_Output", "default": 2.5, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
@@ -112,9 +112,9 @@ V_CELL_PROPERTIES = [
     {"name": "DetectorB", "label": "B_", "type": "App::PropertyLength", "group": "Detector", "parent_group": "Input_Output", "default": 7.3, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "DetectorRadius3Offset", "label": "Radius3 Offset", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": 0, "max": 1000, "optuna_locked": True},
     {"name": "DetectorWidthFactor", "label": "WidthFactor", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 1.3, "unit": "", "min": 0.5, "max": 2, "step": 0.1, "optuna_locked": False},
-    # {"name": "DetectorRotX", "label": "-Rot X", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
-    # {"name": "DetectorRotY", "label": "Rot Y", "type": "App::PropertyAngle", "group": "Detector","parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
-    # {"name": "DetectorRotZ", "label": "Rot Z", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
+    {"name": "DetectorOffsetX", "label": "--Offset X", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 12.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
+    {"name": "DetectorOffsetY", "label": "Offset Y", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": False},
+    {"name": "DetectorOffsetZ", "label": "Offset Z", "type": "App::PropertyAngle", "group": "Detector", "parent_group": "Input_Output", "default": 3.0, "unit": "deg", "min": -180, "max": 180, "optuna_locked": True},
     {"name": "DetectorAimX", "label": "--AimX", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     {"name": "DetectorAimY", "label": "AimY", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 0.0, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
     {"name": "DetectorAimZ", "label": "AimZ", "type": "App::PropertyFloat", "group": "Detector", "parent_group": "Input_Output", "default": 2.3, "unit": "mm", "min": -1000, "max": 1000, "optuna_locked": True},
@@ -261,8 +261,8 @@ class OBAVCell:
                 label=f"{obj.Label} Emitter",
                 aplanewidth=float(obj.EmitterAPlaneWidth),
                 aplaneheight=float(obj.EmitterAPlaneHeight),
-                aplaneZoffset=float(obj.EmitterAPlaneZoffset),
-                aplaneYoffset=float(obj.EmitterAPlaneYoffset),
+                # aplaneZoffset=float(obj.EmitterAPlaneZoffset),
+                # aplaneYoffset=float(obj.EmitterAPlaneYoffset),
                 a=float(obj.EmitterA),
                 b=float(obj.EmitterB),
                 radius3_offset=float(obj.EmitterRadius3Offset),
@@ -273,9 +273,9 @@ class OBAVCell:
                 aim_x=float(obj.EmitterAimX),
                 aim_y=-float(obj.EmitterAimY),
                 aim_z=float(obj.EmitterAimZ),
-                x=float(obj.EmitterPosX),
-                y=float(obj.CompMirrorB),
-                z=-float(obj.CompMirrorHeight) / 2.0 + float(obj.EmitterNormalOffset),
+                # x=float(obj.EmitterPosX),
+                # y=float(obj.CompMirrorB),
+                # z=-float(obj.CompMirrorHeight) / 2.0 + float(obj.EmitterNormalOffset),
                 suppress_onchange=True,
                 show_dialog=False,
             )
@@ -290,8 +290,8 @@ class OBAVCell:
                 label=f"{obj.Label} Detector",
                 aplanewidth=float(obj.DetectorAPlaneWidth),
                 aplaneheight=float(obj.DetectorAPlaneHeight),
-                aplaneZoffset=float(obj.DetectorAPlaneZoffset),
-                aplaneYoffset=float(obj.DetectorAPlaneYoffset),
+                # aplaneZoffset=float(obj.DetectorAPlaneZoffset),
+                # aplaneYoffset=float(obj.DetectorAPlaneYoffset),
                 a=(obj.DetectorA),
                 b=(obj.DetectorB),
                 radius3_offset=float(obj.DetectorRadius3Offset),
@@ -303,9 +303,9 @@ class OBAVCell:
                 aim_y=-float(obj.DetectorAimY),
                 # aim_y=0.0,
                 aim_z=float(obj.DetectorAimZ),
-                x=float(obj.DetectorPosX),
-                y=float(obj.CompMirrorB),
-                z=-float(obj.CompMirrorHeight) / 2.0 + +float(obj.DetectorNormalOffset),
+                # x=float(obj.DetectorPosX),
+                # y=float(obj.CompMirrorB),
+                # z=-float(obj.CompMirrorHeight) / 2.0 + +float(obj.DetectorNormalOffset),
                 suppress_onchange=True,
                 show_dialog=False,
             )
@@ -490,8 +490,8 @@ class OBAVCell:
             changed |= set_quantity_if_changed(ellipsoid, "APlaneHeight", getattr(obj, f"{prefix}APlaneHeight"), "mm")
             changed |= set_quantity_if_changed(ellipsoid, "FilterPlaneSize", getattr(obj, f"{prefix}FilterPlaneSize"), "mm")
             changed |= set_float_if_changed(ellipsoid, "FilterPlaneOffset", getattr(obj, f"{prefix}FilterPlaneOffset"))
-            changed |= set_float_if_changed(ellipsoid, "APlaneZoffset", getattr(obj, f"{prefix}APlaneZoffset"))
-            changed |= set_float_if_changed(ellipsoid, "APlaneYoffset", getattr(obj, f"{prefix}APlaneYoffset"))
+            # changed |= set_float_if_changed(ellipsoid, "APlaneZoffset", getattr(obj, f"{prefix}APlaneZoffset"))
+            # changed |= set_float_if_changed(ellipsoid, "APlaneYoffset", getattr(obj, f"{prefix}APlaneYoffset"))
             changed |= set_float_if_changed(ellipsoid, "WidthFactor", getattr(obj, f"{prefix}WidthFactor"))
             changed |= set_quantity_if_changed(ellipsoid, "A_", getattr(obj, f"{prefix}A"), "mm")
             changed |= set_quantity_if_changed(ellipsoid, "B_", getattr(obj, f"{prefix}B"), "mm")
@@ -665,8 +665,8 @@ class OBAVCell:
             # --- Emitter
             "EmitterAPlaneWidth",
             "EmitterAPlaneHeight",
-            "EmitterAPlaneZoffset",
-            "EmitterAPlaneYoffset",
+            # "EmitterAPlaneZoffset",
+            # "EmitterAPlaneYoffset",
             "EmitterNormalOffset",
             "EmitterFilterPlaneSize",
             "EmitterFilterPlaneOffset",
